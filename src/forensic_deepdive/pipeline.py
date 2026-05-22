@@ -84,7 +84,7 @@ def run_extract(
     inventory = take_inventory(repo_path)
 
     # 2. cache check
-    fingerprint = repo_fingerprint([(item.rel_path, item.path) for item in inventory.source_files])
+    fingerprint = repo_fingerprint([(item.rel_path, item.path) for item in inventory.files])
     if not force:
         last = read_last_run(repo_path)
         if last is not None and last.fingerprint == fingerprint:
@@ -129,13 +129,15 @@ def run_extract(
         repo_path=repo_path,
         repo_name=repo_path.name,
         generated_at=datetime.now(UTC),
-        file_count=inventory.file_count,
+        file_count=len(inventory.source_files),
         language_breakdown=inventory.language_breakdown,
         tags=tags,
         symbol_graph=symbol_graph,
         ranked=ranked,
         history=history,
         flatten=flatten_result,
+        test_file_count=len(inventory.test_files),
+        fixture_file_count=len(inventory.fixture_files),
     )
 
     # 7. emit

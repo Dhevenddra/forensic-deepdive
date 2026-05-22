@@ -53,13 +53,15 @@ class RepoFacts:
     repo_path: Path
     repo_name: str
     generated_at: datetime
-    file_count: int
-    language_breakdown: dict[str, int]  # grammar name -> file count
+    file_count: int  # production source files (DEC-012)
+    language_breakdown: dict[str, int]  # grammar name -> source-file count
     tags: list[Tag]
     symbol_graph: SymbolGraph
     ranked: RankedRepo
     history: GitHistory
     flatten: FlattenResult | None = None
+    test_file_count: int = 0  # test files — inventoried, excluded from the graph
+    fixture_file_count: int = 0  # fixture files — inventoried, excluded
 
 
 def language_label(grammar: str) -> str:

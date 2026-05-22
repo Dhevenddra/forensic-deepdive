@@ -24,6 +24,10 @@ from forensic_deepdive.static.parse import ParsedFile
 
 # --- tags.scm queries ------------------------------------------------------
 
+# References capture bare-identifier calls only — NOT attribute/method calls
+# (`obj.method()`). A method name belongs to the receiver's type, which
+# name-based analysis cannot resolve; capturing it produces false edges (e.g.
+# `digest.update()` colliding with an unrelated top-level `update`). See DEC-012.
 _PYTHON_TAGS = """\
 (class_definition
   name: (identifier) @name.definition.class) @definition.class
@@ -32,11 +36,7 @@ _PYTHON_TAGS = """\
   name: (identifier) @name.definition.function) @definition.function
 
 (call
-  function: [
-      (identifier) @name.reference.call
-      (attribute
-        attribute: (identifier) @name.reference.call)
-  ]) @reference.call
+  function: (identifier) @name.reference.call) @reference.call
 """
 
 _C_TAGS = """\
@@ -113,6 +113,7 @@ class Tag:
     kind: str  # "def" | "ref"
     category: str  # e.g. "class", "function", "type", "interface", "call"
     line: int  # 0-based start row
+    language: str  # tree-sitter grammar of the source file (DEC-012)
 
 
 @cache
@@ -174,6 +175,7 @@ def extract_tags(parsed: ParsedFile) -> list[Tag]:
                     kind=kind,
                     category=category,
                     line=_row(node),
+                    language=parsed.language,
                 )
             )
 

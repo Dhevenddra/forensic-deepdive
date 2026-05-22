@@ -47,6 +47,34 @@ def test_empty_tags_yield_empty_graph() -> None:
 
 def test_isolated_file_still_a_node() -> None:
     """A file with a definition nobody references is still a graph node."""
-    tags = [Tag("lonely.py", "Orphan", "def", "class", 0)]
+    tags = [Tag("lonely.py", "Orphan", "def", "class", 0, "python")]
     sg = build_symbol_graph(tags)
     assert "lonely.py" in sg.graph.nodes
+
+
+def test_no_cross_language_edges() -> None:
+    """DEC-012: a referencer only links to definers of the same language."""
+    tags = [
+        Tag("b.py", "Shared", "def", "class", 0, "python"),
+        Tag("c.dart", "Shared", "def", "class", 0, "dart"),
+        Tag("a.dart", "Shared", "ref", "call", 0, "dart"),
+    ]
+    sg = build_symbol_graph(tags)
+    assert sg.graph.has_edge("a.dart", "c.dart")  # same language
+    assert not sg.graph.has_edge("a.dart", "b.py")  # cross-language: dropped
+
+
+def test_local_definition_shadows() -> None:
+    """DEC-012: a file that defines an identifier resolves it locally."""
+    tags = [
+        Tag("a.py", "helper", "def", "function", 0, "python"),
+        Tag("a.py", "helper", "ref", "call", 5, "python"),
+        Tag("b.py", "helper", "def", "function", 0, "python"),
+        Tag("c.py", "helper", "ref", "call", 0, "python"),
+    ]
+    sg = build_symbol_graph(tags)
+    # a.py defines `helper`, so its own reference is shadowed — no edge.
+    assert not sg.graph.has_edge("a.py", "b.py")
+    # c.py does not define `helper`, so it links to every definer.
+    assert sg.graph.has_edge("c.py", "a.py")
+    assert sg.graph.has_edge("c.py", "b.py")

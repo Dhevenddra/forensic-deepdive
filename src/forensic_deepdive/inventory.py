@@ -1,15 +1,17 @@
 """Repository inventory — the first pipeline stage.
 
-Walks a repo, skipping VCS / vendored / build directories, and classifies each
-file by tree-sitter language. Produces the source-file list the static layer
-parses and the language breakdown the emitters report.
+Walks a repo, skipping VCS / vendored / build directories, classifies each file
+by tree-sitter language, and assigns a **role** — source, test, or fixture — so
+later stages can keep test scaffolding out of the production symbol graph
+(DEC-012).
 """
 
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from forensic_deepdive.static.parse import detect_language
 
@@ -33,14 +35,26 @@ DEFAULT_IGNORE_DIRS: frozenset[str] = frozenset(
 # Files larger than this are skipped from parsing (minified bundles, blobs).
 DEFAULT_MAX_FILE_BYTES = 1_048_576
 
+# File roles (DEC-012).
+ROLE_SOURCE = "source"
+ROLE_TEST = "test"
+ROLE_FIXTURE = "fixture"
+
+_FIXTURE_SEGMENTS = frozenset(
+    {"fixtures", "fixture", "testdata", "test-data", "__fixtures__", "snapshots", "golden"}
+)
+_TEST_SEGMENTS = frozenset({"tests", "test", "__tests__", "spec", "specs", "e2e"})
+_TEST_NAME_RE = re.compile(r"^test_|_test$|\.test$|\.spec$|^conftest$")
+
 
 @dataclass(frozen=True, slots=True)
 class SourceFile:
-    """A repo file with a recognized tree-sitter language."""
+    """A repo file with a recognized tree-sitter language and a role."""
 
     path: Path  # absolute
     rel_path: str  # repo-relative, posix-style
     language: str
+    role: str  # ROLE_SOURCE | ROLE_TEST | ROLE_FIXTURE
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,12 +62,36 @@ class Inventory:
     """The result of walking a repository."""
 
     repo_path: Path
-    source_files: list[SourceFile]
-    language_breakdown: dict[str, int]  # language -> file count
+    files: list[SourceFile]  # every language-detected file, any role
+    language_breakdown: dict[str, int]  # production source files only
+
+    @property
+    def source_files(self) -> list[SourceFile]:
+        return [item for item in self.files if item.role == ROLE_SOURCE]
+
+    @property
+    def test_files(self) -> list[SourceFile]:
+        return [item for item in self.files if item.role == ROLE_TEST]
+
+    @property
+    def fixture_files(self) -> list[SourceFile]:
+        return [item for item in self.files if item.role == ROLE_FIXTURE]
 
     @property
     def file_count(self) -> int:
-        return len(self.source_files)
+        """Total language-detected files, all roles."""
+        return len(self.files)
+
+
+def classify_role(rel_path: str) -> str:
+    """Classify a repo-relative path as source, test, or fixture (DEC-012)."""
+    pure = PurePosixPath(rel_path)
+    segments = {part.lower() for part in pure.parts}
+    if segments & _FIXTURE_SEGMENTS:
+        return ROLE_FIXTURE
+    if segments & _TEST_SEGMENTS or _TEST_NAME_RE.search(pure.stem.lower()):
+        return ROLE_TEST
+    return ROLE_SOURCE
 
 
 def take_inventory(
@@ -62,9 +100,9 @@ def take_inventory(
     ignore_dirs: frozenset[str] = DEFAULT_IGNORE_DIRS,
     max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
 ) -> Inventory:
-    """Walk *repo_path* and return its :class:`Inventory` of source files."""
+    """Walk *repo_path* and return its :class:`Inventory` of classified files."""
     repo_path = Path(repo_path).resolve()
-    source_files: list[SourceFile] = []
+    files: list[SourceFile] = []
 
     for root, dirnames, filenames in os.walk(repo_path):
         # Prune in place: skip dot-dirs (.git, .venv, .forensic-deepdive, ...)
@@ -82,20 +120,19 @@ def take_inventory(
                     continue
             except OSError:
                 continue
-            source_files.append(
+            rel_path = abs_path.relative_to(repo_path).as_posix()
+            files.append(
                 SourceFile(
                     path=abs_path,
-                    rel_path=abs_path.relative_to(repo_path).as_posix(),
+                    rel_path=rel_path,
                     language=language,
+                    role=classify_role(rel_path),
                 )
             )
 
-    source_files.sort(key=lambda item: item.rel_path)
+    files.sort(key=lambda item: item.rel_path)
     breakdown: dict[str, int] = {}
-    for item in source_files:
-        breakdown[item.language] = breakdown.get(item.language, 0) + 1
-    return Inventory(
-        repo_path=repo_path,
-        source_files=source_files,
-        language_breakdown=breakdown,
-    )
+    for item in files:
+        if item.role == ROLE_SOURCE:
+            breakdown[item.language] = breakdown.get(item.language, 0) + 1
+    return Inventory(repo_path=repo_path, files=files, language_breakdown=breakdown)

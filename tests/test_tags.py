@@ -63,3 +63,12 @@ def test_definition_name_is_not_self_referenced() -> None:
 def test_tags_sorted_by_line() -> None:
     tags = _tags("python_sample/greeter.py")
     assert tags == sorted(tags, key=lambda t: (t.line, t.kind, t.name))
+
+
+def test_tags_carry_language() -> None:
+    """Every tag records its source file's language (DEC-012)."""
+    tags = _tags("python_sample/greeter.py")
+    assert tags
+    assert all(tag.language == "python" for tag in tags)
+    dart_tags = _tags("dart_sample/greeter.dart")
+    assert all(tag.language == "dart" for tag in dart_tags)

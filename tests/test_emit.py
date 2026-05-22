@@ -29,7 +29,13 @@ from forensic_deepdive.static.tags import extract_tags
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def _build_facts(*, is_git: bool = True, github: GitHubStats | None = None) -> RepoFacts:
+def _build_facts(
+    *,
+    is_git: bool = True,
+    github: GitHubStats | None = None,
+    test_files: int = 0,
+    fixture_files: int = 0,
+) -> RepoFacts:
     """Build a RepoFacts from the python_sample fixture plus synthetic history."""
     tags = []
     for rel in ("greeter.py", "app.py"):
@@ -74,6 +80,8 @@ def _build_facts(*, is_git: bool = True, github: GitHubStats | None = None) -> R
         symbol_graph=symbol_graph,
         ranked=ranked,
         history=history,
+        test_file_count=test_files,
+        fixture_file_count=fixture_files,
     )
 
 
@@ -87,6 +95,13 @@ def test_render_map() -> None:
     assert "## Most central files" in out
     assert "greeter.py" in out
     assert "EXTRACTED" in out  # confidence banner present
+
+
+def test_render_map_reports_test_surface() -> None:
+    out = render_map(_build_facts(test_files=9, fixture_files=4))
+    assert "Test surface" in out
+    assert "9 test file(s)" in out
+    assert "4 fixture file(s)" in out
 
 
 # --- HOTPATHS --------------------------------------------------------------

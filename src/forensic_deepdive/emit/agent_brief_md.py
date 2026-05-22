@@ -96,7 +96,11 @@ def _sections(facts: RepoFacts) -> list[str]:
 
 
 def _what_this_is(facts: RepoFacts) -> str:
-    bits = [f"A **{primary_language(facts)}** codebase, {humanize_int(facts.file_count)} file(s)"]
+    bits = [
+        f"A **{primary_language(facts)}** codebase, {humanize_int(facts.file_count)} source file(s)"
+    ]
+    if facts.test_file_count:
+        bits.append(f"{humanize_int(facts.test_file_count)} test file(s)")
     if facts.history.is_git_repo:
         bits.append(f"{humanize_int(len(facts.history.contributors))} contributor(s)")
         bits.append(humanize_age(facts.history.first_commit, facts.history.last_commit) + " old")

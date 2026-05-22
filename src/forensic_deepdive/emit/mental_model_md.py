@@ -47,7 +47,8 @@ def _at_a_glance(facts: RepoFacts) -> list[str]:
     out = [
         "## At a glance",
         "",
-        f"- A **{primary_language(facts)}** codebase of {humanize_int(facts.file_count)} file(s).",
+        f"- A **{primary_language(facts)}** codebase of "
+        f"{humanize_int(facts.file_count)} source file(s).",
     ]
     if facts.history.is_git_repo:
         contributors = humanize_int(len(facts.history.contributors))

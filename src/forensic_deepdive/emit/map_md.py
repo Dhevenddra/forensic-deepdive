@@ -50,12 +50,18 @@ def _overview(facts: RepoFacts) -> list[str]:
     out = [
         "## Overview",
         "",
-        f"- **Files analyzed:** {humanize_int(facts.file_count)}",
+        f"- **Source files:** {humanize_int(facts.file_count)}",
         f"- **Languages:** {langs}",
         f"- **Symbols:** {humanize_int(defs)} definitions, {humanize_int(refs)} references",
         f"- **Symbol graph:** {graph.number_of_nodes()} files, "
         f"{graph.number_of_edges()} dependency edges",
     ]
+    if facts.test_file_count or facts.fixture_file_count:
+        out.append(
+            f"- **Test surface:** {humanize_int(facts.test_file_count)} test file(s), "
+            f"{humanize_int(facts.fixture_file_count)} fixture file(s) "
+            "(inventoried, excluded from the dependency graph per DEC-012)"
+        )
     if facts.flatten is not None:
         flat = facts.flatten
         tokens = (

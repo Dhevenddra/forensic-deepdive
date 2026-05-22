@@ -8,6 +8,12 @@ The graph is a ``networkx.MultiDiGraph`` of repo-relative file paths. An edge
 ``A -> B`` means file ``A`` references an identifier that file ``B`` defines;
 each shared identifier contributes one parallel edge so PageRank can weight
 files by how heavily — and how diversely — they are depended upon.
+
+Edges are scoped per DEC-012: only same-language file pairs are linked (no FFI
+modeling), and a file that itself defines an identifier resolves references to
+it locally rather than linking to other files' same-named definitions. The
+pipeline feeds this builder production source tags only — test and fixture
+files are excluded upstream.
 """
 
 from __future__ import annotations
@@ -48,9 +54,11 @@ def build_symbol_graph(tags: list[Tag]) -> SymbolGraph:
     references: dict[str, list[str]] = defaultdict(list)
     definitions: dict[tuple[str, str], list[Tag]] = defaultdict(list)
     files: set[str] = set()
+    file_language: dict[str, str] = {}
 
     for tag in tags:
         files.add(tag.rel_path)
+        file_language.setdefault(tag.rel_path, tag.language)
         if tag.kind == "def":
             defines[tag.name].add(tag.rel_path)
             definitions[(tag.rel_path, tag.name)].append(tag)
@@ -71,8 +79,16 @@ def build_symbol_graph(tags: list[Tag]) -> SymbolGraph:
         definers = defines[ident]
         weight_mult = _PRIVATE_WEIGHT if ident.startswith("_") else _PUBLIC_WEIGHT
         for referencer, num_refs in Counter(references[ident]).items():
+            # DEC-012 (local shadowing): a file that itself defines this
+            # identifier resolves the reference locally — no cross-file edge.
+            if referencer in definers:
+                continue
+            referencer_language = file_language.get(referencer)
             scaled = math.sqrt(num_refs)
             for definer in definers:
+                # DEC-012 (language scoping): no cross-language edges.
+                if file_language.get(definer) != referencer_language:
+                    continue
                 graph.add_edge(
                     referencer,
                     definer,
