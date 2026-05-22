@@ -1,0 +1,257 @@
+"""Tests for the git-archaeology Layer-3 backend.
+
+Plain-git tests build a real temporary repo with `git`; the GitHub side is
+exercised with a fake `Github` client so no network or token is needed.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+
+from forensic_deepdive.history import git_archaeology as ga
+from forensic_deepdive.history.git_archaeology import (
+    analyze_history,
+    detect_github_repo,
+    fetch_github_stats,
+)
+
+
+def _git(repo: Path, *args: str, env_extra: dict[str, str] | None = None) -> None:
+    env = os.environ.copy()
+    if env_extra:
+        env.update(env_extra)
+    subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _commit(
+    repo: Path,
+    *,
+    author: str,
+    email: str,
+    message: str,
+    date: str,
+    files: dict[str, str],
+) -> None:
+    for name, content in files.items():
+        (repo / name).write_text(content, encoding="utf-8")
+    env = {
+        "GIT_AUTHOR_NAME": author,
+        "GIT_AUTHOR_EMAIL": email,
+        "GIT_AUTHOR_DATE": date,
+        "GIT_COMMITTER_NAME": author,
+        "GIT_COMMITTER_EMAIL": email,
+        "GIT_COMMITTER_DATE": date,
+    }
+    _git(repo, "add", "-A")
+    _git(repo, "-c", "commit.gpgsign=false", "commit", "-m", message, env_extra=env)
+
+
+@pytest.fixture
+def sample_repo(tmp_path: Path) -> Path:
+    """A 3-commit repo: Alice ×2, Bob ×1; a.txt churned 3×, b.txt 1×."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _commit(
+        repo,
+        author="Alice",
+        email="alice@example.com",
+        message="add a",
+        date="2020-01-01T00:00:00+00:00",
+        files={"a.txt": "a1\n"},
+    )
+    _commit(
+        repo,
+        author="Alice",
+        email="alice@example.com",
+        message="edit a, add b",
+        date="2021-06-15T00:00:00+00:00",
+        files={"a.txt": "a2\n", "b.txt": "b1\n"},
+    )
+    _commit(
+        repo,
+        author="Bob",
+        email="bob@example.com",
+        message="edit a again",
+        date="2022-12-31T00:00:00+00:00",
+        files={"a.txt": "a3\n"},
+    )
+    return repo
+
+
+# --- plain-git -------------------------------------------------------------
+
+
+def test_non_git_directory(tmp_path: Path) -> None:
+    result = analyze_history(tmp_path)
+    assert result.is_git_repo is False
+    assert result.total_commits == 0
+    assert result.contributors == []
+    assert result.churn == []
+    assert result.first_commit is None
+    assert result.last_commit is None
+
+
+def test_empty_git_repo(tmp_path: Path) -> None:
+    repo = tmp_path / "empty"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    result = analyze_history(repo)
+    assert result.is_git_repo is True
+    assert result.total_commits == 0
+    assert result.contributors == []
+    assert result.churn == []
+    assert result.first_commit is None
+
+
+def test_basic_stats(sample_repo: Path) -> None:
+    result = analyze_history(sample_repo)
+    assert result.is_git_repo is True
+    assert result.total_commits == 3
+    assert result.first_commit is not None and result.first_commit.year == 2020
+    assert result.last_commit is not None and result.last_commit.year == 2022
+    assert result.github is None
+
+
+def test_contributors_ranked(sample_repo: Path) -> None:
+    contributors = analyze_history(sample_repo).contributors
+    assert len(contributors) == 2
+    assert (contributors[0].name, contributors[0].commits) == ("Alice", 2)
+    assert (contributors[1].name, contributors[1].commits) == ("Bob", 1)
+
+
+def test_churn_ranked(sample_repo: Path) -> None:
+    churn = analyze_history(sample_repo).churn
+    by_path = {c.path: c.commits for c in churn}
+    assert by_path["a.txt"] == 3
+    assert by_path["b.txt"] == 1
+    assert churn[0].path == "a.txt"  # most-churned first
+
+
+def test_churn_limit(sample_repo: Path) -> None:
+    churn = analyze_history(sample_repo, churn_limit=1).churn
+    assert len(churn) == 1
+    assert churn[0].path == "a.txt"
+
+
+# --- GitHub remote detection ----------------------------------------------
+
+
+def test_detect_github_repo_https(sample_repo: Path) -> None:
+    _git(
+        sample_repo,
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/octocat/Hello-World.git",
+    )
+    assert detect_github_repo(sample_repo) == ("octocat", "Hello-World")
+
+
+def test_detect_github_repo_ssh(sample_repo: Path) -> None:
+    _git(
+        sample_repo,
+        "remote",
+        "add",
+        "origin",
+        "git@github.com:octocat/Hello-World.git",
+    )
+    assert detect_github_repo(sample_repo) == ("octocat", "Hello-World")
+
+
+def test_detect_github_repo_non_github(sample_repo: Path) -> None:
+    _git(
+        sample_repo,
+        "remote",
+        "add",
+        "origin",
+        "https://gitlab.com/octocat/Hello-World.git",
+    )
+    assert detect_github_repo(sample_repo) is None
+
+
+def test_detect_github_repo_no_remote(sample_repo: Path) -> None:
+    assert detect_github_repo(sample_repo) is None
+
+
+def test_detect_github_repo_not_a_repo(tmp_path: Path) -> None:
+    assert detect_github_repo(tmp_path) is None
+
+
+# --- GitHub REST (faked client) -------------------------------------------
+
+
+class _FakeRepo:
+    description = "A test repository"
+    stargazers_count = 42
+    open_issues_count = 7
+    created_at = datetime(2011, 1, 26, tzinfo=UTC)
+    pushed_at = datetime(2024, 3, 1, tzinfo=UTC)
+    default_branch = "main"
+
+
+class _FakeGithub:
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        self.closed = False
+
+    def get_repo(self, full_name: str) -> _FakeRepo:
+        assert full_name == "octocat/Hello-World"
+        return _FakeRepo()
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FailingGithub:
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    def get_repo(self, full_name: str) -> object:
+        raise RuntimeError("network is down")
+
+    def close(self) -> None:
+        pass
+
+
+def test_fetch_github_stats_mapped(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ga, "Github", _FakeGithub)
+    stats = fetch_github_stats("octocat", "Hello-World")
+    assert stats is not None
+    assert (stats.owner, stats.name) == ("octocat", "Hello-World")
+    assert stats.stars == 42
+    assert stats.open_issues == 7
+    assert stats.default_branch == "main"
+    assert stats.created_at is not None and stats.created_at.year == 2011
+
+
+def test_fetch_github_stats_failure_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ga, "Github", _FailingGithub)
+    assert fetch_github_stats("octocat", "Hello-World") is None
+
+
+def test_analyze_history_with_github(monkeypatch: pytest.MonkeyPatch, sample_repo: Path) -> None:
+    _git(
+        sample_repo,
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/octocat/Hello-World.git",
+    )
+    monkeypatch.setattr(ga, "Github", _FakeGithub)
+    result = analyze_history(sample_repo, fetch_github=True)
+    assert result.github is not None
+    assert result.github.stars == 42
