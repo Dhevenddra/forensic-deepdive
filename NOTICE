@@ -1,0 +1,30 @@
+forensic-deepdive
+Copyright 2026 Dhevenddra
+
+This product is licensed under the Apache License, Version 2.0 (the
+"License"); you may not use this product except in compliance with the
+License. A copy of the License is provided in the LICENSE file.
+
+================================================================================
+Third-party attributions
+================================================================================
+
+PageRank repo-map algorithm
+  The symbol-graph construction and personalized-PageRank ranking in
+  src/forensic_deepdive/static/ (graph.py and pagerank.py) are a clean-room
+  port of the repo-map algorithm from Aider (https://github.com/Aider-AI/aider),
+  licensed under the Apache License, Version 2.0. The `aider` package itself is
+  NOT a dependency of this project; only the algorithm was ported. The PageRank
+  numerics are provided by NetworkX. See DECISIONS.md DEC-003.
+
+Tree-sitter tag queries
+  The `.scm` tag queries in src/forensic_deepdive/static/tags.py follow the
+  `tags.scm` convention established by the tree-sitter project and
+  nvim-treesitter (MIT / Apache-2.0), as adapted by Aider for use with the
+  tree-sitter language pack.
+
+Confidence-tag taxonomy
+  The EXTRACTED / INFERRED / AMBIGUOUS confidence taxonomy applied to emitted
+  rules and facts is adopted from Graphify
+  (https://github.com/safishamsi/graphify), licensed under the MIT License.
+  See DECISIONS.md DEC-007.
