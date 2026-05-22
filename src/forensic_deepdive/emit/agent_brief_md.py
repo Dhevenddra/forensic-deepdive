@@ -39,26 +39,26 @@ def render_agent_brief(
     """
     header = _header(facts)
     sections = _sections(facts)
-    foot = footer(facts)
-    budget = byte_cap - byte_len("\n" + foot) - byte_len(_OVERFLOW_POINTER)
+    tail = "\n\n" + footer(facts) + "\n"
+    budget = byte_cap - byte_len(tail) - byte_len(_OVERFLOW_POINTER)
 
     kept = [header]
     overflow: list[str] = []
     used = byte_len(header)
     for section in sections:
-        chunk = "\n" + section
+        chunk = "\n\n" + section
         if overflow or used + byte_len(chunk) > budget:
             overflow.append(section)  # once one section spills, keep order intact
         else:
             kept.append(section)
             used += byte_len(chunk)
 
-    brief = "\n".join(kept)
+    brief = "\n\n".join(kept)
     deep: str | None = None
     if overflow:
         brief += _OVERFLOW_POINTER
-        deep = "\n".join([_deep_header(facts), *overflow]) + "\n" + foot + "\n"
-    brief += "\n" + foot + "\n"
+        deep = "\n\n".join([_deep_header(facts), *overflow]) + tail
+    brief += tail
     return brief, deep
 
 
