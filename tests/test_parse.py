@@ -16,6 +16,15 @@ def test_detect_language() -> None:
     assert detect_language(Path("a.c")) == "c"
     assert detect_language(Path("a.h")) == "c"
     assert detect_language(Path("a.swift")) == "swift"
+    # DEC-020
+    assert detect_language(Path("a.ts")) == "typescript"
+    assert detect_language(Path("a.tsx")) == "tsx"
+    assert detect_language(Path("a.js")) == "javascript"
+    assert detect_language(Path("a.mjs")) == "javascript"
+    assert detect_language(Path("a.cjs")) == "javascript"
+    assert detect_language(Path("a.jsx")) == "javascript"
+    assert detect_language(Path("A.java")) == "java"
+    assert detect_language(Path("a.go")) == "go"
     assert detect_language(Path("README.md")) is None
 
 
@@ -35,6 +44,11 @@ def test_parse_all_languages() -> None:
         "dart_sample/greeter.dart": "dart",
         "c_sample/mathutil.c": "c",
         "swift_sample/Greeter.swift": "swift",
+        # DEC-020
+        "typescript_sample/greeter.ts": "typescript",
+        "javascript_sample/greeter.js": "javascript",
+        "java_sample/Greeter.java": "java",
+        "go_sample/greeter.go": "go",
     }
     for rel, language in cases.items():
         parsed = parse_file(FIXTURES / rel)

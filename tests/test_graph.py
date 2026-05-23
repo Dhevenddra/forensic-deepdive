@@ -39,6 +39,28 @@ def test_edges_carry_ident_and_weight() -> None:
         assert data["weight"] > 0
 
 
+def test_build_symbol_graph_new_languages() -> None:
+    """DEC-020. Each v0.2 language (TS, JS, Java, Go) produces a real
+    caller->definer edge through the v0.1 graph builder, with DEC-012
+    language scoping applied (no cross-language false edges)."""
+    cases = [
+        ("typescript_sample/greeter.ts", "typescript_sample/app.ts"),
+        ("javascript_sample/greeter.js", "javascript_sample/app.js"),
+        ("java_sample/Greeter.java", "java_sample/Main.java"),
+        ("go_sample/greeter.go", "go_sample/main.go"),
+    ]
+    for definer_rel, caller_rel in cases:
+        tags = _all_tags(definer_rel, caller_rel)
+        sg = build_symbol_graph(tags)
+        # The graph builder uses Path(rel).name as the node id (via _all_tags
+        # above), so we compare on basenames.
+        caller = Path(caller_rel).name
+        definer = Path(definer_rel).name
+        assert sg.graph.has_edge(caller, definer), (
+            f"{caller} -> {definer} edge missing for {definer_rel}"
+        )
+
+
 def test_empty_tags_yield_empty_graph() -> None:
     sg = build_symbol_graph([])
     assert sg.graph.number_of_nodes() == 0

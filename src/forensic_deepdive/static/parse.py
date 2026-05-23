@@ -31,6 +31,15 @@ LANG_BY_EXT: dict[str, str] = {
     ".c": "c",
     ".h": "c",
     ".swift": "swift",
+    # DEC-020: v0.2 expands to 8 languages.
+    ".ts": "typescript",
+    ".tsx": "tsx",  # tsx grammar is a JSX-aware superset
+    ".js": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".jsx": "javascript",  # the JS grammar accepts JSX
+    ".java": "java",
+    ".go": "go",
 }
 
 

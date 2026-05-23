@@ -46,6 +46,66 @@ def test_dart_tags() -> None:
     assert "Greeter" in _names(_tags("dart_sample/app.dart"), "ref")
 
 
+def test_typescript_tags() -> None:
+    """DEC-020. Definer + caller produce the expected def/ref shape; dotted
+    method calls do NOT yield references (DEC-012 discipline)."""
+    defs = _names(_tags("typescript_sample/greeter.ts"), "def")
+    assert {"Greeter", "Named", "formatMessage", "greet"} <= defs
+    app_refs = _names(_tags("typescript_sample/app.ts"), "ref")
+    # Bare call + constructor reference, no dotted-method noise.
+    assert "Greeter" in app_refs  # new Greeter(...)
+    assert "formatMessage" in app_refs  # bare call
+    assert "greet" not in app_refs  # g.greet() — dotted, dropped
+    assert "log" not in app_refs  # console.log — dotted, dropped
+
+
+def test_javascript_tags() -> None:
+    """DEC-020. Same shape as TS without the type-system declarations."""
+    defs = _names(_tags("javascript_sample/greeter.js"), "def")
+    assert {"Greeter", "formatMessage", "greet"} <= defs
+    app_refs = _names(_tags("javascript_sample/app.js"), "ref")
+    assert "Greeter" in app_refs
+    assert "formatMessage" in app_refs
+    assert "greet" not in app_refs
+    assert "log" not in app_refs
+
+
+def test_java_tags() -> None:
+    """DEC-020. Class / interface / enum / method definitions; bare-call
+    references only (`Receiver.method(...)` is excluded via the
+    object-field check on method_invocation)."""
+    greeter = _tags("java_sample/Greeter.java")
+    defs = _names(greeter, "def")
+    assert {"Greeter", "Named", "Severity", "greet", "formatMessage"} <= defs
+    greeter_refs = _names(greeter, "ref")
+    # `formatMessage(name)` is a bare call inside Greeter.greet().
+    assert "formatMessage" in greeter_refs
+    # `name` field reference appears as a bare identifier — that's fine; the
+    # discipline is that DOTTED calls don't leak.
+    main_refs = _names(_tags("java_sample/Main.java"), "ref")
+    assert "Greeter" in main_refs  # new Greeter(...) → object_creation_expression
+    assert "greet" not in main_refs  # g.greet() — dotted, dropped
+    assert "println" not in main_refs  # System.out.println — dotted, dropped
+
+
+def test_go_tags() -> None:
+    """DEC-020. Method receivers don't escape into the reference set;
+    `pkg.Fn(...)` selector calls are dropped."""
+    greeter = _tags("go_sample/greeter.go")
+    defs = _names(greeter, "def")
+    # struct / interface (via type_spec), method (via field_identifier),
+    # function (via identifier).
+    assert {"Greeter", "Named", "Greet", "Name", "formatMessage"} <= defs
+    greeter_refs = _names(greeter, "ref")
+    # `fmt.Sprintf(...)` — selector, dropped.
+    assert "Sprintf" not in greeter_refs
+    # `formatMessage(g.name)` — bare call inside Greet method.
+    assert "formatMessage" in greeter_refs
+    main_refs = _names(_tags("go_sample/main.go"), "ref")
+    assert "formatMessage" in main_refs  # bare call
+    assert "Greet" not in main_refs  # g.Greet() — selector, dropped
+
+
 def test_dart_dotted_method_call_is_not_a_reference() -> None:
     """DEC-012 follow-up (Omi #1/#2). `obj.greet()` must not produce a
     `greet` reference — that would link the file to every other Dart file

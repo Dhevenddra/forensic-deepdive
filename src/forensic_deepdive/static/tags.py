@@ -105,11 +105,142 @@ _SWIFT_TAGS = """\
   (simple_identifier) @name.reference.call) @reference.call
 """
 
+# --- DEC-020: TypeScript / JavaScript / Java / Go ---------------------------
+#
+# Each query follows the DEC-012 + Dart-fix precision discipline:
+# - Capture bare-name call/reference targets only.
+# - Mark dotted callees (`obj.foo()`, `Cls.foo()`) under `@_drop_*` so the
+#   shared `_`-prefix-as-exclusion logic in `extract_tags()` removes them.
+# - Capture constructor invocations (`new Greeter(...)`) so the class name
+#   becomes a reference.
+
+# TypeScript: covers `.ts` source. The `tsx` grammar (`.tsx`) reuses the
+# same query — its node set is a JSX-aware superset of TypeScript's.
+_TYPESCRIPT_TAGS = """\
+(function_declaration
+  name: (identifier) @name.definition.function) @definition.function
+
+(class_declaration
+  name: (type_identifier) @name.definition.class) @definition.class
+
+(interface_declaration
+  name: (type_identifier) @name.definition.interface) @definition.interface
+
+(enum_declaration
+  name: (identifier) @name.definition.enum) @definition.enum
+
+(type_alias_declaration
+  name: (type_identifier) @name.definition.type) @definition.type
+
+(method_definition
+  name: (property_identifier) @name.definition.method) @definition.method
+
+(call_expression
+  function: (identifier) @name.reference.call) @reference.call
+
+(new_expression
+  constructor: (identifier) @name.reference.class) @reference.class
+
+; Dotted callees: `obj.method(...)` — drop the method name. The bare
+; receiver identifier (`obj`) is still captured separately when it is itself
+; a top-level reference.
+(member_expression
+  property: (property_identifier) @_drop_method)
+"""
+
+# JavaScript: same shape as TypeScript minus the type-system declarations.
+# Treats `.js`, `.mjs`, `.cjs`, and `.jsx`.
+_JAVASCRIPT_TAGS = """\
+(function_declaration
+  name: (identifier) @name.definition.function) @definition.function
+
+(class_declaration
+  name: (identifier) @name.definition.class) @definition.class
+
+(method_definition
+  name: (property_identifier) @name.definition.method) @definition.method
+
+(call_expression
+  function: (identifier) @name.reference.call) @reference.call
+
+(new_expression
+  constructor: (identifier) @name.reference.class) @reference.class
+
+(member_expression
+  property: (property_identifier) @_drop_method)
+"""
+
+# Java: method-invocation discrimination is the DEC-012 hotspot. Bare calls
+# (`format(x)`) want to reference `format`; dotted calls (`Formatter.format(x)`)
+# do not — they're routed through an object. We capture every
+# method_invocation.name as a reference, then exclude those whose
+# method_invocation node also has an `object:` field.
+_JAVA_TAGS = """\
+(class_declaration
+  name: (identifier) @name.definition.class) @definition.class
+
+(interface_declaration
+  name: (identifier) @name.definition.interface) @definition.interface
+
+(enum_declaration
+  name: (identifier) @name.definition.enum) @definition.enum
+
+(method_declaration
+  name: (identifier) @name.definition.method) @definition.method
+
+(constructor_declaration
+  name: (identifier) @name.definition.method) @definition.method
+
+(method_invocation
+  name: (identifier) @name.reference.call) @reference.call
+
+(object_creation_expression
+  type: (type_identifier) @name.reference.class) @reference.class
+
+; Dotted method invocations (`Receiver.method(...)`) — drop the method name.
+(method_invocation
+  object: (_)
+  name: (identifier) @_drop_method)
+
+; Field accesses like `Receiver.field` shouldn't yield a `field` reference.
+(field_access
+  field: (identifier) @_drop_method)
+"""
+
+# Go: methods bind via receiver, so a bare-name reference is a top-level
+# function. `selector_expression` is Go's `pkg.Foo` / `obj.Foo` — drop the
+# right-hand identifier so `fmt.Println(...)` does not produce a `Println`
+# reference.
+_GO_TAGS = """\
+(function_declaration
+  name: (identifier) @name.definition.function) @definition.function
+
+(method_declaration
+  name: (field_identifier) @name.definition.method) @definition.method
+
+(type_spec
+  name: (type_identifier) @name.definition.type) @definition.type
+
+(call_expression
+  function: (identifier) @name.reference.call) @reference.call
+
+; Drop the right-hand side of any selector expression: pkg.Foo / obj.Foo.
+(selector_expression
+  field: (field_identifier) @_drop_method)
+"""
+
+
 TAGS_SCM: dict[str, str] = {
     "python": _PYTHON_TAGS,
     "c": _C_TAGS,
     "dart": _DART_TAGS,
     "swift": _SWIFT_TAGS,
+    # DEC-020
+    "typescript": _TYPESCRIPT_TAGS,
+    "tsx": _TYPESCRIPT_TAGS,  # tsx grammar accepts the same query as typescript
+    "javascript": _JAVASCRIPT_TAGS,
+    "java": _JAVA_TAGS,
+    "go": _GO_TAGS,
 }
 
 
