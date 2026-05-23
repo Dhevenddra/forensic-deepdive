@@ -45,6 +45,13 @@ class ExtractConfig:
     write_editor_shims: bool = True
     fetch_github: bool = False
     github_token: str | None = None
+    # DEC-013 / item 8: where the persistent LadybugDB knowledge graph lives.
+    # ``None`` means use the per-repo default (`<repo>/.deepdive/graph.lbug`).
+    graph_db_path: Path | None = None
+    # DEC-013: master switch for the LadybugDB build phase. ``False`` keeps
+    # the v0.1 in-memory NetworkX path only (golden tests + cache stay clean
+    # by default until the markdown emitters cut over in PRD §10 item 9).
+    build_graph_db: bool = False
 
 
 # ---------------------------------------------------------------------------

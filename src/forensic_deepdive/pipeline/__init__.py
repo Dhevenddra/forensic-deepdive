@@ -16,6 +16,8 @@ inspect the DAG directly::
 
 from forensic_deepdive.pipeline.extract import ExtractResult, run_extract
 from forensic_deepdive.pipeline.phases import (
+    BuildGraphOutput,
+    BuildGraphPhase,
     EmitOutput,
     EmitPhase,
     FlattenOutput,
@@ -40,6 +42,8 @@ from forensic_deepdive.pipeline.runner import (
 )
 
 __all__ = [
+    "BuildGraphOutput",
+    "BuildGraphPhase",
     "Context",
     "DAGCycleError",
     "DuplicatePhaseError",

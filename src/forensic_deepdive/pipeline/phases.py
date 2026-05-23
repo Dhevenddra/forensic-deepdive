@@ -7,10 +7,17 @@ strings. Outputs are typed dataclasses — downstream phases read them via
 v0.1 behavior is preserved exactly: same fingerprint, same artifacts, same
 flatten-is-best-effort degradation, same shim semantics. The golden-emit
 tests are the canary.
+
+v0.2 PRD §10 item 8 adds :class:`BuildGraphPhase` — opt-in via
+``ExtractConfig.build_graph_db=True``. When on, it persists File +
+Symbol + DEFINES into a LadybugDB graph at ``<repo>/.deepdive/graph.lbug``
+(or wherever ``graph_db_path`` points). Off by default until the markdown
+emitters cut over to read from the graph (PRD §10 item 9).
 """
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,13 +31,25 @@ from forensic_deepdive.flatten.repomix_backend import (
     flatten_repo,
     is_repomix_available,
 )
+from forensic_deepdive.graph import (
+    Confidence,
+    DefinesEdge,
+    File,
+    LadybugStore,
+    Symbol,
+    SymbolKind,
+)
+from forensic_deepdive.graph.schema import FileRole
 from forensic_deepdive.history.git_archaeology import GitHistory, analyze_history
-from forensic_deepdive.inventory import Inventory, take_inventory
+from forensic_deepdive.inventory import Inventory, SourceFile, take_inventory
 from forensic_deepdive.pipeline.runner import Context, Phase
 from forensic_deepdive.static.graph import SymbolGraph, build_symbol_graph
 from forensic_deepdive.static.pagerank import RankedRepo, rank_files
 from forensic_deepdive.static.parse import parse_file
 from forensic_deepdive.static.tags import Tag, extract_tags
+
+# DEC-013 default DB location, mirroring v0.1's cache convention.
+_DEFAULT_GRAPH_DB_SUBDIR = (".deepdive", "graph.lbug")
 
 # ---------------------------------------------------------------------------
 # Phase outputs (typed dataclasses)
@@ -67,6 +86,17 @@ class EmitOutput:
     facts: RepoFacts
     artifacts: dict[str, Path] = field(default_factory=dict)
     shims: ShimResult = field(default_factory=ShimResult)
+
+
+@dataclass(frozen=True, slots=True)
+class BuildGraphOutput:
+    """Result of the LadybugDB build phase (DEC-013 activation)."""
+
+    enabled: bool  # False when ``ExtractConfig.build_graph_db`` is off
+    db_path: Path | None  # the .lbug directory; None when disabled
+    file_count: int = 0  # File nodes written
+    symbol_count: int = 0  # Symbol nodes written
+    defines_count: int = 0  # DEFINES edges written
 
 
 # ---------------------------------------------------------------------------
@@ -202,13 +232,136 @@ class EmitPhase(Phase):
         return EmitOutput(facts=facts, artifacts=artifacts, shims=shims)
 
 
+class BuildGraphPhase(Phase):
+    """Persist the v0.1 in-memory analysis into a LadybugDB graph
+    (DEC-013, PRD §10 item 8).
+
+    Writes File + Symbol nodes and DEFINES edges. v0.2 phase 1 stops there
+    — CALLS edges require a symbol-level resolver (PRD §10 future), and
+    IMPORTS / MEMBER_OF land alongside it. The phase is **opt-in** via
+    ``ExtractConfig.build_graph_db`` so the v0.1 cache + golden tests stay
+    untouched until the markdown emitters cut over to read from the graph
+    (PRD §10 item 9).
+    """
+
+    name = "build_graph"
+    depends_on = ("inventory", "static")
+    output_type = BuildGraphOutput
+
+    def run(self, ctx: Context) -> BuildGraphOutput:
+        cfg = ctx.config
+        if not cfg.build_graph_db:
+            return BuildGraphOutput(enabled=False, db_path=None)
+
+        db_path = cfg.graph_db_path or cfg.repo_path.joinpath(*_DEFAULT_GRAPH_DB_SUBDIR)
+        inv = ctx.get(InventoryPhase).inventory
+        static = ctx.get(StaticPhase)
+
+        file_count = symbol_count = defines_count = 0
+        with LadybugStore(db_path) as store:
+            for sf in inv.source_files:
+                store.add_file(_source_to_file(sf, cfg.repo_path))
+                file_count += 1
+
+            # SymbolGraph.definitions is keyed by (rel_path, name) so a
+            # symbol with multiple def Tags (overloads, broad-query repeats)
+            # is naturally deduped — one Symbol per entry.
+            for (rel_path, name), tag_list in sorted(static.symbol_graph.definitions.items()):
+                first = tag_list[0]
+                qn = _qualified_name(rel_path, name)
+                store.add_symbol(
+                    Symbol(
+                        qualified_name=qn,
+                        kind=_category_to_kind(first.category),
+                        file_path=rel_path,
+                        line_start=first.line,
+                        line_end=max(t.line for t in tag_list),
+                        signature="",
+                    )
+                )
+                symbol_count += 1
+                store.add_defines(
+                    DefinesEdge(
+                        file_path=rel_path,
+                        symbol=qn,
+                        confidence=Confidence.EXTRACTED,
+                        evidence="tree-sitter",
+                    )
+                )
+                defines_count += 1
+
+        return BuildGraphOutput(
+            enabled=True,
+            db_path=db_path,
+            file_count=file_count,
+            symbol_count=symbol_count,
+            defines_count=defines_count,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tag -> graph translation helpers
+# ---------------------------------------------------------------------------
+
+
+_CATEGORY_TO_KIND: dict[str, SymbolKind] = {
+    "function": SymbolKind.FUNCTION,
+    "class": SymbolKind.CLASS,
+    "method": SymbolKind.METHOD,
+    "interface": SymbolKind.INTERFACE,
+    "enum": SymbolKind.ENUM,
+    "type": SymbolKind.TYPE,
+    "struct": SymbolKind.STRUCT,
+}
+
+
+def _category_to_kind(category: str) -> SymbolKind:
+    """Map a Tag.category to a SymbolKind, defaulting to FUNCTION."""
+    return _CATEGORY_TO_KIND.get(category, SymbolKind.FUNCTION)
+
+
+def _qualified_name(rel_path: str, name: str) -> str:
+    """Schema convention: ``<rel_path>::<name>`` (see schema.Symbol)."""
+    return f"{rel_path}::{name}"
+
+
+def _source_to_file(sf: SourceFile, repo_path: Path) -> File:
+    """Convert an Inventory SourceFile into a graph File node.
+
+    Computes the three bits of metadata the v0.1 SourceFile doesn't carry:
+    SHA-256 of the content, line count, and last-modified ISO timestamp.
+    Failure to read the file degrades each field to a safe default rather
+    than aborting the whole graph build.
+    """
+    sha = "0" * 64
+    loc = 0
+    last_modified = ""
+    try:
+        data = sf.path.read_bytes()
+        sha = hashlib.sha256(data).hexdigest()
+        loc = data.count(b"\n") + (0 if data.endswith(b"\n") or not data else 1)
+        mtime = datetime.fromtimestamp(sf.path.stat().st_mtime, tz=UTC)
+        last_modified = mtime.isoformat(timespec="seconds")
+    except OSError:
+        pass
+    return File(
+        path=sf.rel_path,
+        language=sf.language,
+        role=FileRole(sf.role),
+        sha=sha,
+        loc=loc,
+        last_modified=last_modified,
+    )
+
+
 def default_phases() -> list[Phase]:
-    """The v0.1 5-phase DAG. Used by :func:`run_extract` and any test that
-    wants the canonical phase list."""
+    """The v0.2 phase DAG. ``BuildGraphPhase`` is in the list but is a no-op
+    unless ``ExtractConfig.build_graph_db=True`` (DEC-013)."""
     return [
         InventoryPhase(),
         StaticPhase(),
         FlattenPhase(),
         HistoryPhase(),
+        BuildGraphPhase(),
         EmitPhase(),
     ]

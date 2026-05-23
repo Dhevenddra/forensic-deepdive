@@ -35,6 +35,7 @@ class SymbolKind(StrEnum):
     TRAIT = "trait"
     DECORATOR = "decorator"
     ROUTE = "route"
+    TYPE = "type"  # type aliases (TS, Go), typedefs (C), generic types
 
 
 class FileRole(StrEnum):

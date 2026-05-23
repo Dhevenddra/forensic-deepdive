@@ -103,32 +103,114 @@ def test_use_before_connect_raises(tmp_path):
         store.add_symbol(_sample_symbol())
 
 
-def test_unimplemented_writes_raise_with_clear_message(tmp_path):
-    """The skeleton's NotImplementedError messages must point at the PRD
-    item where the implementation lands."""
+def test_still_unimplemented_writes_raise_with_clear_message(tmp_path):
+    """Writes the v0.2 phase-1 build does not yet need must continue to
+    raise with a PRD-pointing message until the implementation lands."""
     from forensic_deepdive.graph import (
         Author,
         CallsEdge,
-        File,
+        CoChangesWithEdge,
+        Commit,
         Module,
     )
-    from forensic_deepdive.graph.schema import FileRole
 
     with LadybugStore(tmp_path / "graph.lbug") as store:
-        with pytest.raises(NotImplementedError, match="PRD"):
-            store.add_file(
-                File(
-                    path="a.py",
-                    language="python",
-                    role=FileRole.SOURCE,
-                    sha="x",
-                    loc=0,
-                    last_modified="2026-05-24T00:00:00Z",
-                )
-            )
         with pytest.raises(NotImplementedError, match="PRD"):
             store.add_module(Module(path="m", language="python"))
         with pytest.raises(NotImplementedError, match="PRD"):
             store.add_author(Author(email_canonical="x@y", name="X"))
         with pytest.raises(NotImplementedError, match="PRD"):
+            store.add_commit(
+                Commit(
+                    sha="x",
+                    author_email="x@y",
+                    date="2026-05-24T00:00:00Z",
+                    message="m",
+                    files_touched_count=1,
+                )
+            )
+        with pytest.raises(NotImplementedError, match="PRD"):
             store.add_calls(CallsEdge(caller="a", callee="b"))
+        with pytest.raises(NotImplementedError, match="PRD"):
+            store.add_co_changes_with(CoChangesWithEdge(file_a="a", file_b="b"))
+
+
+def test_file_round_trip(tmp_path):
+    """DEC-013 / item 8. File node writes via add_file and reads back via
+    get_file, with role enum preserved."""
+    from forensic_deepdive.graph import File
+    from forensic_deepdive.graph.schema import FileRole
+
+    f = File(
+        path="src/foo.py",
+        language="python",
+        role=FileRole.SOURCE,
+        sha="abc123",
+        loc=42,
+        last_modified="2026-05-24T12:00:00+00:00",
+    )
+    with LadybugStore(tmp_path / "graph.lbug") as store:
+        store.add_file(f)
+        got = store.get_file("src/foo.py")
+    assert got == f
+
+
+def test_defines_edge_links_file_to_symbol(tmp_path):
+    """DEC-013 / item 8. After add_file + add_symbol + add_defines, the
+    File-DEFINES->Symbol traversal returns the symbol."""
+    from forensic_deepdive.graph import DefinesEdge, File
+    from forensic_deepdive.graph.schema import FileRole
+
+    f = File(
+        path="src/foo.py",
+        language="python",
+        role=FileRole.SOURCE,
+        sha="abc",
+        loc=10,
+        last_modified="2026-05-24T12:00:00+00:00",
+    )
+    s = Symbol(
+        qualified_name="src/foo.py::Foo",
+        kind=SymbolKind.CLASS,
+        file_path="src/foo.py",
+        line_start=1,
+        line_end=5,
+    )
+    with LadybugStore(tmp_path / "graph.lbug") as store:
+        store.add_file(f)
+        store.add_symbol(s)
+        store.add_defines(DefinesEdge(file_path=f.path, symbol=s.qualified_name))
+        got = list(store.iter_symbols_for_file(f.path))
+    assert got == [s]
+
+
+def test_count_nodes_and_edges(tmp_path):
+    """Convenience for stats. After a small build, counts are right."""
+    from forensic_deepdive.graph import DefinesEdge, File
+    from forensic_deepdive.graph.schema import FileRole
+
+    with LadybugStore(tmp_path / "graph.lbug") as store:
+        for i in range(3):
+            store.add_file(
+                File(
+                    path=f"f{i}.py",
+                    language="python",
+                    role=FileRole.SOURCE,
+                    sha="x",
+                    loc=1,
+                    last_modified="2026-05-24T00:00:00Z",
+                )
+            )
+            store.add_symbol(
+                Symbol(
+                    qualified_name=f"f{i}.py::S",
+                    kind=SymbolKind.CLASS,
+                    file_path=f"f{i}.py",
+                    line_start=1,
+                    line_end=1,
+                )
+            )
+            store.add_defines(DefinesEdge(file_path=f"f{i}.py", symbol=f"f{i}.py::S"))
+        assert store.count_nodes("File") == 3
+        assert store.count_nodes("Symbol") == 3
+        assert store.count_edges("DEFINES") == 3

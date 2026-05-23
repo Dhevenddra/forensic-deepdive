@@ -88,48 +88,73 @@ class LadybugStore(GraphStore):
         )
 
     def add_file(self, node: File) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        self._require_conn()
+        self._conn.execute(
+            "CREATE (n:File {"
+            "path: $path, language: $language, role: $role, sha: $sha, "
+            "loc: $loc, last_modified: $last_modified})",
+            {
+                "path": node.path,
+                "language": node.language,
+                "role": str(node.role),
+                "sha": node.sha,
+                "loc": node.loc,
+                "last_modified": node.last_modified,
+            },
+        )
 
     def add_module(self, node: Module) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        raise NotImplementedError("PRD §10 future — Module nodes")
 
     def add_commit(self, node: Commit) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        raise NotImplementedError("PRD §10 future — Commit nodes")
 
     def add_author(self, node: Author) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        raise NotImplementedError("PRD §10 future — Author nodes")
 
     def add_process(self, node: Process) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        raise NotImplementedError("PRD §10 future — Process nodes")
 
     # --- writes (edges) -----------------------------------------------------
 
     def add_calls(self, edge: CallsEdge) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        # CALLS requires symbol-level resolution; v0.2 phase 1 only writes
+        # what the v0.1 name-based pipeline can produce honestly.
+        raise NotImplementedError("PRD §10 future — symbol-level CALLS resolver")
 
     def add_imports(self, edge: ImportsEdge) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        raise NotImplementedError("PRD §10 future — import extraction")
 
     def add_extends(self, edge: ExtendsEdge) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        raise NotImplementedError("PRD §10 future — EXTENDS edges")
 
     def add_implements(self, edge: ImplementsEdge) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        raise NotImplementedError("PRD §10 future — IMPLEMENTS edges")
 
     def add_defines(self, edge: DefinesEdge) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        self._require_conn()
+        self._conn.execute(
+            "MATCH (f:File {path: $fp}), (s:Symbol {qualified_name: $sq}) "
+            "CREATE (f)-[:DEFINES {confidence: $conf, evidence: $ev}]->(s)",
+            {
+                "fp": edge.file_path,
+                "sq": edge.symbol,
+                "conf": str(edge.confidence),
+                "ev": edge.evidence,
+            },
+        )
 
     def add_member_of(self, edge: MemberOfEdge) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        raise NotImplementedError("PRD §10 future — MEMBER_OF edges")
 
     def add_touched_by_commit(self, edge: TouchedByCommitEdge) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        raise NotImplementedError("PRD §10 future — TOUCHED_BY_COMMIT edges")
 
     def add_authored_by(self, edge: AuthoredByEdge) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        raise NotImplementedError("PRD §10 future — AUTHORED_BY edges")
 
     def add_co_changes_with(self, edge: CoChangesWithEdge) -> None:
-        raise NotImplementedError("PRD §10 item 8 — graph build phase")
+        raise NotImplementedError("PRD §10 future — CO_CHANGES_WITH edges")
 
     # --- reads --------------------------------------------------------------
 
@@ -154,6 +179,61 @@ class LadybugStore(GraphStore):
             line_end=int(line_end),
             signature=signature or "",
         )
+
+    def get_file(self, path: str) -> File | None:
+        """Return the file with that path, or ``None`` if absent."""
+        from forensic_deepdive.graph.schema import FileRole
+
+        self._require_conn()
+        rows = list(
+            self.query(
+                "MATCH (n:File {path: $p}) "
+                "RETURN n.path, n.language, n.role, n.sha, n.loc, n.last_modified",
+                {"p": path},
+            )
+        )
+        if not rows:
+            return None
+        p, lang, role, sha, loc, last_mod = rows[0]
+        return File(
+            path=p,
+            language=lang,
+            role=FileRole(role),
+            sha=sha,
+            loc=int(loc),
+            last_modified=last_mod,
+        )
+
+    def iter_symbols_for_file(self, file_path: str) -> Iterator[Symbol]:
+        """Stream every symbol defined in *file_path* per the DEFINES edges."""
+        self._require_conn()
+        for row in self.query(
+            "MATCH (:File {path: $fp})-[:DEFINES]->(s:Symbol) "
+            "RETURN s.qualified_name, s.kind, s.file_path, "
+            "s.line_start, s.line_end, s.signature",
+            {"fp": file_path},
+        ):
+            qn, kind, fp, ls, le, sig = row
+            yield Symbol(
+                qualified_name=qn,
+                kind=SymbolKind(kind),
+                file_path=fp,
+                line_start=int(ls),
+                line_end=int(le),
+                signature=sig or "",
+            )
+
+    def count_nodes(self, label: str) -> int:
+        """Convenience for tests and stats: count nodes of a given label."""
+        self._require_conn()
+        rows = list(self.query(f"MATCH (n:{label}) RETURN count(n)"))
+        return int(rows[0][0]) if rows else 0
+
+    def count_edges(self, label: str) -> int:
+        """Convenience for tests and stats: count edges of a given REL label."""
+        self._require_conn()
+        rows = list(self.query(f"MATCH ()-[r:{label}]->() RETURN count(r)"))
+        return int(rows[0][0]) if rows else 0
 
     def iter_symbols(self) -> Iterator[Symbol]:
         self._require_conn()
