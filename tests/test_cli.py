@@ -30,3 +30,24 @@ def test_cli_extract_end_to_end(tmp_path: Path) -> None:
 def test_cli_extract_missing_dir_exits_nonzero() -> None:
     result = runner.invoke(app, ["extract", "nonexistent-dir-xyz-123"])
     assert result.exit_code == 1
+
+
+def test_cli_query_finds_match(tmp_path: Path) -> None:
+    artifacts = tmp_path / "docs" / "codebase"
+    artifacts.mkdir(parents=True)
+    (artifacts / "AGENT_BRIEF.md").write_text(
+        "# AGENT_BRIEF — demo\n\nA Python codebase.\n", encoding="utf-8"
+    )
+    result = runner.invoke(app, ["query", "Python", "--artifacts-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.stdout
+    assert "1 match" in result.stdout
+    assert "AGENT_BRIEF.md" in result.stdout
+
+
+def test_cli_query_no_match_is_not_an_error(tmp_path: Path) -> None:
+    artifacts = tmp_path / "docs" / "codebase"
+    artifacts.mkdir(parents=True)
+    (artifacts / "AGENT_BRIEF.md").write_text("# x\n", encoding="utf-8")
+    result = runner.invoke(app, ["query", "missing-term", "--artifacts-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "No matches" in result.stdout

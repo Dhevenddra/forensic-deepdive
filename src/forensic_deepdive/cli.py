@@ -156,12 +156,41 @@ def _print_extract_summary(result: ExtractResult) -> None:
 
 @app.command()
 def query(
-    question: Annotated[str, typer.Argument(help="Question to answer from artifacts.")],
-    artifacts_dir: Annotated[Path, typer.Option()] = Path("./docs/codebase"),
+    question: Annotated[str, typer.Argument(help="Substring to search for in the artifacts.")],
+    artifacts_dir: Annotated[
+        Path,
+        typer.Option(help="Artifacts dir (or repo root). Default: ./docs/codebase."),
+    ] = Path("./docs/codebase"),
+    context: Annotated[int, typer.Option(help="Lines of context around each match.")] = 2,
+    case_sensitive: Annotated[bool, typer.Option(help="Case-sensitive match.")] = False,
 ) -> None:
-    """Query existing artifacts. v0.1: grep-based; v0.2: MCP-style with section extraction."""
-    # TODO(v0.1): basic grep wrapper across artifacts
-    raise NotImplementedError("Stub.")
+    """Grep the generated artifacts for *question*. v0.1: substring match."""
+    from forensic_deepdive.query import query_artifacts
+
+    try:
+        result = query_artifacts(
+            artifacts_dir, question, context=context, case_sensitive=case_sensitive
+        )
+    except NotADirectoryError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if not result.hits:
+        console.print(f"[yellow]No matches for '{question}' in {result.artifacts_dir}[/yellow]")
+        return
+
+    console.print(
+        f"[bold green]{len(result.hits)} match(es)[/bold green] for "
+        f"'{question}' across {len(result.files_searched)} artifact(s) "
+        f"in {result.artifacts_dir}:"
+    )
+    for hit in result.hits:
+        console.print(f"\n[cyan]{hit.file}:{hit.line}[/cyan]")
+        for line in hit.context_before:
+            console.print(f"  {line}")
+        console.print(f"[bold]> {hit.text}[/bold]")
+        for line in hit.context_after:
+            console.print(f"  {line}")
 
 
 @app.command()
