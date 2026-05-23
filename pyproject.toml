@@ -51,6 +51,8 @@ packages = ["src/forensic_deepdive"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Test fixtures are sample code, not project code — don't lint or autofix them.
+extend-exclude = ["tests/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM"]
@@ -59,3 +61,6 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-x --tb=short"
+# tests/fixtures/ contains synthetic sample code (including files named like
+# test_*.py inside fixture repos). Don't recurse into fixture dirs.
+norecursedirs = ["fixtures", "expected_emit"]

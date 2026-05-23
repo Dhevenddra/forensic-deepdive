@@ -72,20 +72,25 @@ def build_symbol_graph(tags: list[Tag]) -> SymbolGraph:
         references = {name: list(file_set) for name, file_set in defines.items()}
 
     graph: nx.MultiDiGraph = nx.MultiDiGraph()
-    graph.add_nodes_from(files)  # keep symbol-bearing files even if unconnected
+    # Sort node and edge insertion: Python set iteration depends on the
+    # process-level hash seed, and NetworkX preserves insertion order — without
+    # sorting, the same tags would produce graphs whose edges are iterated in
+    # different orders, making PageRank float-sums non-deterministic.
+    graph.add_nodes_from(sorted(files))
 
     cross_file_idents = set(defines) & set(references)
-    for ident in cross_file_idents:
+    for ident in sorted(cross_file_idents):
         definers = defines[ident]
         weight_mult = _PRIVATE_WEIGHT if ident.startswith("_") else _PUBLIC_WEIGHT
-        for referencer, num_refs in Counter(references[ident]).items():
+        ref_counts = sorted(Counter(references[ident]).items())
+        for referencer, num_refs in ref_counts:
             # DEC-012 (local shadowing): a file that itself defines this
             # identifier resolves the reference locally — no cross-file edge.
             if referencer in definers:
                 continue
             referencer_language = file_language.get(referencer)
             scaled = math.sqrt(num_refs)
-            for definer in definers:
+            for definer in sorted(definers):
                 # DEC-012 (language scoping): no cross-language edges.
                 if file_language.get(definer) != referencer_language:
                     continue
