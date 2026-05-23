@@ -46,6 +46,19 @@ def test_dart_tags() -> None:
     assert "Greeter" in _names(_tags("dart_sample/app.dart"), "ref")
 
 
+def test_dart_dotted_method_call_is_not_a_reference() -> None:
+    """DEC-012 follow-up (Omi #1/#2). `obj.greet()` must not produce a
+    `greet` reference — that would link the file to every other Dart file
+    defining a method called `greet`. Bare calls (`formatMessage(...)`)
+    still produce references."""
+    refs = _names(_tags("dart_sample/app.dart"), "ref")
+    # The bare-call reference is preserved.
+    assert "formatMessage" in refs
+    # `greeter.greet()` and `print(...)` would have been references under
+    # the v0.1 catch-all; they must not be now.
+    assert "greet" not in refs
+
+
 def test_swift_tags() -> None:
     tags = _tags("swift_sample/Greeter.swift")
     assert {"Greeter", "Named", "formatMessage"} <= _names(tags, "def")

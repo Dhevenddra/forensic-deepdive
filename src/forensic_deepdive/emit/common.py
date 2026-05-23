@@ -62,6 +62,8 @@ class RepoFacts:
     flatten: FlattenResult | None = None
     test_file_count: int = 0  # test files — inventoried, excluded from the graph
     fixture_file_count: int = 0  # fixture files — inventoried, excluded
+    vendored_file_count: int = 0  # DEC-021 — inventoried, excluded
+    generated_file_count: int = 0  # DEC-021 — inventoried, excluded
 
 
 def language_label(grammar: str) -> str:

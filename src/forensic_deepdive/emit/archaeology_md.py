@@ -37,6 +37,7 @@ def render_archaeology(facts: RepoFacts) -> str:
         body = [
             *_timeline(facts),
             *_contributors(facts),
+            *_automation(facts),
             *_changed_files(facts),
             *_github(facts),
         ]
@@ -69,6 +70,27 @@ def _contributors(facts: RepoFacts, limit: int = 15) -> list[str]:
         f"{humanize_int(len(history.contributors))} contributor(s) total.",
         "",
         md_table(["Contributor", "Commits", "Share"], rows),
+        "",
+    ]
+
+
+def _automation(facts: RepoFacts, limit: int = 10) -> list[str]:
+    """DEC-022. Render the bot-accounts section *only* when bots exist —
+    the artifact stays clean for repos without automated commits."""
+    bots = facts.history.bots
+    if not bots:
+        return []
+    total = facts.history.total_commits or 1
+    rows: list[list[str]] = []
+    for bot in bots[:limit]:
+        share = 100.0 * bot.commits / total
+        rows.append([bot.name, humanize_int(bot.commits), f"{share:.1f}%"])
+    return [
+        "## Automation",
+        "",
+        f"{humanize_int(len(bots))} bot account(s) — separated from human attribution per DEC-022.",
+        "",
+        md_table(["Bot", "Commits", "Share"], rows),
         "",
     ]
 

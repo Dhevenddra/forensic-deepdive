@@ -67,6 +67,15 @@ _C_TAGS = """\
 # reference; the defines-intersect-references step in graph.py filters the noise
 # (only identifiers that are also defined somewhere create edges), and the
 # definition's own name node is removed by the def/ref de-dup in extract_tags.
+#
+# DEC-012 follow-up (Omi finding #1/#2): the catch-all also picked up the
+# method name in dotted calls (`obj.fromJson(json)` referenced `fromJson`),
+# which produced false cross-file edges on common Dart names. The
+# `_drop_method` capture marks identifiers inside an
+# `unconditional_assignable_selector` (the `.foo` after a dot); the
+# extractor honors the `_`-prefix convention and excludes those node ids
+# from the reference set. Bare-call references (`foo()`, `Foo()`) are
+# unaffected.
 _DART_TAGS = """\
 (class_definition
   name: (identifier) @name.definition.class) @definition.class
@@ -75,6 +84,9 @@ _DART_TAGS = """\
   name: (identifier) @name.definition.function) @definition.function
 
 ((identifier) @name.reference.call)
+
+(unconditional_assignable_selector
+  (identifier) @_drop_method)
 
 (type_identifier) @name.reference.class
 """
@@ -143,13 +155,19 @@ def extract_tags(parsed: ParsedFile) -> list[Tag]:
 
     captures = QueryCursor(query).captures(parsed.tree.root_node)
 
-    # Nodes captured as a definition name. A definition's own name node is
-    # often re-captured by a broad reference pattern (notably Dart's catch-all
-    # identifier rule); drop those so a symbol does not reference itself.
-    def_node_ids: set[int] = set()
+    # Node ids that must NOT become references, for two reasons:
+    # * A definition's own name node is often re-captured by a broad reference
+    #   pattern (notably Dart's catch-all identifier rule); drop those so a
+    #   symbol does not reference itself.
+    # * Any capture whose name begins with ``_`` is treated as an exclusion
+    #   set — a language query can mark "this looked like a reference, but it
+    #   is not" by capturing the node under e.g. ``@_drop_method``. This is
+    #   how Dart's dotted-call method names (``obj.foo()`` → ``foo``) are
+    #   filtered out of the reference set (DEC-012 follow-up, Omi #1/#2).
+    excluded_ref_node_ids: set[int] = set()
     for capture_name, nodes in captures.items():
-        if capture_name.startswith("name.definition."):
-            def_node_ids.update(node.id for node in nodes)
+        if capture_name.startswith("name.definition.") or capture_name.startswith("_"):
+            excluded_ref_node_ids.update(node.id for node in nodes)
 
     tags: list[Tag] = []
     seen: set[tuple[str, int]] = set()
@@ -157,12 +175,13 @@ def extract_tags(parsed: ParsedFile) -> list[Tag]:
         parts = capture_name.split(".")
         # Only the `name.*` captures pin the identifier; the bare
         # `@definition.*` / `@reference.*` captures mark the enclosing node.
+        # Helper `_`-prefixed captures are pure metadata and never tagged.
         if len(parts) != 3 or parts[0] != "name":
             continue
         kind = "def" if parts[1] == "definition" else "ref"
         category = parts[2]
         for node in nodes:
-            if kind == "ref" and node.id in def_node_ids:
+            if kind == "ref" and node.id in excluded_ref_node_ids:
                 continue
             key = (capture_name, node.id)
             if key in seen:

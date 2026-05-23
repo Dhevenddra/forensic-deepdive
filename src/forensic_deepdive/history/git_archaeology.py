@@ -18,7 +18,7 @@ import re
 import shutil
 import subprocess
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +30,19 @@ _GIT_TIMEOUT_S = 300.0
 
 # Matches owner/repo in both HTTPS and SSH GitHub remote URLs.
 _GITHUB_REMOTE_RE = re.compile(r"github\.com[/:]([^/]+)/(.+?)(?:\.git)?/?$")
+
+# DEC-022 bot detection. Matches GitHub's `[bot]` account convention, the
+# looser `-bot` / `_bot` suffix, and known infrastructure accounts. The
+# `noreply@github.com` form is intentionally NOT a bot signal — many real
+# humans use it via web-flow commits.
+_BOT_NAME_RE = re.compile(r"(?:\[bot\]|[-_]bot)$", re.IGNORECASE)
+_BOT_EMAIL_HINTS: frozenset[str] = frozenset(
+    {
+        "noreply@dependabot.com",
+        "noreply@github-actions.com",
+        "support@github.com",
+    }
+)
 
 
 class GitArchaeologyError(RuntimeError):
@@ -76,9 +89,12 @@ class GitHistory:
     total_commits: int
     first_commit: datetime | None
     last_commit: datetime | None
-    contributors: list[Contributor]  # sorted by commit count, descending
+    contributors: list[Contributor]  # human contributors, sorted by commit count
     churn: list[FileChurn]  # sorted by commit count, descending
     github: GitHubStats | None = None
+    # DEC-022: bot accounts split out of `contributors`. Empty list for repos
+    # without bot activity, so the ARCHAEOLOGY artifact stays clean.
+    bots: list[Contributor] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,7 +143,9 @@ def analyze_history(
         )
 
     commits = _read_commits(repo_path)
-    contributors = _aggregate_contributors(commits)[:contributor_limit]
+    humans, bots = _aggregate_contributors(commits)
+    contributors = humans[:contributor_limit]
+    bots = bots[:contributor_limit]
     churn = _read_churn(repo_path)[:churn_limit]
 
     github = None
@@ -146,6 +164,7 @@ def analyze_history(
         contributors=contributors,
         churn=churn,
         github=github,
+        bots=bots,
     )
 
 
@@ -236,9 +255,17 @@ def _is_git_repo(repo_path: Path) -> bool:
 
 
 def _read_commits(repo_path: Path) -> list[_Commit]:
-    """Return all non-merge commits, newest first. Empty for a commit-less repo."""
+    """Return all non-merge commits, newest first. Empty for a commit-less repo.
+
+    Uses ``git log --use-mailmap`` (DEC-022) so ``%aN`` / ``%aE`` come out
+    canonical when the repo ships a ``.mailmap``. No-op for repos without one.
+    """
     fmt = _FIELD_SEP.join(["%H", "%cI", "%aN", "%aE"])
-    proc = _run_git(repo_path, ["log", "--no-merges", f"--format={fmt}"], check=False)
+    proc = _run_git(
+        repo_path,
+        ["log", "--no-merges", "--use-mailmap", f"--format={fmt}"],
+        check=False,
+    )
     if proc.returncode != 0:  # e.g. a freshly-init'd repo with no commits
         return []
     commits: list[_Commit] = []
@@ -263,11 +290,32 @@ def _read_churn(repo_path: Path) -> list[FileChurn]:
     return [FileChurn(path=path, commits=n) for path, n in ranked]
 
 
-def _aggregate_contributors(commits: list[_Commit]) -> list[Contributor]:
-    """Aggregate commits by (name, email), ranked by commit count."""
+def _is_bot(name: str, email: str) -> bool:
+    """DEC-022 bot heuristic. ``[bot]`` suffix, ``-bot`` / ``_bot`` suffix,
+    or a known infrastructure email."""
+    if _BOT_NAME_RE.search(name):
+        return True
+    return email.lower() in _BOT_EMAIL_HINTS
+
+
+def _aggregate_contributors(
+    commits: list[_Commit],
+) -> tuple[list[Contributor], list[Contributor]]:
+    """Aggregate commits by (name, email), ranked by commit count.
+
+    Returns ``(humans, bots)`` — DEC-022 splits bot accounts out so the
+    human-attribution surface (top-N, bus-factor, defect-proximity) is
+    clean. Both lists are sorted by descending commit count, with name
+    then email as tiebreakers.
+    """
     counts = Counter((c.name, c.email) for c in commits)
+    humans: list[Contributor] = []
+    bots: list[Contributor] = []
     ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1]))
-    return [Contributor(name=name, email=email, commits=n) for (name, email), n in ranked]
+    for (name, email), n in ranked:
+        bucket = bots if _is_bot(name, email) else humans
+        bucket.append(Contributor(name=name, email=email, commits=n))
+    return humans, bots
 
 
 def _parse_date(value: str) -> datetime | None:

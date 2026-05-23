@@ -243,6 +243,105 @@ def test_fetch_github_stats_failure_returns_none(
     assert fetch_github_stats("octocat", "Hello-World") is None
 
 
+def test_default_repo_has_no_bots(sample_repo: Path) -> None:
+    """DEC-022. A repo with only human commits has an empty `bots` list and
+    full attribution stays in `contributors`."""
+    result = analyze_history(sample_repo)
+    assert result.bots == []
+    assert {c.name for c in result.contributors} == {"Alice", "Bob"}
+
+
+def test_bot_accounts_split_from_humans(tmp_path: Path) -> None:
+    """DEC-022. `[bot]` and `-bot` suffixes get routed to `bots`."""
+    repo = tmp_path / "with-bots"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _commit(
+        repo,
+        author="Alice",
+        email="alice@example.com",
+        message="real work",
+        date="2023-01-01T00:00:00+00:00",
+        files={"a.txt": "a1\n"},
+    )
+    _commit(
+        repo,
+        author="dependabot[bot]",
+        email="49699333+dependabot[bot]@users.noreply.github.com",
+        message="chore(deps): bump foo",
+        date="2023-02-01T00:00:00+00:00",
+        files={"a.txt": "a2\n"},
+    )
+    _commit(
+        repo,
+        author="github-actions[bot]",
+        email="ga@example.com",
+        message="ci: regenerate",
+        date="2023-03-01T00:00:00+00:00",
+        files={"a.txt": "a3\n"},
+    )
+    _commit(
+        repo,
+        author="renovate-bot",
+        email="renovate@example.com",
+        message="chore: lockfile",
+        date="2023-04-01T00:00:00+00:00",
+        files={"a.txt": "a4\n"},
+    )
+    result = analyze_history(repo)
+    assert [c.name for c in result.contributors] == ["Alice"]
+    bot_names = {c.name for c in result.bots}
+    assert bot_names == {"dependabot[bot]", "github-actions[bot]", "renovate-bot"}
+    # bots are still counted in total_commits — they happened
+    assert result.total_commits == 4
+
+
+def test_mailmap_canonicalizes_contributors(tmp_path: Path) -> None:
+    """DEC-022. `git log --use-mailmap` collapses the two email forms of one
+    person into a single contributor entry."""
+    repo = tmp_path / "mailmapped"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _commit(
+        repo,
+        author="Alice Old",
+        email="alice@oldjob.example",
+        message="from old email",
+        date="2022-01-01T00:00:00+00:00",
+        files={"a.txt": "a1\n"},
+    )
+    _commit(
+        repo,
+        author="alice",
+        email="alice@example.com",
+        message="from new email, casual name",
+        date="2022-02-01T00:00:00+00:00",
+        files={"a.txt": "a2\n"},
+    )
+    # Map both forms to one canonical identity.
+    (repo / ".mailmap").write_text(
+        "Alice Canonical <alice@example.com> <alice@oldjob.example>\n"
+        "Alice Canonical <alice@example.com> alice <alice@example.com>\n",
+        encoding="utf-8",
+    )
+    _commit(
+        repo,
+        author="Bob",
+        email="bob@example.com",
+        message="add mailmap",
+        date="2022-03-01T00:00:00+00:00",
+        files={"a.txt": "a3\n"},
+    )
+    result = analyze_history(repo)
+    by_name = {c.name: c.commits for c in result.contributors}
+    # Without --use-mailmap this would be 3 contributors (Alice Old, alice, Bob).
+    # With --use-mailmap, the two Alices collapse into one canonical identity.
+    assert "Alice Canonical" in by_name, by_name
+    assert by_name["Alice Canonical"] == 2
+    assert by_name["Bob"] == 1
+    assert len(result.contributors) == 2
+
+
 def test_analyze_history_with_github(monkeypatch: pytest.MonkeyPatch, sample_repo: Path) -> None:
     _git(
         sample_repo,

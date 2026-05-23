@@ -62,6 +62,12 @@ def _overview(facts: RepoFacts) -> list[str]:
             f"{humanize_int(facts.fixture_file_count)} fixture file(s) "
             "(inventoried, excluded from the dependency graph per DEC-012)"
         )
+    if facts.vendored_file_count or facts.generated_file_count:
+        out.append(
+            f"- **Non-authored:** {humanize_int(facts.vendored_file_count)} vendored, "
+            f"{humanize_int(facts.generated_file_count)} generated "
+            "(inventoried, excluded from the dependency graph per DEC-021)"
+        )
     if facts.flatten is not None:
         flat = facts.flatten
         tokens = (

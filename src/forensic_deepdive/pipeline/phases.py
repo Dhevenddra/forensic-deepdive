@@ -177,6 +177,8 @@ class EmitPhase(Phase):
             flatten=flatten,
             test_file_count=len(inv.test_files),
             fixture_file_count=len(inv.fixture_files),
+            vendored_file_count=len(inv.vendored_files),
+            generated_file_count=len(inv.generated_files),
         )
 
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
