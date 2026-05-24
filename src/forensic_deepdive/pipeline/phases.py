@@ -35,16 +35,19 @@ from forensic_deepdive.graph import (
     Confidence,
     DefinesEdge,
     File,
+    ImportsEdge,
     LadybugStore,
     MemberOfEdge,
+    Module,
     Symbol,
     SymbolKind,
 )
-from forensic_deepdive.graph.schema import FileRole
+from forensic_deepdive.graph.schema import FileRole, module_pk
 from forensic_deepdive.history.git_archaeology import GitHistory, analyze_history
 from forensic_deepdive.inventory import Inventory, SourceFile, take_inventory
 from forensic_deepdive.pipeline.runner import Context, Phase
 from forensic_deepdive.static.graph import SymbolGraph, build_symbol_graph
+from forensic_deepdive.static.imports import Import, extract_imports
 from forensic_deepdive.static.pagerank import RankedRepo, rank_files
 from forensic_deepdive.static.parse import parse_file
 from forensic_deepdive.static.tags import Tag, extract_tags
@@ -67,6 +70,7 @@ class StaticOutput:
     tags: list[Tag]
     symbol_graph: SymbolGraph
     ranked: RankedRepo
+    imports: list[Import]  # DEC-024 — one per import/include/require statement
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +103,8 @@ class BuildGraphOutput:
     symbol_count: int = 0  # Symbol nodes written
     defines_count: int = 0  # DEFINES edges written
     member_of_count: int = 0  # MEMBER_OF edges written (DEC-023)
+    module_count: int = 0  # Module nodes written (DEC-024)
+    imports_count: int = 0  # IMPORTS edges written (DEC-024)
 
 
 # ---------------------------------------------------------------------------
@@ -129,13 +135,17 @@ class StaticPhase(Phase):
     def run(self, ctx: Context) -> StaticOutput:
         inv = ctx.get(InventoryPhase).inventory
         tags: list[Tag] = []
+        imports: list[Import] = []
         for source in inv.source_files:
             parsed = parse_file(source.path, rel_path=source.rel_path)
             if parsed is not None:
                 tags.extend(extract_tags(parsed))
+                # DEC-024 — extract imports in the same parse pass to
+                # avoid re-parsing every file in BuildGraphPhase.
+                imports.extend(extract_imports(parsed))
         symbol_graph = build_symbol_graph(tags)
         ranked = rank_files(symbol_graph)
-        return StaticOutput(tags=tags, symbol_graph=symbol_graph, ranked=ranked)
+        return StaticOutput(tags=tags, symbol_graph=symbol_graph, ranked=ranked, imports=imports)
 
 
 class FlattenPhase(Phase):
@@ -271,11 +281,40 @@ class BuildGraphPhase(Phase):
             qn_local = f"{tag.parent}.{tag.name}" if tag.parent else tag.name
             def_groups.setdefault((tag.rel_path, qn_local), []).append(tag)
 
+        # DEC-024: dedup Module nodes by their (language, raw_path) pair.
+        # Two imports of "os" from Python files share one Module; Python's
+        # "os" and Go's "os" do NOT share — see ``module_pk``.
+        module_pks: dict[str, Module] = {}  # pk -> Module dataclass
+        source_file_paths = {sf.rel_path for sf in inv.source_files}
+        edges_imports: list[ImportsEdge] = []
+        for imp in static.imports:
+            if imp.rel_path not in source_file_paths:
+                continue  # importing file isn't a source file we wrote
+            if not imp.module_path:
+                continue
+            pk = module_pk(imp.language, imp.module_path)
+            module_pks[pk] = Module(path=pk, language=imp.language)
+            edges_imports.append(
+                ImportsEdge(
+                    file_path=imp.rel_path,
+                    module_path=pk,
+                    confidence=Confidence.EXTRACTED,
+                    evidence="tree-sitter",
+                )
+            )
+
         file_count = symbol_count = defines_count = member_of_count = 0
+        module_count = imports_count = 0
         with LadybugStore(db_path) as store:
             for sf in inv.source_files:
                 store.add_file(_source_to_file(sf, cfg.repo_path))
                 file_count += 1
+
+            # DEC-024: Module nodes first, then IMPORTS edges. Dedup
+            # already done in module_pks; sort for deterministic order.
+            for pk in sorted(module_pks):
+                store.add_module(module_pks[pk])
+                module_count += 1
 
             # Sort by (rel_path, qn_local). The lexical order of the
             # dotted qn_local guarantees a parent (e.g. ``Greeter``) is
@@ -320,6 +359,13 @@ class BuildGraphPhase(Phase):
                     )
                     member_of_count += 1
 
+            # DEC-024: IMPORTS edges last — after both File and Module
+            # endpoints exist. Deterministic order via the staged list.
+            edges_imports.sort(key=lambda e: (e.file_path, e.module_path))
+            for edge in edges_imports:
+                store.add_imports(edge)
+                imports_count += 1
+
         return BuildGraphOutput(
             enabled=True,
             db_path=db_path,
@@ -327,6 +373,8 @@ class BuildGraphPhase(Phase):
             symbol_count=symbol_count,
             defines_count=defines_count,
             member_of_count=member_of_count,
+            module_count=module_count,
+            imports_count=imports_count,
         )
 
 

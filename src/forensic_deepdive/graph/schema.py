@@ -81,8 +81,26 @@ class Symbol(Node):
 
 @dataclass(frozen=True, slots=True)
 class Module(Node):
-    path: str  # PRIMARY KEY
-    language: str
+    """A target of an IMPORTS edge.
+
+    DEC-024 schema convention: ``path`` is the LadybugDB primary key and
+    encodes both the language and the raw module identifier as
+    ``"<language>:<raw_path>"`` (e.g. ``"python:os"``,
+    ``"go:os"``, ``"java:java.util.List"``). This avoids the cross-language
+    collision real-ladybug would otherwise hit on its single-column PK
+    (Python and Go both importing ``os`` would map to the same node).
+
+    Use :func:`module_pk` to construct it; do not concatenate manually.
+    """
+
+    path: str  # PRIMARY KEY — format: f"{language}:{raw_path}"
+    language: str  # redundant with the prefix in path; kept for query ergonomics
+
+
+def module_pk(language: str, raw_path: str) -> str:
+    """DEC-024 convention. The Module-table PK that disambiguates
+    cross-language same-string imports (``python:os`` vs ``go:os``)."""
+    return f"{language}:{raw_path}"
 
 
 @dataclass(frozen=True, slots=True)

@@ -104,7 +104,17 @@ class LadybugStore(GraphStore):
         )
 
     def add_module(self, node: Module) -> None:
-        raise NotImplementedError("PRD §10 future — Module nodes")
+        """DEC-024. One Module node per imported package/file/URI.
+
+        Module path is the primary key; callers must dedup before
+        writing — see ``BuildGraphPhase`` which groups by
+        ``(module_path, language)`` and writes once per unique pair.
+        """
+        self._require_conn()
+        self._conn.execute(
+            "CREATE (n:Module {path: $path, language: $language})",
+            {"path": node.path, "language": node.language},
+        )
 
     def add_commit(self, node: Commit) -> None:
         raise NotImplementedError("PRD §10 future — Commit nodes")
@@ -123,7 +133,23 @@ class LadybugStore(GraphStore):
         raise NotImplementedError("PRD §10 future — symbol-level CALLS resolver")
 
     def add_imports(self, edge: ImportsEdge) -> None:
-        raise NotImplementedError("PRD §10 future — import extraction")
+        """DEC-024. File -> Module dependency. Both endpoints must exist.
+
+        Always ``EXTRACTED`` confidence today — imports are
+        AST-deterministic. v0.3 may add INFERRED for re-export chains
+        whose source module isn't itself imported.
+        """
+        self._require_conn()
+        self._conn.execute(
+            "MATCH (f:File {path: $fp}), (m:Module {path: $mp}) "
+            "CREATE (f)-[:IMPORTS {confidence: $conf, evidence: $ev}]->(m)",
+            {
+                "fp": edge.file_path,
+                "mp": edge.module_path,
+                "conf": str(edge.confidence),
+                "ev": edge.evidence,
+            },
+        )
 
     def add_extends(self, edge: ExtendsEdge) -> None:
         raise NotImplementedError("PRD §10 future — EXTENDS edges")

@@ -28,6 +28,7 @@ from forensic_deepdive.graph.schema import (
     Symbol,
     SymbolKind,
     TouchedByCommitEdge,
+    module_pk,
 )
 from forensic_deepdive.graph.store import GraphStore
 
@@ -55,4 +56,5 @@ __all__ = [
     "Symbol",
     "SymbolKind",
     "TouchedByCommitEdge",
+    "module_pk",
 ]

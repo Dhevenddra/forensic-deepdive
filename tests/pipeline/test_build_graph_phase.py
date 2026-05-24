@@ -334,6 +334,148 @@ def test_member_of_nested_classes_chain(tmp_path):
         assert store.parent_of("n.py::Outer.outer_method").qualified_name == ("n.py::Outer")
 
 
+# ---------------------------------------------------------------------------
+# DEC-024 — IMPORTS + Module nodes
+# ---------------------------------------------------------------------------
+
+
+def test_imports_python_fixture_writes_module_and_edge(tmp_path):
+    """DEC-024: Python `import` / `from import` statements produce Module
+    nodes and IMPORTS edges in the LadybugDB."""
+    repo = tmp_path / "py-imports"
+    repo.mkdir()
+    (repo / "a.py").write_text(
+        "import os\nimport os.path as P\nfrom typing import List\n",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "graph.lbug"
+    out = _build(repo, db_path)
+    assert out.module_count == 3  # os, os.path, typing — distinct PKs
+    assert out.imports_count == 3
+    with LadybugStore(db_path) as store:
+        # IMPORTS targets are language-prefixed (DEC-024 / module_pk).
+        rows = list(
+            store.query(
+                "MATCH (:File {path: 'a.py'})-[:IMPORTS]->(m:Module) RETURN m.path ORDER BY m.path"
+            )
+        )
+        paths = [row[0] for row in rows]
+        assert paths == ["python:os", "python:os.path", "python:typing"]
+
+
+def test_imports_module_pk_disambiguates_cross_language_collision(tmp_path):
+    """DEC-024: Python's ``os`` and Go's ``os`` must be two distinct
+    Module nodes — the language prefix on the PK guarantees it. Without
+    the prefix, real-ladybug's single-column PK would collide and the
+    second CREATE would fail (or worse, silently merge two unrelated
+    modules)."""
+    repo = tmp_path / "cross"
+    repo.mkdir()
+    (repo / "p.py").write_text("import os\n", encoding="utf-8")
+    (repo / "g.go").write_text('package main\nimport "os"\n', encoding="utf-8")
+    db_path = tmp_path / "graph.lbug"
+    out = _build(repo, db_path)
+    assert out.module_count == 2  # python:os AND go:os, not collapsed
+    with LadybugStore(db_path) as store:
+        rows = list(store.query("MATCH (m:Module) RETURN m.path, m.language ORDER BY m.path"))
+        assert rows == [["go:os", "go"], ["python:os", "python"]]
+
+
+def test_imports_dedupes_within_a_file(tmp_path):
+    """Two imports of the same module from one file share one Module node
+    and produce two IMPORTS edges (one per statement)."""
+    repo = tmp_path / "dedup"
+    repo.mkdir()
+    (repo / "a.py").write_text(
+        # Two distinct statements referencing the same module.
+        "import os\nfrom os import path\n",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "graph.lbug"
+    out = _build(repo, db_path)
+    assert out.module_count == 1
+    assert out.imports_count == 2
+    with LadybugStore(db_path) as store:
+        rows = list(
+            store.query(
+                "MATCH (f:File)-[r:IMPORTS]->(m:Module {path: 'python:os'}) RETURN count(r)"
+            )
+        )
+        assert rows == [[2]]
+
+
+def test_imports_use_extracted_confidence(tmp_path):
+    """DEC-024: imports are AST-deterministic — every IMPORTS edge MUST
+    be EXTRACTED."""
+    repo = tmp_path / "conf"
+    repo.mkdir()
+    (repo / "a.py").write_text("import os\n", encoding="utf-8")
+    db_path = tmp_path / "graph.lbug"
+    _build(repo, db_path)
+    with LadybugStore(db_path) as store:
+        rows = list(store.query("MATCH ()-[r:IMPORTS]->() RETURN DISTINCT r.confidence"))
+    assert rows == [["EXTRACTED"]]
+
+
+def test_imports_polyglot_every_language_with_imports(tmp_path):
+    """DEC-024: build a repo with one import-bearing file per supported
+    language and verify each produces at least one IMPORTS edge in the
+    same .lbug. Modules are language-namespaced."""
+    repo = tmp_path / "polyglot-imports"
+    repo.mkdir()
+    sources = {
+        "py.py": "import os\n",
+        "ts.ts": 'import { Z } from "./y";\n',
+        "js.js": 'const z = require("./legacy");\n',
+        "g.go": 'package main\nimport "fmt"\n',
+        "J.java": "package x;\nimport java.util.List;\npublic class J {}\n",
+        "d.dart": "import 'package:foo/bar.dart';\n",
+        "S.swift": "import Foundation\n",
+        "h.c": '#include "local.h"\n',
+    }
+    for name, src in sources.items():
+        (repo / name).write_text(src, encoding="utf-8")
+    db_path = tmp_path / "graph.lbug"
+    out = _build(repo, db_path)
+    assert out.imports_count >= 8  # at least one per file
+    with LadybugStore(db_path) as store:
+        rows = list(
+            store.query(
+                "MATCH (f:File)-[:IMPORTS]->(m:Module) "
+                "RETURN DISTINCT m.language ORDER BY m.language"
+            )
+        )
+        langs = [row[0] for row in rows]
+    assert set(langs) == {
+        "c",
+        "dart",
+        "go",
+        "java",
+        "javascript",
+        "python",
+        "swift",
+        "typescript",
+    }
+
+
+def test_imports_module_path_preserves_raw_form(tmp_path):
+    """DEC-024: Module.path encodes ``<language>:<raw>``; the raw module
+    string is recoverable by stripping the language prefix. Used by the
+    future CALLS resolver to walk the import graph."""
+    repo = tmp_path / "preserve"
+    repo.mkdir()
+    (repo / "a.py").write_text("from typing import List\n", encoding="utf-8")
+    (repo / "h.c").write_text("#include <stdio.h>\n", encoding="utf-8")
+    db_path = tmp_path / "graph.lbug"
+    _build(repo, db_path)
+    with LadybugStore(db_path) as store:
+        rows = list(store.query("MATCH (m:Module) RETURN m.path ORDER BY m.path"))
+        paths = [row[0] for row in rows]
+    # Angle brackets preserved for C system include.
+    assert "c:<stdio.h>" in paths
+    assert "python:typing" in paths
+
+
 def test_member_of_java_same_method_name_in_two_classes_does_not_collide(tmp_path):
     """DEC-023 fixes a v0.2-phase-1 limitation: Java's Greeter and Named
     both declare a method ``name()``. They must be two distinct Symbols

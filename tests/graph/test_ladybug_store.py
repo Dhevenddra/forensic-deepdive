@@ -104,19 +104,22 @@ def test_use_before_connect_raises(tmp_path):
 
 
 def test_still_unimplemented_writes_raise_with_clear_message(tmp_path):
-    """Writes the v0.2 phase-1 build does not yet need must continue to
-    raise with a PRD-pointing message until the implementation lands."""
+    """Writes that v0.2 doesn't claim to support yet must continue to raise
+    with a PRD-pointing message. As each step in REMAINING.md item 8b
+    lands, methods move from this list to the round-trip tests."""
     from forensic_deepdive.graph import (
         Author,
         CallsEdge,
         CoChangesWithEdge,
         Commit,
-        Module,
     )
 
     with LadybugStore(tmp_path / "graph.lbug") as store:
+        # Step 3 — CALLS resolver (REMAINING item 8b step 3).
         with pytest.raises(NotImplementedError, match="PRD"):
-            store.add_module(Module(path="m", language="python"))
+            store.add_calls(CallsEdge(caller="a", callee="b"))
+        # Step 4 — Commit / Author / TOUCHED_BY_COMMIT (REMAINING item 8b
+        # step 4).
         with pytest.raises(NotImplementedError, match="PRD"):
             store.add_author(Author(email_canonical="x@y", name="X"))
         with pytest.raises(NotImplementedError, match="PRD"):
@@ -129,8 +132,8 @@ def test_still_unimplemented_writes_raise_with_clear_message(tmp_path):
                     files_touched_count=1,
                 )
             )
-        with pytest.raises(NotImplementedError, match="PRD"):
-            store.add_calls(CallsEdge(caller="a", callee="b"))
+        # Step 5 — CO_CHANGES_WITH derived from history (REMAINING item 8b
+        # step 5).
         with pytest.raises(NotImplementedError, match="PRD"):
             store.add_co_changes_with(CoChangesWithEdge(file_a="a", file_b="b"))
 
