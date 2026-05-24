@@ -52,6 +52,11 @@ class ExtractConfig:
     # the v0.1 in-memory NetworkX path only (golden tests + cache stay clean
     # by default until the markdown emitters cut over in PRD §10 item 9).
     build_graph_db: bool = False
+    # DEC-027: minimum co-occurrence count for a file pair to get a
+    # CO_CHANGES_WITH edge. ≥ 2 by default — files committed together at
+    # least twice are a signal even on small repos. Bumping to 3+ filters
+    # coincidence on huge histories.
+    co_changes_threshold: int = 2
 
 
 # ---------------------------------------------------------------------------

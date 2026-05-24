@@ -855,6 +855,143 @@ def test_history_phase_off_when_build_graph_db_disabled(tmp_path):
     assert out.history.commits == []
 
 
+# ---------------------------------------------------------------------------
+# DEC-027 — CO_CHANGES_WITH derived from TOUCHED_BY_COMMIT joins
+# ---------------------------------------------------------------------------
+
+
+def _build_co_change_repo(tmp_path: Path) -> tuple[Path, Path]:
+    """Build a tmp git repo where:
+    - a.py + b.py are committed together 3x (clear co-change pattern)
+    - c.py is committed alone (no co-change)
+    - d.py touches once with a.py (single co-occurrence)
+    With threshold=2 we expect a single CO_CHANGES_WITH between a.py
+    and b.py (count=3) and nothing else.
+    """
+    repo = tmp_path / "co_change_repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    commits = [
+        ({"a.py": "# v1\n", "b.py": "# v1\n"}, "2023-01-01T00:00:00+00:00"),
+        ({"a.py": "# v2\n", "b.py": "# v2\n"}, "2023-02-01T00:00:00+00:00"),
+        ({"a.py": "# v3\n", "b.py": "# v3\n"}, "2023-03-01T00:00:00+00:00"),
+        ({"c.py": "x = 1\n"}, "2023-04-01T00:00:00+00:00"),
+        ({"a.py": "# touched alone\n", "d.py": "y = 2\n"}, "2023-05-01T00:00:00+00:00"),
+    ]
+    for files, date in commits:
+        _commit_in(repo, author="Alice", email="alice@example.com", date=date, **files)
+    db_path = tmp_path / "graph.lbug"
+    return repo, db_path
+
+
+def test_co_changes_with_threshold_filters_coincidence(tmp_path):
+    """DEC-027: only file pairs with co-occurrence count >= threshold
+    get edges. Default threshold = 2 — a single shared commit doesn't
+    qualify."""
+    repo, db_path = _build_co_change_repo(tmp_path)
+    out = _build(repo, db_path)
+    # a.py + b.py appear together in 3 commits -> 1 CO_CHANGES_WITH.
+    # a.py + d.py appear together in 1 commit -> filtered out.
+    # c.py alone -> no pairs.
+    assert out.co_changes_count == 1
+    with LadybugStore(db_path) as store:
+        rows = list(
+            store.query(
+                "MATCH (a:File)-[r:CO_CHANGES_WITH]->(b:File) "
+                "RETURN a.path, b.path, r.frequency ORDER BY a.path, b.path"
+            )
+        )
+    assert rows == [["a.py", "b.py", 3.0]]
+
+
+def test_co_changes_with_pair_stored_alphabetically(tmp_path):
+    """DEC-027: each unordered pair {a, b} maps to exactly ONE edge with
+    file_a < file_b alphabetically — no double-counting."""
+    repo, db_path = _build_co_change_repo(tmp_path)
+    _build(repo, db_path)
+    with LadybugStore(db_path) as store:
+        # Should be exactly 1 CO_CHANGES_WITH between a.py and b.py
+        # (alphabetical: a < b), not 2.
+        rows = list(
+            store.query(
+                "MATCH (:File {path: 'a.py'})-[r:CO_CHANGES_WITH]->(:File {path: 'b.py'}) "
+                "RETURN count(r)"
+            )
+        )
+        assert rows == [[1]]
+        # The reverse direction shouldn't exist.
+        rows = list(
+            store.query(
+                "MATCH (:File {path: 'b.py'})-[r:CO_CHANGES_WITH]->(:File {path: 'a.py'}) "
+                "RETURN count(r)"
+            )
+        )
+        assert rows == [[0]]
+
+
+def test_co_changes_with_uses_inferred_confidence(tmp_path):
+    """DEC-027: co-change is a computed signal, not a fact — INFERRED
+    is the honest level."""
+    repo, db_path = _build_co_change_repo(tmp_path)
+    _build(repo, db_path)
+    with LadybugStore(db_path) as store:
+        rows = list(store.query("MATCH ()-[r:CO_CHANGES_WITH]->() RETURN DISTINCT r.confidence"))
+    assert rows == [["INFERRED"]]
+
+
+def test_co_changes_reader_returns_neighbors_in_both_directions(tmp_path):
+    """The ``iter_co_changes_of`` reader walks the undirected co-change
+    cluster — agents querying for a file's neighbors get them on
+    either side of the alphabetically-stored edge."""
+    repo, db_path = _build_co_change_repo(tmp_path)
+    _build(repo, db_path)
+    with LadybugStore(db_path) as store:
+        # Querying from b.py finds a.py even though the edge is stored
+        # a.py -> b.py.
+        neighbors = [(f.path, freq) for f, freq in store.iter_co_changes_of("b.py")]
+    assert neighbors == [("a.py", 3.0)]
+
+
+def test_co_changes_threshold_is_configurable(tmp_path):
+    """DEC-027: bumping ``co_changes_threshold`` raises the bar."""
+    repo, db_path = _build_co_change_repo(tmp_path)
+    # threshold=4 means a.py+b.py (count=3) drops out — no edges left.
+    cfg = ExtractConfig(
+        repo_path=repo.resolve(),
+        output_dir=repo / "docs" / "codebase",
+        flatten=False,
+        write_editor_shims=False,
+        build_graph_db=True,
+        graph_db_path=db_path,
+        co_changes_threshold=4,
+    )
+    ctx = PipelineRunner(default_phases()).run(cfg)
+    out = ctx.get(BuildGraphPhase)
+    assert out.co_changes_count == 0
+
+
+def test_co_changes_excludes_non_source_files(tmp_path):
+    """DEC-027 inherits DEC-026's filter — co-change is computed only
+    over inventoried source files. A README.md touched alongside a.py
+    doesn't form a co-change edge."""
+    repo = tmp_path / "cc_with_readme"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    for i in range(3):
+        _commit_in(
+            repo,
+            author="Alice",
+            email="alice@example.com",
+            date=f"2023-0{i + 1}-01T00:00:00+00:00",
+            **{"a.py": f"# {i}\n", "README.md": f"v{i}\n"},
+        )
+    db_path = tmp_path / "graph.lbug"
+    out = _build(repo, db_path)
+    # a.py + README.md together 3x, but README.md isn't a source file.
+    # No CO_CHANGES_WITH edge.
+    assert out.co_changes_count == 0
+
+
 def test_member_of_java_same_method_name_in_two_classes_does_not_collide(tmp_path):
     """DEC-023 fixes a v0.2-phase-1 limitation: Java's Greeter and Named
     both declare a method ``name()``. They must be two distinct Symbols

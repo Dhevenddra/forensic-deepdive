@@ -107,16 +107,9 @@ def test_still_unimplemented_writes_raise_with_clear_message(tmp_path):
     """Writes that v0.2 doesn't claim to support yet must continue to raise
     with a PRD-pointing message. As each step in REMAINING.md item 8b
     lands, methods move from this list to the round-trip tests."""
-    from forensic_deepdive.graph import (
-        CoChangesWithEdge,
-        ExtendsEdge,
-        ImplementsEdge,
-    )
+    from forensic_deepdive.graph import ExtendsEdge, ImplementsEdge
 
     with LadybugStore(tmp_path / "graph.lbug") as store:
-        # Step 5 — CO_CHANGES_WITH derived from history.
-        with pytest.raises(NotImplementedError, match="PRD"):
-            store.add_co_changes_with(CoChangesWithEdge(file_a="a", file_b="b"))
         # Step 6 — EXTENDS / IMPLEMENTS class hierarchy edges.
         with pytest.raises(NotImplementedError, match="PRD"):
             store.add_extends(ExtendsEdge(child="a", parent="b"))

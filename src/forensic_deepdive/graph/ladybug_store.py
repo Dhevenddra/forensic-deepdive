@@ -259,7 +259,24 @@ class LadybugStore(GraphStore):
         )
 
     def add_co_changes_with(self, edge: CoChangesWithEdge) -> None:
-        raise NotImplementedError("PRD §10 future — CO_CHANGES_WITH edges")
+        """DEC-027. Two files frequently committed together. ``INFERRED``
+        by default — co-change is a computed signal, not a fact. The
+        edge is undirected in spirit but Cypher requires direction;
+        callers convention: ``file_a < file_b`` alphabetically so each
+        unordered pair becomes exactly one edge."""
+        self._require_conn()
+        self._conn.execute(
+            "MATCH (a:File {path: $a}), (b:File {path: $b}) "
+            "CREATE (a)-[:CO_CHANGES_WITH "
+            "{confidence: $conf, evidence: $ev, frequency: $freq}]->(b)",
+            {
+                "a": edge.file_a,
+                "b": edge.file_b,
+                "conf": str(edge.confidence),
+                "ev": edge.evidence,
+                "freq": edge.frequency,
+            },
+        )
 
     # --- reads --------------------------------------------------------------
 
@@ -409,6 +426,35 @@ class LadybugStore(GraphStore):
                 line_start=int(ls),
                 line_end=int(le),
                 signature=sig or "",
+            )
+
+    def iter_co_changes_of(self, file_path: str) -> Iterator[tuple[File, float]]:
+        """Stream files that co-change with *file_path* via CO_CHANGES_WITH
+        edges, plus the edge's frequency score. Bidirectional — the
+        builder writes the edge in alphabetical order but agents
+        querying for a file's co-change cluster want neighbors on either
+        side."""
+        from forensic_deepdive.graph.schema import FileRole
+
+        self._require_conn()
+        for row in self.query(
+            "MATCH (a:File {path: $p})-[r:CO_CHANGES_WITH]-(b:File) "
+            "RETURN b.path, b.language, b.role, b.sha, b.loc, "
+            "b.last_modified, r.frequency "
+            "ORDER BY r.frequency DESC, b.path",
+            {"p": file_path},
+        ):
+            p, lang, role, sha, loc, last_mod, freq = row
+            yield (
+                File(
+                    path=p,
+                    language=lang,
+                    role=FileRole(role),
+                    sha=sha,
+                    loc=int(loc),
+                    last_modified=last_mod,
+                ),
+                float(freq),
             )
 
     def count_nodes(self, label: str) -> int:

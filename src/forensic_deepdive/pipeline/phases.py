@@ -35,6 +35,7 @@ from forensic_deepdive.graph import (
     Author,
     AuthoredByEdge,
     CallsEdge,
+    CoChangesWithEdge,
     Commit,
     Confidence,
     DefinesEdge,
@@ -116,6 +117,7 @@ class BuildGraphOutput:
     author_count: int = 0  # Author nodes written (DEC-026)
     touched_by_commit_count: int = 0  # TOUCHED_BY_COMMIT edges written (DEC-026)
     authored_by_count: int = 0  # AUTHORED_BY edges written (DEC-026)
+    co_changes_count: int = 0  # CO_CHANGES_WITH edges written (DEC-027)
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +340,12 @@ class BuildGraphPhase(Phase):
         commit_records_to_write: list[Commit] = []
         edges_authored_by: list[AuthoredByEdge] = []
         edges_touched_by_commit: list[TouchedByCommitEdge] = []
+        # DEC-027 co-change aggregation: for each commit, the set of
+        # source-set files it touched contributes one count to every
+        # unordered pair within that set. We compute counts in-memory
+        # over the inventoried touches (NOT raw commit files) so the
+        # signal is restricted to the production graph.
+        co_change_counts: dict[tuple[str, str], int] = {}
         for commit in history.commits:
             commit_records_to_write.append(
                 Commit(
@@ -360,8 +368,10 @@ class BuildGraphPhase(Phase):
                     evidence="git-log",
                 )
             )
+            commit_source_files: list[str] = []
             for file_path in commit.files_touched:
                 if file_path in source_file_paths:
+                    commit_source_files.append(file_path)
                     edges_touched_by_commit.append(
                         TouchedByCommitEdge(
                             file_path=file_path,
@@ -370,11 +380,20 @@ class BuildGraphPhase(Phase):
                             evidence="git-log-name-only",
                         )
                     )
+            # DEC-027: every unordered pair within this commit's
+            # source-set files gets one co-occurrence count. The pair is
+            # stored alphabetically so each unordered pair maps to
+            # exactly one key.
+            commit_source_files.sort()
+            for i, a in enumerate(commit_source_files):
+                for b in commit_source_files[i + 1 :]:
+                    co_change_counts[(a, b)] = co_change_counts.get((a, b), 0) + 1
 
         file_count = symbol_count = defines_count = member_of_count = 0
         module_count = imports_count = calls_count = 0
         commit_count = author_count = 0
         touched_by_commit_count = authored_by_count = 0
+        co_changes_count = 0
         with LadybugStore(db_path) as store:
             for sf in inv.source_files:
                 store.add_file(_source_to_file(sf, cfg.repo_path))
@@ -506,6 +525,24 @@ class BuildGraphPhase(Phase):
                 store.add_touched_by_commit(edge)
                 touched_by_commit_count += 1
 
+            # DEC-027: CO_CHANGES_WITH edges last — Files must exist
+            # (they already do from the inventory loop). Threshold from
+            # cfg.co_changes_threshold filters out coincidence.
+            threshold = cfg.co_changes_threshold
+            for (file_a, file_b), count in sorted(co_change_counts.items()):
+                if count < threshold:
+                    continue
+                store.add_co_changes_with(
+                    CoChangesWithEdge(
+                        file_a=file_a,
+                        file_b=file_b,
+                        frequency=float(count),
+                        confidence=Confidence.INFERRED,
+                        evidence="touched-by-commit-join",
+                    )
+                )
+                co_changes_count += 1
+
         return BuildGraphOutput(
             enabled=True,
             db_path=db_path,
@@ -520,6 +557,7 @@ class BuildGraphPhase(Phase):
             author_count=author_count,
             touched_by_commit_count=touched_by_commit_count,
             authored_by_count=authored_by_count,
+            co_changes_count=co_changes_count,
         )
 
 
