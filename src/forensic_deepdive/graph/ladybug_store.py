@@ -145,7 +145,21 @@ class LadybugStore(GraphStore):
         )
 
     def add_member_of(self, edge: MemberOfEdge) -> None:
-        raise NotImplementedError("PRD §10 future — MEMBER_OF edges")
+        """DEC-023. Member -> parent containment edge. Both endpoints must
+        already exist as Symbol nodes (callers add parents before children
+        by ordering on the dotted qualified-name prefix)."""
+        self._require_conn()
+        self._conn.execute(
+            "MATCH (m:Symbol {qualified_name: $mq}), "
+            "(p:Symbol {qualified_name: $pq}) "
+            "CREATE (m)-[:MEMBER_OF {confidence: $conf, evidence: $ev}]->(p)",
+            {
+                "mq": edge.member,
+                "pq": edge.parent,
+                "conf": str(edge.confidence),
+                "ev": edge.evidence,
+            },
+        )
 
     def add_touched_by_commit(self, edge: TouchedByCommitEdge) -> None:
         raise NotImplementedError("PRD §10 future — TOUCHED_BY_COMMIT edges")
@@ -212,6 +226,49 @@ class LadybugStore(GraphStore):
             "RETURN s.qualified_name, s.kind, s.file_path, "
             "s.line_start, s.line_end, s.signature",
             {"fp": file_path},
+        ):
+            qn, kind, fp, ls, le, sig = row
+            yield Symbol(
+                qualified_name=qn,
+                kind=SymbolKind(kind),
+                file_path=fp,
+                line_start=int(ls),
+                line_end=int(le),
+                signature=sig or "",
+            )
+
+    def parent_of(self, member_qn: str) -> Symbol | None:
+        """Return the parent Symbol of *member_qn* via the MEMBER_OF edge,
+        or ``None`` if the symbol is top-level (no MEMBER_OF outgoing)."""
+        self._require_conn()
+        rows = list(
+            self.query(
+                "MATCH (:Symbol {qualified_name: $mq})-[:MEMBER_OF]->(p:Symbol) "
+                "RETURN p.qualified_name, p.kind, p.file_path, "
+                "p.line_start, p.line_end, p.signature",
+                {"mq": member_qn},
+            )
+        )
+        if not rows:
+            return None
+        qn, kind, fp, ls, le, sig = rows[0]
+        return Symbol(
+            qualified_name=qn,
+            kind=SymbolKind(kind),
+            file_path=fp,
+            line_start=int(ls),
+            line_end=int(le),
+            signature=sig or "",
+        )
+
+    def iter_members_of(self, parent_qn: str) -> Iterator[Symbol]:
+        """Stream every Symbol that has a MEMBER_OF edge to *parent_qn*."""
+        self._require_conn()
+        for row in self.query(
+            "MATCH (m:Symbol)-[:MEMBER_OF]->(:Symbol {qualified_name: $pq}) "
+            "RETURN m.qualified_name, m.kind, m.file_path, "
+            "m.line_start, m.line_end, m.signature",
+            {"pq": parent_qn},
         ):
             qn, kind, fp, ls, le, sig = row
             yield Symbol(

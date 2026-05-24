@@ -36,6 +36,7 @@ from forensic_deepdive.graph import (
     DefinesEdge,
     File,
     LadybugStore,
+    MemberOfEdge,
     Symbol,
     SymbolKind,
 )
@@ -97,6 +98,7 @@ class BuildGraphOutput:
     file_count: int = 0  # File nodes written
     symbol_count: int = 0  # Symbol nodes written
     defines_count: int = 0  # DEFINES edges written
+    member_of_count: int = 0  # MEMBER_OF edges written (DEC-023)
 
 
 # ---------------------------------------------------------------------------
@@ -257,18 +259,31 @@ class BuildGraphPhase(Phase):
         inv = ctx.get(InventoryPhase).inventory
         static = ctx.get(StaticPhase)
 
-        file_count = symbol_count = defines_count = 0
+        # DEC-023: group def Tags by their FULLY-QUALIFIED local name
+        # (``<parent>.<name>`` for methods, ``<name>`` for top-level). This
+        # is finer-grained than v0.1's SymbolGraph.definitions, which keys
+        # on bare name — same-name methods in two classes in one file
+        # would collide there but here become distinct Symbols.
+        def_groups: dict[tuple[str, str], list[Tag]] = {}
+        for tag in static.tags:
+            if tag.kind != "def":
+                continue
+            qn_local = f"{tag.parent}.{tag.name}" if tag.parent else tag.name
+            def_groups.setdefault((tag.rel_path, qn_local), []).append(tag)
+
+        file_count = symbol_count = defines_count = member_of_count = 0
         with LadybugStore(db_path) as store:
             for sf in inv.source_files:
                 store.add_file(_source_to_file(sf, cfg.repo_path))
                 file_count += 1
 
-            # SymbolGraph.definitions is keyed by (rel_path, name) so a
-            # symbol with multiple def Tags (overloads, broad-query repeats)
-            # is naturally deduped — one Symbol per entry.
-            for (rel_path, name), tag_list in sorted(static.symbol_graph.definitions.items()):
+            # Sort by (rel_path, qn_local). The lexical order of the
+            # dotted qn_local guarantees a parent (e.g. ``Greeter``) is
+            # written before any of its members (``Greeter.greet``,
+            # ``Greeter.Inner.deep``) — the MEMBER_OF MATCH then resolves.
+            for (rel_path, qn_local), tag_list in sorted(def_groups.items()):
                 first = tag_list[0]
-                qn = _qualified_name(rel_path, name)
+                qn = _qualified_name(rel_path, qn_local)
                 store.add_symbol(
                     Symbol(
                         qualified_name=qn,
@@ -289,6 +304,21 @@ class BuildGraphPhase(Phase):
                     )
                 )
                 defines_count += 1
+                # DEC-023: emit MEMBER_OF when the definition is nested
+                # inside another definition (class method, nested class,
+                # Go receiver method, etc.). EXTRACTED — the parent chain
+                # is AST-deterministic.
+                if first.parent:
+                    parent_qn = _qualified_name(rel_path, first.parent)
+                    store.add_member_of(
+                        MemberOfEdge(
+                            member=qn,
+                            parent=parent_qn,
+                            confidence=Confidence.EXTRACTED,
+                            evidence="tree-sitter-ast-walk",
+                        )
+                    )
+                    member_of_count += 1
 
         return BuildGraphOutput(
             enabled=True,
@@ -296,6 +326,7 @@ class BuildGraphPhase(Phase):
             file_count=file_count,
             symbol_count=symbol_count,
             defines_count=defines_count,
+            member_of_count=member_of_count,
         )
 
 

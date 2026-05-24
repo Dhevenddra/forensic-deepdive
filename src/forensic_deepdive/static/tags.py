@@ -249,7 +249,13 @@ TAGS_SCM: dict[str, str] = {
 
 @dataclass(frozen=True, slots=True)
 class Tag:
-    """One defined or referenced symbol located in a source file."""
+    """One defined or referenced symbol located in a source file.
+
+    DEC-023: for definition tags, ``parent`` is the dotted chain of enclosing
+    parent definitions (outermost-to-innermost), e.g. ``"Outer.Inner"`` for a
+    method ``method`` nested in ``Outer.Inner``. Empty string for top-level
+    definitions and for reference tags.
+    """
 
     rel_path: str
     name: str
@@ -257,6 +263,35 @@ class Tag:
     category: str  # e.g. "class", "function", "type", "interface", "call"
     line: int  # 0-based start row
     language: str  # tree-sitter grammar of the source file (DEC-012)
+    parent: str = ""  # dotted parent-definition chain (DEC-023)
+
+
+# DEC-023 — node types that count as "parent definitions" for the walk-up
+# pass. A method/field/inner-class's qualified name prepends the names of
+# every ancestor of one of these types. The set is intentionally per-language
+# (not language-family) because grammar names diverge.
+#
+# Go is special: methods don't lexically nest in their type — they bind via
+# a receiver parameter list. ``_parent_chain`` special-cases it; the entry
+# stays empty here.
+_PARENT_DEF_TYPES: dict[str, frozenset[str]] = {
+    "python": frozenset({"class_definition"}),
+    "c": frozenset(),  # no methods / nested types worth chaining in v0.2
+    "dart": frozenset({"class_definition", "mixin_declaration", "extension_declaration"}),
+    "swift": frozenset(
+        {
+            "class_declaration",
+            "protocol_declaration",
+            "struct_declaration",
+            "enum_declaration",
+        }
+    ),
+    "typescript": frozenset({"class_declaration", "interface_declaration"}),
+    "tsx": frozenset({"class_declaration", "interface_declaration"}),
+    "javascript": frozenset({"class_declaration"}),
+    "java": frozenset({"class_declaration", "interface_declaration", "enum_declaration"}),
+    "go": frozenset(),  # see Go branch in _parent_chain
+}
 
 
 @cache
@@ -272,6 +307,84 @@ def _row(node: Node) -> int:
     """Return the 0-based start row of *node* (handles Point or tuple)."""
     point = node.start_point
     return point.row if hasattr(point, "row") else point[0]
+
+
+def _go_method_receiver_type(method_decl: Node) -> str:
+    """Read the receiver-type name from a Go ``method_declaration``.
+
+    Go method shape::
+
+        method_declaration
+          parameter_list             ← receiver list (always the FIRST one)
+            parameter_declaration
+              identifier             ← receiver var (g)
+              [pointer_type            ← optional
+                type_identifier]    ← the parent type
+              type_identifier        ← also valid (value receiver)
+          field_identifier           ← method name
+          parameter_list             ← actual parameters
+          ...
+
+    Returns the parent type's name (``"Greeter"`` for either
+    ``func (g *Greeter) M()`` or ``func (g Greeter) M()``), or empty string
+    if the receiver shape is unfamiliar.
+    """
+    for child in method_decl.children:
+        if child.type != "parameter_list":
+            continue
+        # First parameter_list is the receiver.
+        for param in child.children:
+            if param.type != "parameter_declaration":
+                continue
+            for grandchild in param.children:
+                if grandchild.type == "type_identifier":
+                    return grandchild.text.decode("utf-8", "replace")
+                if grandchild.type == "pointer_type":
+                    for ggc in grandchild.children:
+                        if ggc.type == "type_identifier":
+                            return ggc.text.decode("utf-8", "replace")
+        return ""
+    return ""
+
+
+def _parent_chain(name_node: Node, language: str) -> str:
+    """Return the dotted parent-definition chain for *name_node* (DEC-023).
+
+    For Go methods, reads the receiver type — the only language whose
+    method-to-type binding is non-lexical. For every other language, walks
+    up ``node.parent`` collecting names of enclosing nodes whose type is in
+    ``_PARENT_DEF_TYPES[language]``. The walk collects innermost-first;
+    the returned string is outermost-to-innermost joined by ``.``.
+
+    Returns ``""`` for top-level definitions, for unsupported languages
+    (``_PARENT_DEF_TYPES`` empty), and when the walk-up never hits a parent
+    definition.
+    """
+    if language == "go":
+        ancestor = name_node.parent
+        while ancestor is not None:
+            if ancestor.type == "method_declaration":
+                return _go_method_receiver_type(ancestor)
+            ancestor = ancestor.parent
+        return ""
+
+    parent_types = _PARENT_DEF_TYPES.get(language, frozenset())
+    if not parent_types:
+        return ""
+    chain: list[str] = []
+    ancestor = name_node.parent
+    while ancestor is not None:
+        if ancestor.type in parent_types:
+            name_field = ancestor.child_by_field_name("name")
+            # Skip the ancestor whose ``name:`` field IS the node we started
+            # from — that ancestor IS the definition we're naming, not its
+            # parent. A class's own identifier must not show the class as
+            # its own parent.
+            if name_field is not None and name_field.id != name_node.id:
+                chain.append(name_field.text.decode("utf-8", "replace"))
+        ancestor = ancestor.parent
+    chain.reverse()
+    return ".".join(chain)
 
 
 def extract_tags(parsed: ParsedFile) -> list[Tag]:
@@ -318,6 +431,12 @@ def extract_tags(parsed: ParsedFile) -> list[Tag]:
             if key in seen:
                 continue
             seen.add(key)
+            # DEC-023: definitions carry their dotted parent chain so the
+            # graph build phase can write correct qualified names and
+            # MEMBER_OF edges. References don't carry parent today (their
+            # *resolution target's* parent is computed by the v0.2 CALLS
+            # resolver — see REMAINING.md item 8b step 3).
+            parent = _parent_chain(node, parsed.language) if kind == "def" else ""
             tags.append(
                 Tag(
                     rel_path=parsed.rel_path,
@@ -326,8 +445,9 @@ def extract_tags(parsed: ParsedFile) -> list[Tag]:
                     category=category,
                     line=_row(node),
                     language=parsed.language,
+                    parent=parent,
                 )
             )
 
-    tags.sort(key=lambda t: (t.line, t.kind, t.name))
+    tags.sort(key=lambda t: (t.line, t.kind, t.name, t.parent))
     return tags

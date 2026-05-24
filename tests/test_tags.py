@@ -145,3 +145,109 @@ def test_tags_carry_language() -> None:
     assert all(tag.language == "python" for tag in tags)
     dart_tags = _tags("dart_sample/greeter.dart")
     assert all(tag.language == "dart" for tag in dart_tags)
+
+
+# ---------------------------------------------------------------------------
+# DEC-023 — parent chain on definition Tags
+# ---------------------------------------------------------------------------
+
+
+def _defs(rel: str) -> dict[tuple[str, str], str]:
+    """Return ``{(name, category): parent}`` for every def Tag in *rel*."""
+    return {(t.name, t.category): t.parent for t in _tags(rel) if t.kind == "def"}
+
+
+def test_parent_top_level_is_empty_string_python() -> None:
+    defs = _defs("python_sample/greeter.py")
+    assert defs[("Greeter", "class")] == ""
+    assert defs[("format_message", "function")] == ""
+
+
+def test_parent_class_method_python() -> None:
+    defs = _defs("python_sample/greeter.py")
+    assert defs[("greet", "function")] == "Greeter"
+    assert defs[("__init__", "function")] == "Greeter"
+
+
+def test_parent_class_method_typescript() -> None:
+    defs = _defs("typescript_sample/greeter.ts")
+    assert defs[("greet", "method")] == "Greeter"
+    assert defs[("formatMessage", "function")] == ""
+
+
+def test_parent_java_methods_across_classes() -> None:
+    """Two declarations named ``name`` — one in interface ``Named``, one
+    in class ``Greeter`` — must each report their respective parent."""
+    defs = _defs("java_sample/Greeter.java")
+    # Tag dict keys (name, category) collide for `name` (one is interface
+    # method, one is class method, same category "method"). Re-derive
+    # without collapsing.
+    raw_defs = [t for t in _tags("java_sample/Greeter.java") if t.kind == "def"]
+    name_parents = {t.parent for t in raw_defs if t.name == "name"}
+    assert name_parents == {"Named", "Greeter"}
+    assert defs[("greet", "method")] == "Greeter"
+
+
+def test_parent_go_receiver_methods() -> None:
+    """Go's receiver-bound methods (``func (g *Greeter) Greet()``) are
+    NOT lexically inside the type — the parent comes from the receiver
+    type. DEC-023's Go branch handles this."""
+    defs = _defs("go_sample/greeter.go")
+    assert defs[("Greet", "method")] == "Greeter"
+    assert defs[("Name", "method")] == "Greeter"
+    assert defs[("formatMessage", "function")] == ""
+    assert defs[("Greeter", "type")] == ""
+
+
+def test_parent_dart_class_method() -> None:
+    defs = _defs("dart_sample/greeter.dart")
+    assert defs[("greet", "function")] == "Greeter"
+    assert defs[("formatMessage", "function")] == ""
+
+
+def test_parent_swift_class_method() -> None:
+    defs = _defs("swift_sample/Greeter.swift")
+    assert defs[("greet", "function")] == "Greeter"
+    assert defs[("formatMessage", "function")] == ""
+
+
+def test_parent_javascript_class_method() -> None:
+    defs = _defs("javascript_sample/greeter.js")
+    assert defs[("greet", "method")] == "Greeter"
+    assert defs[("formatMessage", "function")] == ""
+
+
+def test_parent_references_never_carry_parent() -> None:
+    """Reference Tags don't carry parent today — their *resolution
+    target's* parent is computed by the CALLS resolver."""
+    for rel in (
+        "python_sample/app.py",
+        "java_sample/Main.java",
+        "go_sample/main.go",
+    ):
+        for tag in _tags(rel):
+            if tag.kind == "ref":
+                assert tag.parent == "", (rel, tag)
+
+
+def test_parent_class_never_lists_itself_as_parent() -> None:
+    """Regression guard for the early-cycle bug: a class's own identifier
+    walking up the AST hits its own class_definition and would have
+    returned its own name as parent. DEC-023 skips the self-ancestor."""
+    for rel in (
+        "python_sample/greeter.py",
+        "dart_sample/greeter.dart",
+        "swift_sample/Greeter.swift",
+        "typescript_sample/greeter.ts",
+        "javascript_sample/greeter.js",
+        "java_sample/Greeter.java",
+    ):
+        for tag in _tags(rel):
+            if tag.kind == "def" and tag.category in {
+                "class",
+                "interface",
+                "enum",
+                "type",
+            }:
+                # Top-level types must not name themselves.
+                assert tag.parent != tag.name, (rel, tag)
