@@ -200,6 +200,28 @@ def query(
             console.print(f"  {line}")
 
 
+@app.command(name="list")
+def list_repos() -> None:
+    """List repos in the multi-repo registry (DEC-018)."""
+    from forensic_deepdive.registry import load
+
+    registry = load()
+    if not registry.repos:
+        console.print("[dim]No repos in registry. Run `forensic extract <repo>` to add one.[/dim]")
+        return
+    console.print(
+        f"[bold green]{len(registry.repos)} registered repo(s)[/bold green] "
+        f"in the forensic-deepdive registry:"
+    )
+    for entry in sorted(registry.repos, key=lambda r: r.name):
+        graph = entry.graph_db_path or "[dim](no graph)[/dim]"
+        console.print(
+            f"  [cyan]{entry.name}[/cyan] — {entry.repo_path}\n"
+            f"    graph: {graph}\n"
+            f"    last extracted: {entry.last_extracted_at}"
+        )
+
+
 @app.command()
 def serve(
     repo: Annotated[

@@ -20,6 +20,7 @@ from forensic_deepdive.pipeline.phases import (
     default_phases,
 )
 from forensic_deepdive.pipeline.runner import Context, ExtractConfig, PipelineRunner
+from forensic_deepdive.registry import register as register_repo
 
 _DEFAULT_OUTPUT_SUBDIR = ("docs", "codebase")
 
@@ -117,6 +118,14 @@ def run_extract(
         emit_out.facts.generated_at.isoformat(),
         list(emit_out.artifacts),
     )
+
+    # DEC-018: register the repo in ~/.deepdive/registry.json so
+    # `forensic list` shows it (and v0.3 multi-repo MCP can find it).
+    # Best-effort — registry write failures must not break extract.
+    import contextlib
+
+    with contextlib.suppress(OSError):
+        register_repo(repo_path, emit_out.facts.graph_db_path)
 
     return ExtractResult(
         repo_path=repo_path,
