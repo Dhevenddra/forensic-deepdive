@@ -39,18 +39,22 @@ MCP server depends on them.
 ## Current state (snapshot)
 
 - **Branch:** `main`. Tree clean. Never pushed.
-- **Tests:** 157 passing. `ruff check` + `ruff format` clean.
+- **Tests:** 212 passing. `ruff check` + `ruff format` clean.
 - **PRD §10 progress:** 7 of 14 done (items 1, 2, 4, 5, 6, 7, 8).
-- **Latest commit:** `6536da3 feat: BuildGraphPhase populates LadybugDB
-  with File+Symbol+DEFINES (DEC-013)`.
-- **Active DECs:** DEC-001 → DEC-014, DEC-020, DEC-021, DEC-022.
-  (DEC-015, DEC-016, DEC-017, DEC-018, DEC-019 reserved per PRD §6 for
-  the items below.)
+- **Item 8b progress:** steps 1 + 2 of 6 done. Steps 3–6 remain.
+- **Latest commit:** `2b820a8 feat: IMPORTS edges + Module nodes for
+  all 8 languages (DEC-024, item 8b step 2)`.
+- **Active DECs:** DEC-001 → DEC-014, DEC-020, DEC-021, DEC-022,
+  DEC-023, DEC-024. (DEC-015, DEC-016, DEC-017, DEC-018, DEC-019
+  reserved per PRD §6 for the items below.)
 - **Languages:** 8 (Python, C, Dart, Swift, TypeScript, JavaScript, Java,
   Go). TSX grammar wired but not exhaustively fixture-tested.
 - **Persistent graph:** opt-in via `ExtractConfig.build_graph_db=True`.
-  Writes File + Symbol + DEFINES. CALLS / IMPORTS / Module / Commit /
-  Author deferred.
+  Writes File + Symbol + DEFINES + MEMBER_OF (DEC-023) + Module +
+  IMPORTS (DEC-024). CALLS / Commit / Author / TOUCHED_BY_COMMIT /
+  CO_CHANGES_WITH / EXTENDS / IMPLEMENTS still to come.
+- **Polyglot end-to-end:** 17-file 8-language repo → 47 symbols, 47
+  DEFINES, 16 MEMBER_OF, 8 Modules, 9 IMPORTS in one shared `.lbug`.
 
 ## Remaining PRD §10 items, in suggested order
 
@@ -315,14 +319,19 @@ DEFINES`. Under the "no half-baked" discipline above, the rest of v0.2
   satisfaction is v0.3 stretch). `EXTRACTED` from AST.
 
 Implementation order:
-1. **MEMBER_OF first** (no new IO, just AST). Quick win, unblocks
-   symbol-qualified-name correctness (`Greeter.greet` not just
-   `greet`).
-2. **IMPORTS + Module nodes** — per-language `imports.scm`. Enables
-   the resolver.
-3. **CALLS resolver** with the 4-step algorithm above. Each language
-   gets its own per-language receiver-type inferer; the
-   import-graph walk is shared.
+1. ✅ **MEMBER_OF** (DEC-023, commit `96a50eb`). Tag.parent + Symbol
+   qualified-name parent chain + MEMBER_OF edges across all 8 langs
+   including Go's receiver pattern.
+2. ✅ **IMPORTS + Module nodes** (DEC-024, commit `2b820a8`).
+   Per-language code-walk extractors, language-prefixed Module PK
+   (`python:os` vs `go:os`) to dodge real-ladybug's single-column-PK
+   limitation. All 8 langs covered.
+3. ⏭ **CALLS resolver** (next session — REMAINING priority). The
+   4-step algorithm above. Each language gets its own per-language
+   receiver-type inferer; the import-graph walk is shared. Uses
+   MEMBER_OF (step 1) for `this.method()` → `EnclosingClass.method`
+   resolution and IMPORTS (step 2) for cross-file walks. Likely the
+   biggest single chunk of v0.2. DEC-025 captures the algorithm.
 4. **Commit / Author / TOUCHED_BY_COMMIT / AUTHORED_BY** —
    HistoryPhase data into the graph.
 5. **CO_CHANGES_WITH** — derived from #4.
@@ -330,7 +339,7 @@ Implementation order:
 
 This is substantial. It is the actual v0.2 work — items 9, 10, 11 are
 mostly *consumers* of this graph. Do not start items 9–11 before this
-is real. Probably 2–3 sessions of focused work.
+is real. Probably 1–2 more sessions of focused work to finish item 8b.
 
 ## Deferred to v0.3 (do NOT do in v0.2)
 
@@ -361,24 +370,28 @@ docs/v0.2/REMAINING.md (the forward-looking roadmap — its
 "Operating discipline" section is load-bearing). Confirm in one
 sentence what you understand.
 
-Then start at item 8b in REMAINING.md (extending BuildGraphPhase to
-full v0.2 scope: MEMBER_OF, IMPORTS+Module, the real CALLS resolver,
-Commit/Author/TOUCHED_BY_COMMIT, CO_CHANGES_WITH, EXTENDS/IMPLEMENTS).
-These block items 9, 10, 11 — do them properly before any consumer
-ships. Likely 2–3 sessions.
+Then start at item 8b step 3 (CALLS resolver). Steps 1 (MEMBER_OF
+via DEC-023) and 2 (IMPORTS via DEC-024) are done — see PROGRESS.md
+2026-05-25.
 
-Work the implementation order in REMAINING.md item 8b:
-  1. MEMBER_OF (quick win, no new IO)
-  2. IMPORTS + Module nodes (per-language imports.scm)
-  3. CALLS resolver (real 4-step algorithm — not AMBIGUOUS placeholders)
-  4. Commit / Author / TOUCHED_BY_COMMIT / AUTHORED_BY
-  5. CO_CHANGES_WITH (derived from #4)
-  6. EXTENDS / IMPLEMENTS
+Step 3 is the BIG one. The graph now has File + Symbol + DEFINES +
+MEMBER_OF + Module + IMPORTS. The 4-step CALLS resolver (REMAINING.md
+item 8b spec) walks them:
+  1. Same-file lexical scope -> EXTRACTED
+  2. Import-graph walk (uses Module + IMPORTS) -> EXTRACTED or
+     INFERRED for wildcards/re-exports
+  3. Receiver-type inference (uses MEMBER_OF for this/self) -> INFERRED
+  4. Cross-file same-name fallback -> AMBIGUOUS, surface all candidates
 
-For each step: write the DEC if it's an architectural decision (DEC-023
-onward); add the LadybugStore writes + tests; extend BuildGraphPhase;
-test round-trip against the real fixtures (single-language + the
-8-language polyglot test from test_build_graph_phase.py).
+Write a new DEC-025 capturing the algorithm and per-language
+receiver-type-inference rules. Add LadybugStore.add_calls + tests;
+extend BuildGraphPhase to run the resolver per ref Tag and write the
+CALLS edges with their resolved confidence.
+
+After step 3, steps 4 (Commit/Author/TOUCHED_BY_COMMIT/AUTHORED_BY),
+5 (CO_CHANGES_WITH derived from step 4), 6 (EXTENDS/IMPLEMENTS) round
+out item 8b. Then items 9 (markdown from graph) and 10 (MCP server)
+become real.
 
 Working autonomy: full freedom to install tools and web-search
 version-sensitive facts. Spend time on hard problems — write custom
