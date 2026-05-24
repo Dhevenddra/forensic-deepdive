@@ -5,6 +5,37 @@
 > truth for sequencing; the PRD is the source of truth for *what* each
 > item means.
 
+## Operating discipline (load-bearing — read first)
+
+forensic-deepdive is a **real product**, not a prototype. The bar
+across every remaining item:
+
+- **Never ship half-baked code or code with compromised functionality.**
+  Spend the time. Write the custom algorithm. Read the upstream
+  grammar. Dig into the AST. Don't accept "kinda works."
+- **Before deferring a sub-feature, ask: does the parent feature work
+  without it?** If MCP `impact()` needs CALLS edges, finish CALLS
+  before shipping `impact()`. Don't ship a tool whose own success
+  metric is gated on missing data.
+- **NotImplementedError with a PRD-pointing message** for surface area
+  the current scope doesn't claim to support is fine. Silent
+  half-functionality is not.
+- **Explicit deferrals to a clearly-scoped future version** (per PRD
+  §11) are scope decisions, not compromises. Document them honestly.
+- **PRD §5 acceptance gates are floors, not ceilings.** Determinism,
+  sub-second `context()`, byte-identical graph hashes — aim past them.
+
+This rules out: emitter cutovers that fall back to in-memory NetworkX
+for "the cases that don't work yet"; AGENT_BRIEF rules that mark
+everything EXTRACTED because INFERRED branches are unwritten; an MCP
+server whose `impact()` returns placeholder AMBIGUOUS edges because
+the real resolver is "future work."
+
+This explicitly **adjusts the deferrals in item 8 below**: CALLS /
+IMPORTS / Commit / Author / TOUCHED_BY_COMMIT edges are part of v0.2,
+not "PRD §10 future." They land before the MCP server, because the
+MCP server depends on them.
+
 ## Current state (snapshot)
 
 - **Branch:** `main`. Tree clean. Never pushed.
@@ -237,32 +268,69 @@ repo**'s `.claude/skills/`. Don't conflate.
 5. Commit `chore: bump to 0.2.0`.
 6. `git tag v0.2.0`. **Never push without explicit ask.**
 
-## Extending BuildGraphPhase (not a PRD item, but blocks items 10, 11)
+## Item 8b — Extending BuildGraphPhase to full v0.2 scope  **(blocks 9, 10, 11)**
 
-The v0.2 phase-1 build writes only `File + Symbol + DEFINES`. Items 10
-and 11 want more:
+The phase-1 build (commit `6536da3`) writes only `File + Symbol +
+DEFINES`. Under the "no half-baked" discipline above, the rest of v0.2
+**must** land before the consumers that need them:
 
-- **CALLS edges** — needs symbol-level resolution. Not just v0.1's name
-  matching; we need to know that `app.py:foo()` calls
-  `greeter.py::Greeter.greet`. This is the real v0.3 work but a v0.2
-  minimal version that emits `AMBIGUOUS` CALLS for every plausible
-  candidate (per DEC-015) would be enough for `impact()` to do
-  something.
-- **IMPORTS edges** — extract `from X import Y` / `import { Z } from
-  './y'` / `import "fmt"` etc. Each language needs an `imports.scm` or
-  an extension to the existing query.
-- **Module nodes** — populated from imports.
+- **CALLS edges** — symbol-level resolution. v0.2 ships a real resolver,
+  not an AMBIGUOUS placeholder. Algorithm:
+  1. **Same-file lexical scope** — calls to names defined in the same
+     file resolve to that file's Symbol (`EXTRACTED`).
+  2. **Import-graph walk** — extract IMPORTS from each file (see below),
+     resolve calls to imported names against the imported module's
+     symbols (`EXTRACTED` when the import is unambiguous, `INFERRED`
+     when import is a wildcard / re-export).
+  3. **Receiver-type inference for method calls** — constructor-call
+     return type (`new Greeter(...)` → `Greeter`), simple typed-param
+     declarations (TS / Java / Go signatures), `self` / `this` →
+     enclosing class. Confidence `INFERRED`.
+  4. **Cross-file same-name fallback** — only when 1-3 fail and exactly
+     one same-language file in the repo defines the name; otherwise
+     `AMBIGUOUS` with all candidates surfaced (per DEC-015).
+  This is real work — a small custom resolver per language family. Do
+  not ship `impact()` without it.
+- **IMPORTS edges + Module nodes** — each language gets an
+  `imports.scm` query alongside its `tags.scm`. Python `import x.y`
+  and `from x import y`; TS / JS `import {Z} from './y'` and
+  `require('y')`; Java `import pkg.Class;`; Go `import "pkg"`; Dart
+  `import 'package:foo/bar.dart';`; Swift `import Foo`; C
+  `#include "x.h"`. Module nodes populated from these. Confidence
+  `EXTRACTED` — imports are AST-deterministic.
 - **Commit + Author nodes + TOUCHED_BY_COMMIT + AUTHORED_BY edges** —
-  blocks `archaeology()` MCP tool. Implement before item 10. Plumbed
-  via a new sub-phase or by extending BuildGraphPhase to accept
-  `HistoryPhase` output as a dep.
-- **CO_CHANGES_WITH edges** — computed from `TOUCHED_BY_COMMIT` joins.
+  HistoryPhase already produces this data; the build phase writes it.
+  Required for the `archaeology()` MCP tool.
+- **CO_CHANGES_WITH edges** — computed from `TOUCHED_BY_COMMIT` joins,
+  threshold ≥ 3 co-occurrences (Aider's heuristic). `INFERRED` by
+  default (DEC-013 schema). Required for the "if you touch X also
+  touch Y" rules in AGENT_BRIEF.
+- **MEMBER_OF edges** — for class methods → their class, struct fields
+  → their struct. AST-deterministic during the tag-extraction pass —
+  capture `name.definition.method` with its parent class name.
+  `EXTRACTED`.
+- **EXTENDS / IMPLEMENTS edges** — `class A extends B`, `class A
+  implements I`, Java `extends` / `implements`, Go interface
+  satisfaction (only the declared kind — structural Go interface
+  satisfaction is v0.3 stretch). `EXTRACTED` from AST.
 
-Suggested sequencing for v0.2: do Commit/Author/TOUCHED_BY_COMMIT
-**before** item 10 starts (it's a 30-60 min extension of BuildGraphPhase
-once the schema work is already done). Defer CALLS resolution to v0.3 —
-v0.2's MCP `impact()` returns `tests_NOT_covering` lists based on
-DEFINES + naming convention until a real resolver lands.
+Implementation order:
+1. **MEMBER_OF first** (no new IO, just AST). Quick win, unblocks
+   symbol-qualified-name correctness (`Greeter.greet` not just
+   `greet`).
+2. **IMPORTS + Module nodes** — per-language `imports.scm`. Enables
+   the resolver.
+3. **CALLS resolver** with the 4-step algorithm above. Each language
+   gets its own per-language receiver-type inferer; the
+   import-graph walk is shared.
+4. **Commit / Author / TOUCHED_BY_COMMIT / AUTHORED_BY** —
+   HistoryPhase data into the graph.
+5. **CO_CHANGES_WITH** — derived from #4.
+6. **EXTENDS / IMPLEMENTS** — AST extraction per language.
+
+This is substantial. It is the actual v0.2 work — items 9, 10, 11 are
+mostly *consumers* of this graph. Do not start items 9–11 before this
+is real. Probably 2–3 sessions of focused work.
 
 ## Deferred to v0.3 (do NOT do in v0.2)
 
@@ -289,24 +357,34 @@ can be folded into item 10 or done as a standalone commit.
 
 ```
 Read CLAUDE.md, DECISIONS.md, PROGRESS.md, docs/v0.2/PRD_v0.2.md, and
-docs/v0.2/REMAINING.md (the forward-looking roadmap). Confirm in one
-sentence what you understand, then pick up at the supervisor-chosen
-next item:
+docs/v0.2/REMAINING.md (the forward-looking roadmap — its
+"Operating discipline" section is load-bearing). Confirm in one
+sentence what you understand.
 
-* If item 9 (markdown from graph): start by reading
-  src/forensic_deepdive/emit/* to scope the rewrite, then EmitPhase
-  in pipeline/phases.py. Flipping build_graph_db default to True is
-  the success signal.
-* If item 10 (MCP server): start by extending BuildGraphPhase to emit
-  Commit + Author + TOUCHED_BY_COMMIT (the archaeology MCP tool
-  depends on these). Then write src/forensic_deepdive/mcp/server.py
-  with the 5 composite tools (DEC-016).
-* Anything else: cite the REMAINING.md item before starting.
+Then start at item 8b in REMAINING.md (extending BuildGraphPhase to
+full v0.2 scope: MEMBER_OF, IMPORTS+Module, the real CALLS resolver,
+Commit/Author/TOUCHED_BY_COMMIT, CO_CHANGES_WITH, EXTENDS/IMPLEMENTS).
+These block items 9, 10, 11 — do them properly before any consumer
+ships. Likely 2–3 sessions.
 
-Working autonomy: same as v0.2 kickoff — full freedom to install
-tools and web-search version-sensitive facts, but write a DEC for any
-deviation from PRD or REMAINING.md and ping Dhevenddra before
-implementing the deviation.
+Work the implementation order in REMAINING.md item 8b:
+  1. MEMBER_OF (quick win, no new IO)
+  2. IMPORTS + Module nodes (per-language imports.scm)
+  3. CALLS resolver (real 4-step algorithm — not AMBIGUOUS placeholders)
+  4. Commit / Author / TOUCHED_BY_COMMIT / AUTHORED_BY
+  5. CO_CHANGES_WITH (derived from #4)
+  6. EXTENDS / IMPLEMENTS
+
+For each step: write the DEC if it's an architectural decision (DEC-023
+onward); add the LadybugStore writes + tests; extend BuildGraphPhase;
+test round-trip against the real fixtures (single-language + the
+8-language polyglot test from test_build_graph_phase.py).
+
+Working autonomy: full freedom to install tools and web-search
+version-sensitive facts. Spend time on hard problems — write custom
+algorithms, read upstream grammars, dig into ASTs. Don't ship
+half-baked. If the work doesn't fit one session, finish it across
+multiple — under-baked single sessions are the failure mode.
 
 Session-end protocol unchanged: PROGRESS.md entry, new DEC if
 applicable, conventional-commit messages, never push.
