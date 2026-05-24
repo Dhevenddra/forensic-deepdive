@@ -108,31 +108,12 @@ def test_still_unimplemented_writes_raise_with_clear_message(tmp_path):
     with a PRD-pointing message. As each step in REMAINING.md item 8b
     lands, methods move from this list to the round-trip tests."""
     from forensic_deepdive.graph import (
-        Author,
         CoChangesWithEdge,
-        Commit,
         ExtendsEdge,
         ImplementsEdge,
-        TouchedByCommitEdge,
     )
 
     with LadybugStore(tmp_path / "graph.lbug") as store:
-        # Step 4 — Commit / Author / TOUCHED_BY_COMMIT (REMAINING item 8b
-        # step 4).
-        with pytest.raises(NotImplementedError, match="PRD"):
-            store.add_author(Author(email_canonical="x@y", name="X"))
-        with pytest.raises(NotImplementedError, match="PRD"):
-            store.add_commit(
-                Commit(
-                    sha="x",
-                    author_email="x@y",
-                    date="2026-05-24T00:00:00Z",
-                    message="m",
-                    files_touched_count=1,
-                )
-            )
-        with pytest.raises(NotImplementedError, match="PRD"):
-            store.add_touched_by_commit(TouchedByCommitEdge(file_path="a", commit_sha="x"))
         # Step 5 — CO_CHANGES_WITH derived from history.
         with pytest.raises(NotImplementedError, match="PRD"):
             store.add_co_changes_with(CoChangesWithEdge(file_a="a", file_b="b"))

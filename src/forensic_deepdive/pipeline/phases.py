@@ -32,7 +32,10 @@ from forensic_deepdive.flatten.repomix_backend import (
     is_repomix_available,
 )
 from forensic_deepdive.graph import (
+    Author,
+    AuthoredByEdge,
     CallsEdge,
+    Commit,
     Confidence,
     DefinesEdge,
     File,
@@ -42,6 +45,7 @@ from forensic_deepdive.graph import (
     Module,
     Symbol,
     SymbolKind,
+    TouchedByCommitEdge,
 )
 from forensic_deepdive.graph.schema import FileRole, module_pk
 from forensic_deepdive.history.git_archaeology import GitHistory, analyze_history
@@ -108,6 +112,10 @@ class BuildGraphOutput:
     module_count: int = 0  # Module nodes written (DEC-024)
     imports_count: int = 0  # IMPORTS edges written (DEC-024)
     calls_count: int = 0  # CALLS edges written (DEC-025)
+    commit_count: int = 0  # Commit nodes written (DEC-026)
+    author_count: int = 0  # Author nodes written (DEC-026)
+    touched_by_commit_count: int = 0  # TOUCHED_BY_COMMIT edges written (DEC-026)
+    authored_by_count: int = 0  # AUTHORED_BY edges written (DEC-026)
 
 
 # ---------------------------------------------------------------------------
@@ -184,11 +192,17 @@ class HistoryPhase(Phase):
 
     def run(self, ctx: Context) -> HistoryOutput:
         cfg = ctx.config
+        # DEC-026: when building the LadybugDB graph, request full
+        # per-commit metadata + file lists so BuildGraphPhase can write
+        # Commit / Author / TOUCHED_BY_COMMIT / AUTHORED_BY. The v0.1
+        # path leaves this off — the extra ``git log --name-only`` pass
+        # costs nothing on small repos but is measurable on huge ones.
         return HistoryOutput(
             history=analyze_history(
                 cfg.repo_path,
                 fetch_github=cfg.fetch_github,
                 github_token=cfg.github_token,
+                include_commit_files=cfg.build_graph_db,
             )
         )
 
@@ -251,16 +265,16 @@ class BuildGraphPhase(Phase):
     """Persist the v0.1 in-memory analysis into a LadybugDB graph
     (DEC-013, PRD §10 item 8).
 
-    Writes File + Symbol nodes and DEFINES edges. v0.2 phase 1 stops there
-    — CALLS edges require a symbol-level resolver (PRD §10 future), and
-    IMPORTS / MEMBER_OF land alongside it. The phase is **opt-in** via
-    ``ExtractConfig.build_graph_db`` so the v0.1 cache + golden tests stay
-    untouched until the markdown emitters cut over to read from the graph
-    (PRD §10 item 9).
+    Writes File + Symbol + Module + Commit + Author nodes and
+    DEFINES + MEMBER_OF + IMPORTS + CALLS + TOUCHED_BY_COMMIT +
+    AUTHORED_BY edges. The phase is **opt-in** via
+    ``ExtractConfig.build_graph_db`` so the v0.1 cache + golden tests
+    stay untouched until the markdown emitters cut over to read from
+    the graph (PRD §10 item 9).
     """
 
     name = "build_graph"
-    depends_on = ("inventory", "static")
+    depends_on = ("inventory", "static", "history")
     output_type = BuildGraphOutput
 
     def run(self, ctx: Context) -> BuildGraphOutput:
@@ -314,8 +328,53 @@ class BuildGraphPhase(Phase):
         source_files_by_path = {sf.rel_path: sf.language for sf in inv.source_files}
         resolved_calls = resolve_calls(static.tags, static.imports, source_files_by_path)
 
+        # DEC-026: history data into the graph. Authors aggregated from
+        # commit records (mailmap-canonical post-DEC-022), commits keyed
+        # by sha, edges only for files present in the inventory's source
+        # set (git history may reference deleted / renamed / vendored
+        # files we don't analyze).
+        history = ctx.get(HistoryPhase).history
+        author_records: dict[str, Author] = {}  # email_canonical -> Author
+        commit_records_to_write: list[Commit] = []
+        edges_authored_by: list[AuthoredByEdge] = []
+        edges_touched_by_commit: list[TouchedByCommitEdge] = []
+        for commit in history.commits:
+            commit_records_to_write.append(
+                Commit(
+                    sha=commit.sha,
+                    author_email=commit.author_email,
+                    date=commit.date.isoformat() if commit.date else "",
+                    message=commit.message_subject,
+                    files_touched_count=len(commit.files_touched),
+                )
+            )
+            author_records.setdefault(
+                commit.author_email,
+                Author(email_canonical=commit.author_email, name=commit.author_name),
+            )
+            edges_authored_by.append(
+                AuthoredByEdge(
+                    commit_sha=commit.sha,
+                    author_email=commit.author_email,
+                    confidence=Confidence.EXTRACTED,
+                    evidence="git-log",
+                )
+            )
+            for file_path in commit.files_touched:
+                if file_path in source_file_paths:
+                    edges_touched_by_commit.append(
+                        TouchedByCommitEdge(
+                            file_path=file_path,
+                            commit_sha=commit.sha,
+                            confidence=Confidence.EXTRACTED,
+                            evidence="git-log-name-only",
+                        )
+                    )
+
         file_count = symbol_count = defines_count = member_of_count = 0
         module_count = imports_count = calls_count = 0
+        commit_count = author_count = 0
+        touched_by_commit_count = authored_by_count = 0
         with LadybugStore(db_path) as store:
             for sf in inv.source_files:
                 store.add_file(_source_to_file(sf, cfg.repo_path))
@@ -428,6 +487,25 @@ class BuildGraphPhase(Phase):
                 )
                 calls_count += 1
 
+            # DEC-026: history into the graph. Authors first (Commits
+            # reference them via AUTHORED_BY), then Commits, then the
+            # two edge types. Deterministic order via sorted iteration.
+            for email in sorted(author_records):
+                store.add_author(author_records[email])
+                author_count += 1
+            commit_records_to_write.sort(key=lambda c: c.sha)
+            for commit in commit_records_to_write:
+                store.add_commit(commit)
+                commit_count += 1
+            edges_authored_by.sort(key=lambda e: (e.commit_sha, e.author_email))
+            for edge in edges_authored_by:
+                store.add_authored_by(edge)
+                authored_by_count += 1
+            edges_touched_by_commit.sort(key=lambda e: (e.file_path, e.commit_sha))
+            for edge in edges_touched_by_commit:
+                store.add_touched_by_commit(edge)
+                touched_by_commit_count += 1
+
         return BuildGraphOutput(
             enabled=True,
             db_path=db_path,
@@ -438,6 +516,10 @@ class BuildGraphPhase(Phase):
             module_count=module_count,
             imports_count=imports_count,
             calls_count=calls_count,
+            commit_count=commit_count,
+            author_count=author_count,
+            touched_by_commit_count=touched_by_commit_count,
+            authored_by_count=authored_by_count,
         )
 
 

@@ -678,6 +678,183 @@ def test_calls_ambiguous_when_multiple_same_name_defs(tmp_path):
     ]
 
 
+# ---------------------------------------------------------------------------
+# DEC-026 — Commit / Author / TOUCHED_BY_COMMIT / AUTHORED_BY
+# ---------------------------------------------------------------------------
+
+
+def _git(repo: Path, *args: str, env_extra: dict[str, str] | None = None) -> None:
+    """Local subprocess helper for committing into a tmp repo."""
+    import os
+    import subprocess
+
+    env = os.environ.copy()
+    if env_extra:
+        env.update(env_extra)
+    subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _commit_in(repo: Path, author: str, email: str, date: str, **files: str) -> None:
+    """Commit *files* (name -> contents) with the given author + date."""
+    for name, content in files.items():
+        (repo / name).write_text(content, encoding="utf-8")
+    env = {
+        "GIT_AUTHOR_NAME": author,
+        "GIT_AUTHOR_EMAIL": email,
+        "GIT_AUTHOR_DATE": date,
+        "GIT_COMMITTER_NAME": author,
+        "GIT_COMMITTER_EMAIL": email,
+        "GIT_COMMITTER_DATE": date,
+    }
+    _git(repo, "add", "-A")
+    _git(
+        repo,
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-m",
+        f"add/update {','.join(files)}",
+        env_extra=env,
+    )
+
+
+def _build_in_git(tmp_path: Path) -> tuple[Path, Path]:
+    """Build a small real git repo with commits, return (repo_path, db_path)."""
+    repo = tmp_path / "history_repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _commit_in(
+        repo,
+        author="Alice",
+        email="alice@example.com",
+        date="2022-01-01T00:00:00+00:00",
+        **{"a.py": "def helper():\n    pass\n"},
+    )
+    _commit_in(
+        repo,
+        author="Alice",
+        email="alice@example.com",
+        date="2022-06-15T00:00:00+00:00",
+        **{"a.py": "def helper():\n    return 1\n", "b.py": "from a import helper\n"},
+    )
+    _commit_in(
+        repo,
+        author="Bob",
+        email="bob@example.com",
+        date="2023-03-10T00:00:00+00:00",
+        **{"a.py": "def helper():\n    return 2\n"},
+    )
+    db_path = tmp_path / "graph.lbug"
+    return repo, db_path
+
+
+def test_commit_and_author_nodes_persisted(tmp_path):
+    """DEC-026: BuildGraphPhase writes every non-merge commit and every
+    canonical author. Counts match the git log."""
+    repo, db_path = _build_in_git(tmp_path)
+    out = _build(repo, db_path)
+    assert out.commit_count == 3
+    assert out.author_count == 2  # Alice + Bob
+    with LadybugStore(db_path) as store:
+        rows = list(store.query("MATCH (a:Author) RETURN a.name ORDER BY a.name"))
+        names = [r[0] for r in rows]
+    assert names == ["Alice", "Bob"]
+
+
+def test_authored_by_edges_link_commits_to_authors(tmp_path):
+    """DEC-026: every Commit has exactly one outgoing AUTHORED_BY edge."""
+    repo, db_path = _build_in_git(tmp_path)
+    out = _build(repo, db_path)
+    # 3 commits -> 3 AUTHORED_BY edges.
+    assert out.authored_by_count == 3
+    with LadybugStore(db_path) as store:
+        rows = list(
+            store.query(
+                "MATCH (c:Commit)-[:AUTHORED_BY]->(a:Author) "
+                "RETURN a.name, count(c) ORDER BY a.name"
+            )
+        )
+    by_author = dict(rows)
+    assert by_author["Alice"] == 2
+    assert by_author["Bob"] == 1
+
+
+def test_touched_by_commit_edges_only_for_inventoried_files(tmp_path):
+    """DEC-026: git history may reference files we don't analyze
+    (deleted / renamed / non-source). Only edges to inventoried files
+    are persisted."""
+    repo, db_path = _build_in_git(tmp_path)
+    # Add a markdown commit that touches a non-source file. The repo's
+    # inventory will exclude it; no TOUCHED_BY_COMMIT should be written
+    # for it.
+    _commit_in(
+        repo,
+        author="Carol",
+        email="carol@example.com",
+        date="2023-04-01T00:00:00+00:00",
+        **{"README.md": "hello\n"},
+    )
+    out = _build(repo, db_path)
+    with LadybugStore(db_path) as store:
+        rows = list(
+            store.query(
+                "MATCH (f:File)-[:TOUCHED_BY_COMMIT]->(c:Commit) "
+                "RETURN DISTINCT f.path ORDER BY f.path"
+            )
+        )
+        touched_paths = [r[0] for r in rows]
+    # Only .py files inventoried -> only those have edges.
+    assert "a.py" in touched_paths
+    assert "b.py" in touched_paths
+    assert "README.md" not in touched_paths
+    # 4 commits total now (3 from helper + Carol's) but only 3 touched
+    # source files (a.py x3 commits + b.py x1 commit = 4 edges).
+    assert out.touched_by_commit_count == 4
+
+
+def test_history_edges_use_extracted_confidence(tmp_path):
+    """DEC-026: git history is ground truth — every history-derived edge
+    must be EXTRACTED."""
+    repo, db_path = _build_in_git(tmp_path)
+    _build(repo, db_path)
+    with LadybugStore(db_path) as store:
+        for rel in ("AUTHORED_BY", "TOUCHED_BY_COMMIT"):
+            rows = list(store.query(f"MATCH ()-[r:{rel}]->() RETURN DISTINCT r.confidence"))
+            assert rows == [["EXTRACTED"]], rel
+
+
+def test_authors_deduped_across_commits(tmp_path):
+    """DEC-026: two commits by the same author share one Author node
+    (PK on email_canonical)."""
+    repo, db_path = _build_in_git(tmp_path)
+    out = _build(repo, db_path)
+    # Alice has 2 commits but only 1 Author node.
+    assert out.author_count == 2  # Alice + Bob
+    with LadybugStore(db_path) as store:
+        rows = list(store.query("MATCH (a:Author {name: 'Alice'}) RETURN count(a)"))
+    assert rows == [[1]]
+
+
+def test_history_phase_off_when_build_graph_db_disabled(tmp_path):
+    """Verify the HistoryPhase doesn't waste time collecting per-commit
+    files when build_graph_db is off."""
+    repo, _ = _build_in_git(tmp_path)
+    from forensic_deepdive.pipeline import Context, ExtractConfig, HistoryPhase
+
+    cfg = ExtractConfig(repo_path=repo, output_dir=repo / "out", build_graph_db=False)
+    out = HistoryPhase().run(Context(config=cfg))
+    # commits list is empty when include_commit_files=False (the default
+    # gated by build_graph_db).
+    assert out.history.commits == []
+
+
 def test_member_of_java_same_method_name_in_two_classes_does_not_collide(tmp_path):
     """DEC-023 fixes a v0.2-phase-1 limitation: Java's Greeter and Named
     both declare a method ``name()``. They must be two distinct Symbols

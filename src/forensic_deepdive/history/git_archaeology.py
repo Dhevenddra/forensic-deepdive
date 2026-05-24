@@ -81,6 +81,24 @@ class GitHubStats:
 
 
 @dataclass(frozen=True, slots=True)
+class CommitRecord:
+    """One commit's full metadata plus its file-touch list (DEC-026).
+
+    Populated only when ``analyze_history(include_commit_files=True)`` is
+    called — extracting the per-commit file list is a separate ``git log
+    --name-only`` pass and we keep the aggregate-only path cheap. Files
+    are repo-relative posix paths; authors are post-mailmap canonical
+    (DEC-022)."""
+
+    sha: str
+    date: datetime | None
+    author_name: str
+    author_email: str
+    message_subject: str  # first line of commit message, %s
+    files_touched: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class GitHistory:
     """The full Layer-3 result for one repository."""
 
@@ -95,6 +113,10 @@ class GitHistory:
     # DEC-022: bot accounts split out of `contributors`. Empty list for repos
     # without bot activity, so the ARCHAEOLOGY artifact stays clean.
     bots: list[Contributor] = field(default_factory=list)
+    # DEC-026: full per-commit records, including file-touch lists.
+    # Populated only when ``analyze_history(include_commit_files=True)``
+    # — empty otherwise.
+    commits: list[CommitRecord] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +136,7 @@ def analyze_history(
     contributor_limit: int = 50,
     fetch_github: bool = False,
     github_token: str | None = None,
+    include_commit_files: bool = False,
 ) -> GitHistory:
     """Analyze the git history of *repo_path*.
 
@@ -129,6 +152,11 @@ def analyze_history(
             remote (best-effort; failures degrade to ``github=None``).
         github_token: Optional token for the GitHub API (higher rate limit,
             private repos).
+        include_commit_files: If True (DEC-026), additionally collect every
+            commit's full metadata + file-touch list via a separate
+            ``git log --name-only`` pass. Required by the v0.2 LadybugDB
+            build phase for TOUCHED_BY_COMMIT / AUTHORED_BY edges; the
+            v0.1 path leaves this off so it costs nothing.
     """
     repo_path = Path(repo_path)
     if not _is_git_repo(repo_path):
@@ -147,6 +175,7 @@ def analyze_history(
     contributors = humans[:contributor_limit]
     bots = bots[:contributor_limit]
     churn = _read_churn(repo_path)[:churn_limit]
+    commit_records = _read_commits_with_files(repo_path) if include_commit_files else []
 
     github = None
     if fetch_github:
@@ -165,6 +194,7 @@ def analyze_history(
         churn=churn,
         github=github,
         bots=bots,
+        commits=commit_records,
     )
 
 
@@ -278,6 +308,62 @@ def _read_commits(repo_path: Path) -> list[_Commit]:
         sha, date_str, name, email = fields
         commits.append(_Commit(sha=sha, date=_parse_date(date_str), name=name, email=email))
     return commits
+
+
+def _read_commits_with_files(repo_path: Path) -> list[CommitRecord]:
+    """Walk ``git log --name-only`` to collect every commit's metadata
+    AND the list of files it touched (DEC-026).
+
+    ``git log --name-only --format=<header>`` emits one block per commit
+    with a blank line between header and files AND a blank line between
+    commits. Rather than rely on the visually-ambiguous double-newline,
+    we parse line-by-line and distinguish header lines (containing the
+    unit-separator field delimiter) from file lines.
+    """
+    fmt = _FIELD_SEP.join(["%H", "%cI", "%aN", "%aE", "%s"])
+    proc = _run_git(
+        repo_path,
+        ["log", "--no-merges", "--use-mailmap", "--name-only", f"--format={fmt}"],
+        check=False,
+    )
+    if proc.returncode != 0:
+        return []
+
+    records: list[CommitRecord] = []
+    current_header: tuple[str, str, str, str, str] | None = None
+    current_files: list[str] = []
+
+    def _flush() -> None:
+        if current_header is None:
+            return
+        sha, date_str, name, email, subject = current_header
+        records.append(
+            CommitRecord(
+                sha=sha,
+                date=_parse_date(date_str),
+                author_name=name,
+                author_email=email,
+                message_subject=subject,
+                files_touched=tuple(current_files),
+            )
+        )
+
+    for line in proc.stdout.split("\n"):
+        if _FIELD_SEP in line:
+            # New commit — emit the previous one and reset.
+            _flush()
+            fields = line.split(_FIELD_SEP)
+            if len(fields) == 5:
+                current_header = (fields[0], fields[1], fields[2], fields[3], fields[4])
+            else:
+                current_header = None
+            current_files = []
+        elif line.strip():
+            # File path (--name-only output).
+            current_files.append(line)
+        # Blank line: skip.
+    _flush()
+    return records
 
 
 def _read_churn(repo_path: Path) -> list[FileChurn]:

@@ -117,10 +117,33 @@ class LadybugStore(GraphStore):
         )
 
     def add_commit(self, node: Commit) -> None:
-        raise NotImplementedError("PRD §10 future — Commit nodes")
+        """DEC-026. One Commit node per non-merge commit. ``sha`` is the
+        PK; callers dedup before writing."""
+        self._require_conn()
+        self._conn.execute(
+            "CREATE (n:Commit {"
+            "sha: $sha, author_email: $email, date: $date, "
+            "message: $msg, files_touched_count: $ftc})",
+            {
+                "sha": node.sha,
+                "email": node.author_email,
+                "date": node.date,
+                "msg": node.message,
+                "ftc": node.files_touched_count,
+            },
+        )
 
     def add_author(self, node: Author) -> None:
-        raise NotImplementedError("PRD §10 future — Author nodes")
+        """DEC-026. One Author node per canonical (mailmap-resolved)
+        identity. ``email_canonical`` is the PK; callers dedup before
+        writing. Both human contributors and bot accounts (per DEC-022)
+        get Author nodes — agents can filter on ``kind`` at query time
+        if they want only humans."""
+        self._require_conn()
+        self._conn.execute(
+            "CREATE (n:Author {email_canonical: $email, name: $name})",
+            {"email": node.email_canonical, "name": node.name},
+        )
 
     def add_process(self, node: Process) -> None:
         raise NotImplementedError("PRD §10 future — Process nodes")
@@ -206,10 +229,34 @@ class LadybugStore(GraphStore):
         )
 
     def add_touched_by_commit(self, edge: TouchedByCommitEdge) -> None:
-        raise NotImplementedError("PRD §10 future — TOUCHED_BY_COMMIT edges")
+        """DEC-026. File touched by a Commit. Both endpoints must exist.
+        Always EXTRACTED — ``git log --name-only`` is ground truth."""
+        self._require_conn()
+        self._conn.execute(
+            "MATCH (f:File {path: $fp}), (c:Commit {sha: $sha}) "
+            "CREATE (f)-[:TOUCHED_BY_COMMIT {confidence: $conf, evidence: $ev}]->(c)",
+            {
+                "fp": edge.file_path,
+                "sha": edge.commit_sha,
+                "conf": str(edge.confidence),
+                "ev": edge.evidence,
+            },
+        )
 
     def add_authored_by(self, edge: AuthoredByEdge) -> None:
-        raise NotImplementedError("PRD §10 future — AUTHORED_BY edges")
+        """DEC-026. Commit -> Author. Both endpoints must exist. Always
+        EXTRACTED — every commit has exactly one author per git."""
+        self._require_conn()
+        self._conn.execute(
+            "MATCH (c:Commit {sha: $sha}), (a:Author {email_canonical: $email}) "
+            "CREATE (c)-[:AUTHORED_BY {confidence: $conf, evidence: $ev}]->(a)",
+            {
+                "sha": edge.commit_sha,
+                "email": edge.author_email,
+                "conf": str(edge.confidence),
+                "ev": edge.evidence,
+            },
+        )
 
     def add_co_changes_with(self, edge: CoChangesWithEdge) -> None:
         raise NotImplementedError("PRD §10 future — CO_CHANGES_WITH edges")
