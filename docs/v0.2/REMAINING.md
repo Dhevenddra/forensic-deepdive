@@ -38,23 +38,25 @@ MCP server depends on them.
 
 ## Current state (snapshot)
 
-- **Branch:** `main`. Tree clean. Never pushed.
-- **Tests:** 212 passing. `ruff check` + `ruff format` clean.
-- **PRD §10 progress:** 7 of 14 done (items 1, 2, 4, 5, 6, 7, 8).
-- **Item 8b progress:** steps 1 + 2 of 6 done. Steps 3–6 remain.
-- **Latest commit:** `2b820a8 feat: IMPORTS edges + Module nodes for
-  all 8 languages (DEC-024, item 8b step 2)`.
-- **Active DECs:** DEC-001 → DEC-014, DEC-020, DEC-021, DEC-022,
-  DEC-023, DEC-024. (DEC-015, DEC-016, DEC-017, DEC-018, DEC-019
-  reserved per PRD §6 for the items below.)
-- **Languages:** 8 (Python, C, Dart, Swift, TypeScript, JavaScript, Java,
-  Go). TSX grammar wired but not exhaustively fixture-tested.
-- **Persistent graph:** opt-in via `ExtractConfig.build_graph_db=True`.
-  Writes File + Symbol + DEFINES + MEMBER_OF (DEC-023) + Module +
-  IMPORTS (DEC-024). CALLS / Commit / Author / TOUCHED_BY_COMMIT /
-  CO_CHANGES_WITH / EXTENDS / IMPLEMENTS still to come.
-- **Polyglot end-to-end:** 17-file 8-language repo → 47 symbols, 47
-  DEFINES, 16 MEMBER_OF, 8 Modules, 9 IMPORTS in one shared `.lbug`.
+- **Branch:** `main`. Tree clean at `e21c2f6`. Never pushed.
+- **Tests:** 260 passing. `ruff check` + `ruff format` clean.
+- **PRD §10 progress:** 7 of 14 done (items 1, 2, 4, 5, 6, 7, 8). Item
+  8b — the extension that completes item 8's graph — is **DONE** (all
+  6 steps).
+- **Latest commit:** `e21c2f6 feat: EXTENDS + IMPLEMENTS class-hierarchy
+  edges (DEC-028, item 8b step 6 -- LAST)`.
+- **Active DECs:** DEC-001 → DEC-014, DEC-020 → DEC-028. (DEC-015,
+  DEC-016, DEC-017, DEC-018, DEC-019 still reserved per PRD §6 for
+  items 3/9/10/11/12/13 below.)
+- **Languages:** 8 (Python, C, Dart, Swift, TypeScript, JavaScript,
+  Java, Go).
+- **Persistent graph: FEATURE-COMPLETE for v0.2.** Opt-in via
+  `ExtractConfig.build_graph_db=True`. Writes File + Symbol + Module +
+  Commit + Author nodes; DEFINES + MEMBER_OF + IMPORTS + CALLS +
+  EXTENDS + IMPLEMENTS + TOUCHED_BY_COMMIT + AUTHORED_BY +
+  CO_CHANGES_WITH edges; all confidence-tagged honestly per DEC-015.
+  Every `LadybugStore.add_*` method is implemented (no
+  NotImplementedError surface left).
 
 ## Remaining PRD §10 items, in suggested order
 
@@ -370,28 +372,33 @@ docs/v0.2/REMAINING.md (the forward-looking roadmap — its
 "Operating discipline" section is load-bearing). Confirm in one
 sentence what you understand.
 
-Then start at item 8b step 3 (CALLS resolver). Steps 1 (MEMBER_OF
-via DEC-023) and 2 (IMPORTS via DEC-024) are done — see PROGRESS.md
-2026-05-25.
+**Item 8b is DONE** (commits `96a50eb`, `2b820a8`, `9948fd0`,
+`6504d15`, `95da3e3`, `e21c2f6`). Confirm by reading the
+2026-05-25 PROGRESS.md entry titled "v0.2 item 8b COMPLETE".
 
-Step 3 is the BIG one. The graph now has File + Symbol + DEFINES +
-MEMBER_OF + Module + IMPORTS. The 4-step CALLS resolver (REMAINING.md
-item 8b spec) walks them:
-  1. Same-file lexical scope -> EXTRACTED
-  2. Import-graph walk (uses Module + IMPORTS) -> EXTRACTED or
-     INFERRED for wildcards/re-exports
-  3. Receiver-type inference (uses MEMBER_OF for this/self) -> INFERRED
-  4. Cross-file same-name fallback -> AMBIGUOUS, surface all candidates
+Then start item 9 (markdown artifacts regenerated from the LadybugDB
+graph). Foundation: every emitter currently pulls from in-memory
+NetworkX via `static.symbol_graph`. The new path queries
+LadybugStore via Cypher — each emitter gets a graph-mode branch
+selected by `ctx.get(BuildGraphPhase).enabled`. Concrete plan:
 
-Write a new DEC-025 capturing the algorithm and per-language
-receiver-type-inference rules. Add LadybugStore.add_calls + tests;
-extend BuildGraphPhase to run the resolver per ref Tag and write the
-CALLS edges with their resolved confidence.
+1. Flip `ExtractConfig.build_graph_db` default from False to True so
+   every `forensic extract` produces a `.lbug` AND the markdown
+   artifacts. Update the `test_public_run_extract_does_not_build_graph`
+   test (will need to be inverted or removed).
+2. Per-emitter, add a graph-reading branch that uses the new
+   LadybugStore reader helpers (`iter_symbols_for_file`,
+   `iter_callees_of`/`iter_callers_of`, `parent_of`/`iter_members_of`,
+   `iter_co_changes_of`, etc.). Keep the v0.1 NetworkX branch as
+   fallback only when build_graph_db is off (probably nobody).
+3. Regenerate the 5 golden artifacts under `tests/fixtures/expected_emit/`
+   via `UPDATE_GOLDEN=1` — they'll differ because the graph reads
+   produce richer / more accurate output.
+4. Possibly write DEC-029 capturing the markdown-from-graph cutover.
 
-After step 3, steps 4 (Commit/Author/TOUCHED_BY_COMMIT/AUTHORED_BY),
-5 (CO_CHANGES_WITH derived from step 4), 6 (EXTENDS/IMPLEMENTS) round
-out item 8b. Then items 9 (markdown from graph) and 10 (MCP server)
-become real.
+After item 9: item 10 (MCP server with 5 composite tools) is the
+headline. The graph is now feature-complete so the MCP tools (impact,
+context, archaeology, query, flow) have real data to query.
 
 Working autonomy: full freedom to install tools and web-search
 version-sensitive facts. Spend time on hard problems — write custom
