@@ -69,6 +69,13 @@ def extract(
         typer.Option(help="Where to write artifacts (default: <repo>/docs/codebase)."),
     ] = None,
     force: Annotated[bool, typer.Option(help="Ignore cache, regenerate.")] = False,
+    legacy_repomix: Annotated[
+        bool,
+        typer.Option(
+            "--legacy-repomix",
+            help="DEC-017: also run Repomix flatten (demoted to opt-in in v0.2).",
+        ),
+    ] = False,
     local: Annotated[bool, typer.Option(help="Use Ollama/LM Studio (v0.2).")] = False,
     with_graphiti: Annotated[bool, typer.Option(help="Enable temporal KG (v0.2).")] = False,
     fast: Annotated[bool, typer.Option(help="Use yek instead of Repomix (v0.2).")] = False,
@@ -87,7 +94,7 @@ def extract(
         console.print("[yellow]--stage is not implemented in v0.1; running all stages.[/yellow]")
 
     try:
-        result = run_extract(path, output, force=force)
+        result = run_extract(path, output, force=force, flatten=legacy_repomix)
     except (NotADirectoryError, FileNotFoundError) as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=1) from exc

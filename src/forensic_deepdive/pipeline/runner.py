@@ -41,7 +41,12 @@ class ExtractConfig:
     repo_path: Path
     output_dir: Path
     force: bool = False
-    flatten: bool = True
+    # DEC-017 (item 12): Repomix demoted from primary to opt-in. The
+    # LadybugDB graph + MCP server (DEC-013 / DEC-016) supersede the
+    # role of "pack the repo into one big context for an LLM." Pass
+    # ``flatten=True`` (or the ``--legacy-repomix`` CLI flag) to keep
+    # the v0.1 Repomix pack.
+    flatten: bool = False
     write_editor_shims: bool = True
     fetch_github: bool = False
     github_token: str | None = None

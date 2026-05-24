@@ -42,22 +42,24 @@ def run_extract(
     output_dir: Path | None = None,
     *,
     force: bool = False,
-    flatten: bool = True,
+    flatten: bool = False,
     write_editor_shims: bool = True,
     fetch_github: bool = False,
     github_token: str | None = None,
 ) -> ExtractResult:
     """Run the full extract pipeline against *repo_path*.
 
-    v0.2 routes through the DAG :class:`PipelineRunner` (DEC-014). The public
-    signature, behavior, and return type are identical to v0.1.
+    v0.2 routes through the DAG :class:`PipelineRunner` (DEC-014). DEC-017
+    flipped the ``flatten`` default to ``False`` — Repomix is demoted to
+    opt-in (the LadybugDB graph + MCP server supersede "pack the repo
+    for an LLM"). Pass ``flatten=True`` to keep the v0.1 behavior.
 
     Args:
         repo_path: Repository root to analyze.
         output_dir: Where to write artifacts. Defaults to
             ``<repo>/docs/codebase``.
         force: Ignore the cache and regenerate even if nothing changed.
-        flatten: Run the Repomix flatten stage when Repomix is available.
+        flatten: DEC-017 — opt into Repomix flatten. Default ``False``.
         write_editor_shims: Drop CLAUDE.md / AGENTS.md / editor-rule shims.
         fetch_github: Fetch GitHub metadata for the `origin` remote.
         github_token: Optional GitHub API token.
