@@ -280,7 +280,14 @@ def _extract_js_require_call(rel_path: str, language: str, node: Node) -> list[I
 
 def _extract_java_import(rel_path: str, language: str, node: Node) -> list[Import]:
     """Handles ``import pkg.Class;``, ``import pkg.*;``, ``import static
-    pkg.Class.MEMBER;``."""
+    pkg.Class.MEMBER;``.
+
+    Java imports embed the imported name in the dotted path itself —
+    ``import com.x.Helper`` names exactly the symbol ``Helper``. We
+    surface that in ``imported_names`` so the resolver can mark these
+    EXTRACTED rather than falling through to the whole-module branch
+    (which would be INFERRED).
+    """
     line = _row(node)
     # The path is a scoped_identifier. ``import pkg.*`` puts the scoped_id
     # for the package and a separate `asterisk` sibling.
@@ -295,8 +302,27 @@ def _extract_java_import(rel_path: str, language: str, node: Node) -> list[Impor
         return []
     module = _text(scoped)
     if has_asterisk:
-        module = module + ".*"
-    return [Import(rel_path=rel_path, module_path=module, language=language, line=line)]
+        return [
+            Import(
+                rel_path=rel_path,
+                module_path=module + ".*",
+                language=language,
+                line=line,
+                imported_names=(ImportedName(name="*"),),
+            )
+        ]
+    # `import pkg.Class` -> imported_names=[Class].
+    # `import static pkg.Class.MEMBER` -> imported_names=[MEMBER].
+    imported_name = module.rsplit(".", 1)[-1]
+    return [
+        Import(
+            rel_path=rel_path,
+            module_path=module,
+            language=language,
+            line=line,
+            imported_names=(ImportedName(name=imported_name),),
+        )
+    ]
 
 
 # ---------------------------------------------------------------------------

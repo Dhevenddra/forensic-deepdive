@@ -255,6 +255,12 @@ class Tag:
     parent definitions (outermost-to-innermost), e.g. ``"Outer.Inner"`` for a
     method ``method`` nested in ``Outer.Inner``. Empty string for top-level
     definitions and for reference tags.
+
+    DEC-025: for reference tags, ``enclosing_scope`` is the dotted
+    qualified-local name of the nearest enclosing named function / method
+    / class — i.e. the *caller's* qn_local. A bare-call ``foo()`` inside
+    ``class Greeter > def greet`` has ``enclosing_scope="Greeter.greet"``.
+    Empty for refs at module-level scope. Empty for definition tags.
     """
 
     rel_path: str
@@ -264,6 +270,7 @@ class Tag:
     line: int  # 0-based start row
     language: str  # tree-sitter grammar of the source file (DEC-012)
     parent: str = ""  # dotted parent-definition chain (DEC-023)
+    enclosing_scope: str = ""  # dotted qn_local of enclosing caller (DEC-025)
 
 
 # DEC-023 — node types that count as "parent definitions" for the walk-up
@@ -291,6 +298,65 @@ _PARENT_DEF_TYPES: dict[str, frozenset[str]] = {
     "javascript": frozenset({"class_declaration"}),
     "java": frozenset({"class_declaration", "interface_declaration", "enum_declaration"}),
     "go": frozenset(),  # see Go branch in _parent_chain
+}
+
+# DEC-025 — node types that count as "enclosing scopes" for a reference.
+# A ref inside one of these ancestors has the ancestor as its caller. The
+# walk-up looks for the NEAREST such ancestor and skips intermediate
+# anonymous functions (arrow_function, lambda, function_expression,
+# function_literal, etc.) so calls inside an inline closure attribute to
+# the outer named function.
+#
+# Includes parent-def types because a ref at class-body scope (e.g.
+# Python ``class Foo: x = bar()``) is genuinely scoped to the class —
+# the class body executes at class-definition time and bar() is part of
+# that execution.
+_SCOPE_DEF_TYPES: dict[str, frozenset[str]] = {
+    "python": frozenset({"function_definition", "class_definition"}),
+    "c": frozenset({"function_definition"}),
+    # Dart's function_body is the AST sibling of its function_signature
+    # (NOT a child), so refs inside the body never walk up to the
+    # signature. Including ``function_body`` here lets the walker stop
+    # there; ``_scope_name_node`` then bridges to the preceding signature.
+    "dart": frozenset(
+        {"function_signature", "method_signature", "class_definition", "function_body"}
+    ),
+    "swift": frozenset(
+        {
+            "function_declaration",
+            "class_declaration",
+            "protocol_declaration",
+            "struct_declaration",
+            "enum_declaration",
+        }
+    ),
+    "typescript": frozenset(
+        {
+            "function_declaration",
+            "method_definition",
+            "class_declaration",
+            "interface_declaration",
+        }
+    ),
+    "tsx": frozenset(
+        {
+            "function_declaration",
+            "method_definition",
+            "class_declaration",
+            "interface_declaration",
+        }
+    ),
+    "javascript": frozenset({"function_declaration", "method_definition", "class_declaration"}),
+    "java": frozenset(
+        {
+            "method_declaration",
+            "constructor_declaration",
+            "class_declaration",
+            "interface_declaration",
+            "enum_declaration",
+        }
+    ),
+    "go": frozenset({"function_declaration", "method_declaration"}),
 }
 
 
@@ -344,6 +410,95 @@ def _go_method_receiver_type(method_decl: Node) -> str:
                         if ggc.type == "type_identifier":
                             return ggc.text.decode("utf-8", "replace")
         return ""
+    return ""
+
+
+def _scope_name_node(scope_node: Node, language: str) -> Node | None:
+    """Return the identifier node holding the *name* of a scope-defining
+    AST node. Most languages use the ``name:`` field, but several
+    require per-language bridging:
+
+    * **C** — ``function_definition``'s name is nested inside
+      ``function_declarator``; walk in through nested declarators until
+      we hit the identifier. Pointer-returning functions wrap with
+      ``pointer_declarator``.
+    * **Dart** — ``function_body`` (which IS in the walked-up chain) is
+      the AST *sibling* of its ``function_signature`` (which holds the
+      name). Bridge by stepping to the preceding signature.
+    """
+    if language == "c" and scope_node.type == "function_definition":
+        decl = scope_node.child_by_field_name("declarator")
+        while decl is not None:
+            if decl.type == "identifier":
+                return decl
+            decl = decl.child_by_field_name("declarator")
+        return None
+
+    if language == "dart" and scope_node.type == "function_body":
+        # Look at the function_body's preceding siblings for a signature.
+        sibling = scope_node.prev_sibling
+        while sibling is not None:
+            if sibling.type in ("function_signature", "method_signature"):
+                # method_signature wraps function_signature, which holds
+                # the identifier under field ``name`` (or as a direct
+                # ``identifier`` child).
+                sig = sibling
+                if sig.type == "method_signature":
+                    for c in sig.children:
+                        if c.type == "function_signature":
+                            sig = c
+                            break
+                name_node = sig.child_by_field_name("name")
+                if name_node is not None:
+                    return name_node
+                for c in sig.children:
+                    if c.type == "identifier":
+                        return c
+                return None
+            sibling = sibling.prev_sibling
+        return None
+
+    return scope_node.child_by_field_name("name")
+
+
+def _enclosing_scope_qn(ref_node: Node, language: str) -> str:
+    """Return the dotted qn_local of the nearest enclosing named scope
+    that contains *ref_node* (DEC-025).
+
+    Walks up from the ref's node looking for the FIRST ancestor whose
+    type is in ``_SCOPE_DEF_TYPES[language]`` AND has an identifiable
+    name. Anonymous scopes (arrow_function, function_expression,
+    lambda_expression, function_literal) are skipped — calls inside an
+    inline closure attribute to the outer named function.
+
+    For the found scope node, returns ``f"{parent_chain}.{name}"`` —
+    using :func:`_parent_chain` to compose the dotted qn so a method's
+    enclosing scope is ``Class.method``, a nested class's class-body
+    ref is ``Outer.Inner``, and a Go method gets its receiver type
+    prepended.
+
+    Returns ``""`` for refs at module-level scope (no enclosing named
+    function/class found).
+    """
+    scope_types = _SCOPE_DEF_TYPES.get(language, frozenset())
+    if not scope_types:
+        return ""
+
+    ancestor = ref_node.parent
+    while ancestor is not None:
+        if ancestor.type in scope_types:
+            name_node = _scope_name_node(ancestor, language)
+            if name_node is None:
+                # Anonymous / unnamed — keep walking up.
+                ancestor = ancestor.parent
+                continue
+            scope_name = name_node.text.decode("utf-8", "replace")
+            # _parent_chain handles Go's receiver-based binding too — for
+            # a method_declaration's name_node, it walks up to the
+            # method_declaration and reads the receiver type.
+            chain = _parent_chain(name_node, language)
+            return f"{chain}.{scope_name}" if chain else scope_name
+        ancestor = ancestor.parent
     return ""
 
 
@@ -433,10 +588,16 @@ def extract_tags(parsed: ParsedFile) -> list[Tag]:
             seen.add(key)
             # DEC-023: definitions carry their dotted parent chain so the
             # graph build phase can write correct qualified names and
-            # MEMBER_OF edges. References don't carry parent today (their
-            # *resolution target's* parent is computed by the v0.2 CALLS
-            # resolver — see REMAINING.md item 8b step 3).
-            parent = _parent_chain(node, parsed.language) if kind == "def" else ""
+            # MEMBER_OF edges.
+            # DEC-025: references carry the enclosing-scope qn_local so
+            # the CALLS resolver can attribute the call to the right
+            # caller Symbol.
+            if kind == "def":
+                parent = _parent_chain(node, parsed.language)
+                enclosing_scope = ""
+            else:
+                parent = ""
+                enclosing_scope = _enclosing_scope_qn(node, parsed.language)
             tags.append(
                 Tag(
                     rel_path=parsed.rel_path,
@@ -446,6 +607,7 @@ def extract_tags(parsed: ParsedFile) -> list[Tag]:
                     line=_row(node),
                     language=parsed.language,
                     parent=parent,
+                    enclosing_scope=enclosing_scope,
                 )
             )
 

@@ -476,6 +476,208 @@ def test_imports_module_path_preserves_raw_form(tmp_path):
     assert "python:typing" in paths
 
 
+# ---------------------------------------------------------------------------
+# DEC-025 — CALLS resolver + synthetic <module> Symbol
+# ---------------------------------------------------------------------------
+
+
+def test_synthetic_module_symbol_per_file(tmp_path):
+    """DEC-025: every File has a synthetic ``<module>`` Symbol so
+    module-level refs have a valid caller endpoint."""
+    repo = _copy_fixture("python_sample", tmp_path)
+    db_path = tmp_path / "graph.lbug"
+    _build(repo, db_path)
+    with LadybugStore(db_path) as store:
+        # One MODULE-kind symbol per source file.
+        rows = list(
+            store.query(
+                "MATCH (s:Symbol {kind: 'module'}) "
+                "RETURN s.qualified_name ORDER BY s.qualified_name"
+            )
+        )
+        names = [r[0] for r in rows]
+    assert "app.py::<module>" in names
+    assert "greeter.py::<module>" in names
+
+
+def test_module_symbol_has_defines_edge_from_its_file(tmp_path):
+    """Invariant: every Symbol has a File-DEFINES->Symbol edge, including
+    the synthetic ``<module>`` Symbol. Keeps the
+    ``symbol_count == defines_count`` invariant intact."""
+    repo = _copy_fixture("python_sample", tmp_path)
+    db_path = tmp_path / "graph.lbug"
+    out = _build(repo, db_path)
+    assert out.symbol_count == out.defines_count
+    with LadybugStore(db_path) as store:
+        rows = list(
+            store.query(
+                "MATCH (f:File {path: 'greeter.py'})-[:DEFINES]->"
+                "(s:Symbol {qualified_name: 'greeter.py::<module>'}) "
+                "RETURN s.qualified_name"
+            )
+        )
+    assert rows == [["greeter.py::<module>"]]
+
+
+def test_calls_python_fixture_writes_edges(tmp_path):
+    """DEC-025: Python fixture produces real CALLS edges with the right
+    confidence. The fixture's app.py imports Greeter + format_message
+    from greeter.py and calls them inside ``run``."""
+    repo = _copy_fixture("python_sample", tmp_path)
+    db_path = tmp_path / "graph.lbug"
+    out = _build(repo, db_path)
+    assert out.calls_count >= 3  # run->Greeter, run->format_message, greet->format_message
+    with LadybugStore(db_path) as store:
+        # Greeter.greet calls format_message (same-file, EXTRACTED).
+        rows = list(
+            store.query(
+                "MATCH (caller:Symbol {qualified_name: 'greeter.py::Greeter.greet'})"
+                "-[r:CALLS]->(callee:Symbol) "
+                "RETURN callee.qualified_name, r.confidence"
+            )
+        )
+        assert [r[0] for r in rows] == ["greeter.py::format_message"]
+        assert rows[0][1] == "EXTRACTED"
+
+        # app.py::run calls greeter.py::format_message via explicit import.
+        rows = list(
+            store.query(
+                "MATCH (caller:Symbol {qualified_name: 'app.py::run'})"
+                "-[r:CALLS]->(callee:Symbol "
+                "{qualified_name: 'greeter.py::format_message'}) "
+                "RETURN r.confidence"
+            )
+        )
+        assert rows == [["EXTRACTED"]]
+
+
+def test_calls_use_iter_callees_and_callers_readers(tmp_path):
+    """DEC-025 helpers ``iter_callees_of`` + ``iter_callers_of`` power
+    the future MCP ``impact()`` tool."""
+    repo = _copy_fixture("python_sample", tmp_path)
+    db_path = tmp_path / "graph.lbug"
+    _build(repo, db_path)
+    with LadybugStore(db_path) as store:
+        callees = {s.qualified_name for s in store.iter_callees_of("app.py::run")}
+        assert "greeter.py::format_message" in callees
+        assert "greeter.py::Greeter" in callees
+
+        callers = {s.qualified_name for s in store.iter_callers_of("greeter.py::format_message")}
+        # Both app.py::run (via import) and greeter.py::Greeter.greet
+        # (same-file) call format_message.
+        assert "app.py::run" in callers
+        assert "greeter.py::Greeter.greet" in callers
+
+
+def test_calls_carry_evidence_tag(tmp_path):
+    """Every CALLS edge stores its resolution path in ``evidence`` so
+    debugging/auditing can trace why the resolver picked it."""
+    repo = _copy_fixture("python_sample", tmp_path)
+    db_path = tmp_path / "graph.lbug"
+    _build(repo, db_path)
+    with LadybugStore(db_path) as store:
+        rows = list(
+            store.query("MATCH ()-[r:CALLS]->() RETURN DISTINCT r.evidence ORDER BY r.evidence")
+        )
+        evidences = {r[0] for r in rows}
+    # Python fixture should exercise at least same-file + import.
+    assert "same-file" in evidences
+    assert "import" in evidences
+
+
+def test_calls_polyglot_every_language_produces_calls(tmp_path):
+    """All 8 DEC-020 languages produce CALLS edges in one shared .lbug."""
+    repo = tmp_path / "polyglot-calls"
+    repo.mkdir()
+    for sample in (
+        "python_sample",
+        "dart_sample",
+        "swift_sample",
+        "typescript_sample",
+        "javascript_sample",
+        "java_sample",
+        "go_sample",
+        "c_sample",
+    ):
+        shutil.copytree(FIXTURES / sample, repo / sample)
+    db_path = tmp_path / "graph.lbug"
+    out = _build(repo, db_path)
+    assert out.calls_count >= 8
+    with LadybugStore(db_path) as store:
+        rows = list(
+            store.query(
+                "MATCH (caller:Symbol)-[:CALLS]->(callee:Symbol) "
+                "MATCH (f:File {path: caller.file_path}) "
+                "RETURN DISTINCT f.language ORDER BY f.language"
+            )
+        )
+        langs = {r[0] for r in rows}
+    # Every supported language with calls should appear. C, Dart, Go,
+    # Java, JavaScript, Python, Swift, TypeScript -- at least one each.
+    assert langs == {
+        "c",
+        "dart",
+        "go",
+        "java",
+        "javascript",
+        "python",
+        "swift",
+        "typescript",
+    }
+
+
+def test_calls_confidence_distribution(tmp_path):
+    """Resolver produces a mix of EXTRACTED + INFERRED on the polyglot
+    fixture. No AMBIGUOUS because fixtures have no name collisions —
+    a dedicated test below covers that case."""
+    repo = tmp_path / "polyglot-conf"
+    repo.mkdir()
+    for sample in (
+        "python_sample",
+        "typescript_sample",
+        "java_sample",
+        "c_sample",
+        "dart_sample",
+    ):
+        shutil.copytree(FIXTURES / sample, repo / sample)
+    db_path = tmp_path / "graph.lbug"
+    _build(repo, db_path)
+    with LadybugStore(db_path) as store:
+        rows = list(
+            store.query(
+                "MATCH ()-[r:CALLS]->() RETURN r.confidence, count(r) ORDER BY r.confidence"
+            )
+        )
+        by_conf = dict(rows)
+    assert by_conf.get("EXTRACTED", 0) > 0
+    assert by_conf.get("INFERRED", 0) > 0
+
+
+def test_calls_ambiguous_when_multiple_same_name_defs(tmp_path):
+    """DEC-015 + DEC-025: when cross-file fallback finds multiple
+    candidates, emit AMBIGUOUS edges to EVERY one."""
+    repo = tmp_path / "ambiguous"
+    repo.mkdir()
+    (repo / "a.py").write_text("def helper(): pass\n", encoding="utf-8")
+    (repo / "b.py").write_text("def helper(): pass\n", encoding="utf-8")
+    (repo / "c.py").write_text("def use(): helper()\n", encoding="utf-8")
+    db_path = tmp_path / "graph.lbug"
+    _build(repo, db_path)
+    with LadybugStore(db_path) as store:
+        rows = list(
+            store.query(
+                "MATCH (:Symbol {qualified_name: 'c.py::use'})-[r:CALLS]->"
+                "(callee:Symbol) "
+                "RETURN callee.qualified_name, r.confidence "
+                "ORDER BY callee.qualified_name"
+            )
+        )
+    assert rows == [
+        ["a.py::helper", "AMBIGUOUS"],
+        ["b.py::helper", "AMBIGUOUS"],
+    ]
+
+
 def test_member_of_java_same_method_name_in_two_classes_does_not_collide(tmp_path):
     """DEC-023 fixes a v0.2-phase-1 limitation: Java's Greeter and Named
     both declare a method ``name()``. They must be two distinct Symbols

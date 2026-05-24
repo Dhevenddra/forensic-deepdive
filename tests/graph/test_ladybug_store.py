@@ -109,15 +109,14 @@ def test_still_unimplemented_writes_raise_with_clear_message(tmp_path):
     lands, methods move from this list to the round-trip tests."""
     from forensic_deepdive.graph import (
         Author,
-        CallsEdge,
         CoChangesWithEdge,
         Commit,
+        ExtendsEdge,
+        ImplementsEdge,
+        TouchedByCommitEdge,
     )
 
     with LadybugStore(tmp_path / "graph.lbug") as store:
-        # Step 3 — CALLS resolver (REMAINING item 8b step 3).
-        with pytest.raises(NotImplementedError, match="PRD"):
-            store.add_calls(CallsEdge(caller="a", callee="b"))
         # Step 4 — Commit / Author / TOUCHED_BY_COMMIT (REMAINING item 8b
         # step 4).
         with pytest.raises(NotImplementedError, match="PRD"):
@@ -132,10 +131,16 @@ def test_still_unimplemented_writes_raise_with_clear_message(tmp_path):
                     files_touched_count=1,
                 )
             )
-        # Step 5 — CO_CHANGES_WITH derived from history (REMAINING item 8b
-        # step 5).
+        with pytest.raises(NotImplementedError, match="PRD"):
+            store.add_touched_by_commit(TouchedByCommitEdge(file_path="a", commit_sha="x"))
+        # Step 5 — CO_CHANGES_WITH derived from history.
         with pytest.raises(NotImplementedError, match="PRD"):
             store.add_co_changes_with(CoChangesWithEdge(file_a="a", file_b="b"))
+        # Step 6 — EXTENDS / IMPLEMENTS class hierarchy edges.
+        with pytest.raises(NotImplementedError, match="PRD"):
+            store.add_extends(ExtendsEdge(child="a", parent="b"))
+        with pytest.raises(NotImplementedError, match="PRD"):
+            store.add_implements(ImplementsEdge(implementation="a", interface="b"))
 
 
 def test_file_round_trip(tmp_path):

@@ -128,9 +128,27 @@ class LadybugStore(GraphStore):
     # --- writes (edges) -----------------------------------------------------
 
     def add_calls(self, edge: CallsEdge) -> None:
-        # CALLS requires symbol-level resolution; v0.2 phase 1 only writes
-        # what the v0.1 name-based pipeline can produce honestly.
-        raise NotImplementedError("PRD §10 future — symbol-level CALLS resolver")
+        """DEC-025. CALLS edge from caller Symbol to callee Symbol.
+
+        Both endpoints must already exist. Confidence reflects the
+        resolver step that matched (EXTRACTED for same-file or
+        explicit-name import; INFERRED for whole-module / wildcard
+        import and single-candidate cross-file fallback; AMBIGUOUS
+        when multiple candidates remain — one edge per candidate is
+        emitted, all surfaced per DEC-015).
+        """
+        self._require_conn()
+        self._conn.execute(
+            "MATCH (caller:Symbol {qualified_name: $cq}), "
+            "(callee:Symbol {qualified_name: $eq}) "
+            "CREATE (caller)-[:CALLS {confidence: $conf, evidence: $ev}]->(callee)",
+            {
+                "cq": edge.caller,
+                "eq": edge.callee,
+                "conf": str(edge.confidence),
+                "ev": edge.evidence,
+            },
+        )
 
     def add_imports(self, edge: ImportsEdge) -> None:
         """DEC-024. File -> Module dependency. Both endpoints must exist.
@@ -295,6 +313,46 @@ class LadybugStore(GraphStore):
             "RETURN m.qualified_name, m.kind, m.file_path, "
             "m.line_start, m.line_end, m.signature",
             {"pq": parent_qn},
+        ):
+            qn, kind, fp, ls, le, sig = row
+            yield Symbol(
+                qualified_name=qn,
+                kind=SymbolKind(kind),
+                file_path=fp,
+                line_start=int(ls),
+                line_end=int(le),
+                signature=sig or "",
+            )
+
+    def iter_callees_of(self, caller_qn: str) -> Iterator[Symbol]:
+        """Stream symbols *caller_qn* calls via outgoing CALLS edges.
+        Powers the MCP ``impact(symbol, direction='downstream')`` tool."""
+        self._require_conn()
+        for row in self.query(
+            "MATCH (:Symbol {qualified_name: $cq})-[:CALLS]->(callee:Symbol) "
+            "RETURN callee.qualified_name, callee.kind, callee.file_path, "
+            "callee.line_start, callee.line_end, callee.signature",
+            {"cq": caller_qn},
+        ):
+            qn, kind, fp, ls, le, sig = row
+            yield Symbol(
+                qualified_name=qn,
+                kind=SymbolKind(kind),
+                file_path=fp,
+                line_start=int(ls),
+                line_end=int(le),
+                signature=sig or "",
+            )
+
+    def iter_callers_of(self, callee_qn: str) -> Iterator[Symbol]:
+        """Stream symbols that call *callee_qn* via incoming CALLS edges.
+        Powers the MCP ``impact(symbol, direction='upstream')`` tool."""
+        self._require_conn()
+        for row in self.query(
+            "MATCH (caller:Symbol)-[:CALLS]->(:Symbol {qualified_name: $eq}) "
+            "RETURN caller.qualified_name, caller.kind, caller.file_path, "
+            "caller.line_start, caller.line_end, caller.signature",
+            {"eq": callee_qn},
         ):
             qn, kind, fp, ls, le, sig = row
             yield Symbol(

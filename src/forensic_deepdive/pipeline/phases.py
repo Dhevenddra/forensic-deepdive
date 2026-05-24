@@ -32,6 +32,7 @@ from forensic_deepdive.flatten.repomix_backend import (
     is_repomix_available,
 )
 from forensic_deepdive.graph import (
+    CallsEdge,
     Confidence,
     DefinesEdge,
     File,
@@ -50,6 +51,7 @@ from forensic_deepdive.static.graph import SymbolGraph, build_symbol_graph
 from forensic_deepdive.static.imports import Import, extract_imports
 from forensic_deepdive.static.pagerank import RankedRepo, rank_files
 from forensic_deepdive.static.parse import parse_file
+from forensic_deepdive.static.resolver import MODULE_SCOPE, resolve_calls
 from forensic_deepdive.static.tags import Tag, extract_tags
 
 # DEC-013 default DB location, mirroring v0.1's cache convention.
@@ -105,6 +107,7 @@ class BuildGraphOutput:
     member_of_count: int = 0  # MEMBER_OF edges written (DEC-023)
     module_count: int = 0  # Module nodes written (DEC-024)
     imports_count: int = 0  # IMPORTS edges written (DEC-024)
+    calls_count: int = 0  # CALLS edges written (DEC-025)
 
 
 # ---------------------------------------------------------------------------
@@ -303,8 +306,16 @@ class BuildGraphPhase(Phase):
                 )
             )
 
+        # DEC-025: resolve CALLS now (in-memory, before opening the DB)
+        # so the resolver's intra-repo file-set is sealed before we start
+        # writing. The CALLS edges below MATCH on the Symbol qns we
+        # write further down — including the synthetic per-file
+        # ``<module>`` Symbols that carry module-level refs.
+        source_files_by_path = {sf.rel_path: sf.language for sf in inv.source_files}
+        resolved_calls = resolve_calls(static.tags, static.imports, source_files_by_path)
+
         file_count = symbol_count = defines_count = member_of_count = 0
-        module_count = imports_count = 0
+        module_count = imports_count = calls_count = 0
         with LadybugStore(db_path) as store:
             for sf in inv.source_files:
                 store.add_file(_source_to_file(sf, cfg.repo_path))
@@ -315,6 +326,35 @@ class BuildGraphPhase(Phase):
             for pk in sorted(module_pks):
                 store.add_module(module_pks[pk])
                 module_count += 1
+
+            # DEC-025: synthetic per-file ``<module>`` Symbol. Required
+            # so module-level CALLS (refs outside any function/method)
+            # have a valid caller endpoint. Kind=MODULE distinguishes
+            # these from real symbols. The file DEFINES its own module
+            # scope — keeping the invariant ``defines_count ==
+            # symbol_count`` (every Symbol has a File defining it).
+            for sf in inv.source_files:
+                module_qn = _qualified_name(sf.rel_path, MODULE_SCOPE)
+                store.add_symbol(
+                    Symbol(
+                        qualified_name=module_qn,
+                        kind=SymbolKind.MODULE,
+                        file_path=sf.rel_path,
+                        line_start=0,
+                        line_end=0,
+                        signature="",
+                    )
+                )
+                symbol_count += 1
+                store.add_defines(
+                    DefinesEdge(
+                        file_path=sf.rel_path,
+                        symbol=module_qn,
+                        confidence=Confidence.EXTRACTED,
+                        evidence="synthetic-module-scope",
+                    )
+                )
+                defines_count += 1
 
             # Sort by (rel_path, qn_local). The lexical order of the
             # dotted qn_local guarantees a parent (e.g. ``Greeter``) is
@@ -366,6 +406,28 @@ class BuildGraphPhase(Phase):
                 store.add_imports(edge)
                 imports_count += 1
 
+            # DEC-025: CALLS edges last — both endpoints (caller +
+            # callee Symbols) must be present. The resolver's output is
+            # already deterministically sorted, but we filter to skip
+            # any whose callee Symbol won't exist (defensive: the
+            # resolver's index aligns with def_groups, so this is
+            # belt-and-suspenders).
+            valid_symbol_qns = {
+                _qualified_name(sf.rel_path, MODULE_SCOPE) for sf in inv.source_files
+            } | {_qualified_name(rel_path, qn_local) for (rel_path, qn_local) in def_groups}
+            for call in resolved_calls:
+                if call.caller_qn not in valid_symbol_qns or call.callee_qn not in valid_symbol_qns:
+                    continue
+                store.add_calls(
+                    CallsEdge(
+                        caller=call.caller_qn,
+                        callee=call.callee_qn,
+                        confidence=call.confidence,
+                        evidence=call.evidence,
+                    )
+                )
+                calls_count += 1
+
         return BuildGraphOutput(
             enabled=True,
             db_path=db_path,
@@ -375,6 +437,7 @@ class BuildGraphPhase(Phase):
             member_of_count=member_of_count,
             module_count=module_count,
             imports_count=imports_count,
+            calls_count=calls_count,
         )
 
 
