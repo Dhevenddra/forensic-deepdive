@@ -992,6 +992,76 @@ def test_co_changes_excludes_non_source_files(tmp_path):
     assert out.co_changes_count == 0
 
 
+# ---------------------------------------------------------------------------
+# DEC-028 — EXTENDS + IMPLEMENTS class-hierarchy edges
+# ---------------------------------------------------------------------------
+
+
+def test_extends_edge_python_same_file(tmp_path):
+    """DEC-028: `class Derived(Base)` -> EXTRACTED EXTENDS edge."""
+    repo = tmp_path / "ext_py"
+    repo.mkdir()
+    (repo / "a.py").write_text("class Base: pass\nclass Derived(Base): pass\n", encoding="utf-8")
+    db_path = tmp_path / "graph.lbug"
+    out = _build(repo, db_path)
+    assert out.extends_count >= 1
+    with LadybugStore(db_path) as store:
+        rows = list(
+            store.query(
+                "MATCH (:Symbol {qualified_name: 'a.py::Derived'})-[r:EXTENDS]->"
+                "(p:Symbol) RETURN p.qualified_name, r.confidence"
+            )
+        )
+    assert rows == [["a.py::Base", "EXTRACTED"]]
+
+
+def test_extends_and_implements_java(tmp_path):
+    """DEC-028: Java `extends X implements I, J` produces 1 EXTENDS +
+    2 IMPLEMENTS edges, all EXTRACTED."""
+    repo = tmp_path / "ext_java"
+    repo.mkdir()
+    (repo / "A.java").write_text(
+        "class Base {}\ninterface I {}\ninterface J {}\n"
+        "class Derived extends Base implements I, J {}\n",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "graph.lbug"
+    out = _build(repo, db_path)
+    assert out.extends_count == 1
+    assert out.implements_count == 2
+    with LadybugStore(db_path) as store:
+        impls = list(
+            store.query(
+                "MATCH (:Symbol {qualified_name: 'A.java::Derived'})-[:IMPLEMENTS]->"
+                "(i:Symbol) RETURN i.qualified_name ORDER BY i.qualified_name"
+            )
+        )
+    assert impls == [["A.java::I"], ["A.java::J"]]
+
+
+def test_extends_cross_file_import_resolves_extracted(tmp_path):
+    """DEC-028: when the parent class is imported, the EXTENDS edge
+    resolves to the imported file's Symbol — EXTRACTED."""
+    repo = tmp_path / "ext_ts"
+    repo.mkdir()
+    (repo / "base.ts").write_text("export class Base {}\n", encoding="utf-8")
+    (repo / "derived.ts").write_text(
+        'import { Base } from "./base";\nclass Derived extends Base {}\n',
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "graph.lbug"
+    out = _build(repo, db_path)
+    assert out.extends_count >= 1
+    with LadybugStore(db_path) as store:
+        rows = list(
+            store.query(
+                "MATCH (:Symbol {qualified_name: 'derived.ts::Derived'})-[r:EXTENDS]->"
+                "(p:Symbol) RETURN p.qualified_name, r.confidence"
+            )
+        )
+    assert rows == [["base.ts::Base", "EXTRACTED"]]
+
+
 def test_member_of_java_same_method_name_in_two_classes_does_not_collide(tmp_path):
     """DEC-023 fixes a v0.2-phase-1 limitation: Java's Greeter and Named
     both declare a method ``name()``. They must be two distinct Symbols

@@ -193,10 +193,38 @@ class LadybugStore(GraphStore):
         )
 
     def add_extends(self, edge: ExtendsEdge) -> None:
-        raise NotImplementedError("PRD §10 future — EXTENDS edges")
+        """DEC-028. Class hierarchy: ``A extends B`` => Symbol(A) ->
+        Symbol(B). Always EXTRACTED — declared inheritance is
+        AST-deterministic. Both endpoints must exist."""
+        self._require_conn()
+        self._conn.execute(
+            "MATCH (c:Symbol {qualified_name: $cq}), "
+            "(p:Symbol {qualified_name: $pq}) "
+            "CREATE (c)-[:EXTENDS {confidence: $conf, evidence: $ev}]->(p)",
+            {
+                "cq": edge.child,
+                "pq": edge.parent,
+                "conf": str(edge.confidence),
+                "ev": edge.evidence,
+            },
+        )
 
     def add_implements(self, edge: ImplementsEdge) -> None:
-        raise NotImplementedError("PRD §10 future — IMPLEMENTS edges")
+        """DEC-028. Interface/protocol/mixin conformance: ``A implements
+        I`` => Symbol(A) -> Symbol(I). Always EXTRACTED for declared
+        conformance. Both endpoints must exist."""
+        self._require_conn()
+        self._conn.execute(
+            "MATCH (impl:Symbol {qualified_name: $iq}), "
+            "(iface:Symbol {qualified_name: $fq}) "
+            "CREATE (impl)-[:IMPLEMENTS {confidence: $conf, evidence: $ev}]->(iface)",
+            {
+                "iq": edge.implementation,
+                "fq": edge.interface,
+                "conf": str(edge.confidence),
+                "ev": edge.evidence,
+            },
+        )
 
     def add_defines(self, edge: DefinesEdge) -> None:
         self._require_conn()

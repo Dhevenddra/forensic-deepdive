@@ -103,18 +103,29 @@ def test_use_before_connect_raises(tmp_path):
         store.add_symbol(_sample_symbol())
 
 
-def test_still_unimplemented_writes_raise_with_clear_message(tmp_path):
-    """Writes that v0.2 doesn't claim to support yet must continue to raise
-    with a PRD-pointing message. As each step in REMAINING.md item 8b
-    lands, methods move from this list to the round-trip tests."""
-    from forensic_deepdive.graph import ExtendsEdge, ImplementsEdge
+def test_all_dec013_schema_writes_are_implemented(tmp_path):
+    """Item 8b complete: every node and edge type declared in the
+    DEC-013 schema now has a real LadybugStore.add_* implementation.
+    Smoke-test by calling each on an empty DB and verifying no
+    NotImplementedError is raised (Cypher MATCH-failures from missing
+    endpoints are expected and OK — what we're guarding against is
+    the v0.2-phase-1 NotImplementedError surface)."""
+    from forensic_deepdive.graph import (
+        CoChangesWithEdge,
+        ExtendsEdge,
+        ImplementsEdge,
+    )
 
     with LadybugStore(tmp_path / "graph.lbug") as store:
-        # Step 6 — EXTENDS / IMPLEMENTS class hierarchy edges.
-        with pytest.raises(NotImplementedError, match="PRD"):
-            store.add_extends(ExtendsEdge(child="a", parent="b"))
-        with pytest.raises(NotImplementedError, match="PRD"):
-            store.add_implements(ImplementsEdge(implementation="a", interface="b"))
+        # These are MATCH-then-CREATE Cypher and will silently no-op
+        # when endpoints don't exist. Just verify they don't raise
+        # NotImplementedError anymore.
+        try:
+            store.add_co_changes_with(CoChangesWithEdge(file_a="x", file_b="y"))
+            store.add_extends(ExtendsEdge(child="x", parent="y"))
+            store.add_implements(ImplementsEdge(implementation="x", interface="y"))
+        except NotImplementedError as exc:  # pragma: no cover
+            pytest.fail(f"item 8b incomplete: {exc}")
 
 
 def test_file_round_trip(tmp_path):

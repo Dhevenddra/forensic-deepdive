@@ -39,7 +39,9 @@ from forensic_deepdive.graph import (
     Commit,
     Confidence,
     DefinesEdge,
+    ExtendsEdge,
     File,
+    ImplementsEdge,
     ImportsEdge,
     LadybugStore,
     MemberOfEdge,
@@ -54,6 +56,7 @@ from forensic_deepdive.inventory import Inventory, SourceFile, take_inventory
 from forensic_deepdive.pipeline.runner import Context, Phase
 from forensic_deepdive.static.graph import SymbolGraph, build_symbol_graph
 from forensic_deepdive.static.imports import Import, extract_imports
+from forensic_deepdive.static.inheritance import InheritanceRecord, extract_inheritance
 from forensic_deepdive.static.pagerank import RankedRepo, rank_files
 from forensic_deepdive.static.parse import parse_file
 from forensic_deepdive.static.resolver import MODULE_SCOPE, resolve_calls
@@ -78,6 +81,7 @@ class StaticOutput:
     symbol_graph: SymbolGraph
     ranked: RankedRepo
     imports: list[Import]  # DEC-024 — one per import/include/require statement
+    inheritance: list[InheritanceRecord]  # DEC-028 — class-hierarchy declarations
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +122,8 @@ class BuildGraphOutput:
     touched_by_commit_count: int = 0  # TOUCHED_BY_COMMIT edges written (DEC-026)
     authored_by_count: int = 0  # AUTHORED_BY edges written (DEC-026)
     co_changes_count: int = 0  # CO_CHANGES_WITH edges written (DEC-027)
+    extends_count: int = 0  # EXTENDS edges written (DEC-028)
+    implements_count: int = 0  # IMPLEMENTS edges written (DEC-028)
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +155,7 @@ class StaticPhase(Phase):
         inv = ctx.get(InventoryPhase).inventory
         tags: list[Tag] = []
         imports: list[Import] = []
+        inheritance: list[InheritanceRecord] = []
         for source in inv.source_files:
             parsed = parse_file(source.path, rel_path=source.rel_path)
             if parsed is not None:
@@ -156,9 +163,17 @@ class StaticPhase(Phase):
                 # DEC-024 — extract imports in the same parse pass to
                 # avoid re-parsing every file in BuildGraphPhase.
                 imports.extend(extract_imports(parsed))
+                # DEC-028 — extract inheritance the same way.
+                inheritance.extend(extract_inheritance(parsed))
         symbol_graph = build_symbol_graph(tags)
         ranked = rank_files(symbol_graph)
-        return StaticOutput(tags=tags, symbol_graph=symbol_graph, ranked=ranked, imports=imports)
+        return StaticOutput(
+            tags=tags,
+            symbol_graph=symbol_graph,
+            ranked=ranked,
+            imports=imports,
+            inheritance=inheritance,
+        )
 
 
 class FlattenPhase(Phase):
@@ -389,11 +404,87 @@ class BuildGraphPhase(Phase):
                 for b in commit_source_files[i + 1 :]:
                     co_change_counts[(a, b)] = co_change_counts.get((a, b), 0) + 1
 
+        # DEC-028: resolve inheritance parent names against the same
+        # indexes the CALLS resolver uses — same-file -> import -> cross-
+        # file fallback. Build a quick lookup of class-shaped Symbol
+        # qn_locals per file (top-level only — inheritance always names
+        # a top-level type in v0.2). Inheritance edges resolve at
+        # build-time, not via the resolver.py call-resolver, because the
+        # input shape is different (declaration vs reference).
+        defs_top_by_file: dict[str, set[str]] = {}
+        defs_top_by_lang: dict[str, dict[str, list[str]]] = {}
+        for rel_path, qn_local in def_groups:
+            if "." in qn_local:
+                continue  # top-level only
+            defs_top_by_file.setdefault(rel_path, set()).add(qn_local)
+            lang = source_files_by_path.get(rel_path)
+            if lang is not None:
+                defs_top_by_lang.setdefault(lang, {}).setdefault(qn_local, []).append(rel_path)
+
+        resolved_extends: list[ExtendsEdge] = []
+        resolved_implements: list[ImplementsEdge] = []
+        for ihr in static.inheritance:
+            if ihr.rel_path not in source_file_paths:
+                continue
+            child_qn = _qualified_name(ihr.rel_path, ihr.child_qn_local)
+            # 1. Same-file lookup.
+            target_files: list[str] = []
+            if ihr.parent_name in defs_top_by_file.get(ihr.rel_path, ()):
+                target_files = [ihr.rel_path]
+                conf = Confidence.EXTRACTED
+            else:
+                # 2. Import-walk: any import in this file naming the parent?
+                imp_matches: list[str] = []
+                for imp in static.imports:
+                    if imp.rel_path != ihr.rel_path:
+                        continue
+                    for ime in imp.imported_names:
+                        if ime.name == ihr.parent_name or ime.alias == ihr.parent_name:
+                            from forensic_deepdive.static.resolver import (
+                                _resolve_import_to_file,
+                            )
+
+                            tgt = _resolve_import_to_file(imp, source_files_by_path)
+                            if tgt is not None and ihr.parent_name in defs_top_by_file.get(tgt, ()):
+                                imp_matches.append(tgt)
+                            break
+                if imp_matches:
+                    target_files = imp_matches
+                    conf = Confidence.EXTRACTED
+                else:
+                    # 3. Cross-file fallback (same language only).
+                    candidates = defs_top_by_lang.get(ihr.language, {}).get(ihr.parent_name, [])
+                    candidates = [c for c in candidates if c != ihr.rel_path]
+                    if not candidates:
+                        continue  # external — drop
+                    target_files = sorted(candidates)
+                    conf = Confidence.INFERRED if len(target_files) == 1 else Confidence.AMBIGUOUS
+            for tgt_file in target_files:
+                parent_qn = _qualified_name(tgt_file, ihr.parent_name)
+                if ihr.kind == "extends":
+                    resolved_extends.append(
+                        ExtendsEdge(
+                            child=child_qn,
+                            parent=parent_qn,
+                            confidence=conf,
+                            evidence="ast-declaration",
+                        )
+                    )
+                else:
+                    resolved_implements.append(
+                        ImplementsEdge(
+                            implementation=child_qn,
+                            interface=parent_qn,
+                            confidence=conf,
+                            evidence="ast-declaration",
+                        )
+                    )
+
         file_count = symbol_count = defines_count = member_of_count = 0
         module_count = imports_count = calls_count = 0
         commit_count = author_count = 0
         touched_by_commit_count = authored_by_count = 0
-        co_changes_count = 0
+        co_changes_count = extends_count = implements_count = 0
         with LadybugStore(db_path) as store:
             for sf in inv.source_files:
                 store.add_file(_source_to_file(sf, cfg.repo_path))
@@ -543,6 +634,20 @@ class BuildGraphPhase(Phase):
                 )
                 co_changes_count += 1
 
+            # DEC-028: EXTENDS / IMPLEMENTS edges — both endpoints
+            # (Symbol qns) must exist. The resolver above filtered out
+            # unresolved cases. Deterministic order via sort.
+            resolved_extends.sort(key=lambda e: (e.child, e.parent))
+            for edge in resolved_extends:
+                if edge.child in valid_symbol_qns and edge.parent in valid_symbol_qns:
+                    store.add_extends(edge)
+                    extends_count += 1
+            resolved_implements.sort(key=lambda e: (e.implementation, e.interface))
+            for edge in resolved_implements:
+                if edge.implementation in valid_symbol_qns and edge.interface in valid_symbol_qns:
+                    store.add_implements(edge)
+                    implements_count += 1
+
         return BuildGraphOutput(
             enabled=True,
             db_path=db_path,
@@ -558,6 +663,8 @@ class BuildGraphPhase(Phase):
             touched_by_commit_count=touched_by_commit_count,
             authored_by_count=authored_by_count,
             co_changes_count=co_changes_count,
+            extends_count=extends_count,
+            implements_count=implements_count,
         )
 
 
