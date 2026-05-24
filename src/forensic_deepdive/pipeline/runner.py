@@ -48,10 +48,16 @@ class ExtractConfig:
     # DEC-013 / item 8: where the persistent LadybugDB knowledge graph lives.
     # ``None`` means use the per-repo default (`<repo>/.deepdive/graph.lbug`).
     graph_db_path: Path | None = None
-    # DEC-013: master switch for the LadybugDB build phase. ``False`` keeps
-    # the v0.1 in-memory NetworkX path only (golden tests + cache stay clean
-    # by default until the markdown emitters cut over in PRD §10 item 9).
-    build_graph_db: bool = False
+    # DEC-013 / DEC-030: master switch for the LadybugDB build phase.
+    # **Default flipped to True in item 9 phase 2 (DEC-030)** — every
+    # ``forensic extract`` now produces a queryable ``.lbug`` AND the
+    # markdown artifacts read symbol-level CALLS / CO_CHANGES_WITH /
+    # MEMBER_OF data from it. v0.1 callers can opt out by passing
+    # ``build_graph_db=False`` — useful for tests that want only the
+    # NetworkX path (the golden-emit fixtures construct ``RepoFacts``
+    # directly without setting ``graph_db_path`` so they're unaffected
+    # by the flip either way).
+    build_graph_db: bool = True
     # DEC-027: minimum co-occurrence count for a file pair to get a
     # CO_CHANGES_WITH edge. ≥ 2 by default — files committed together at
     # least twice are a signal even on small repos. Bumping to 3+ filters

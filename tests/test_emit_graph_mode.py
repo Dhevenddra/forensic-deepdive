@@ -54,30 +54,55 @@ def _copy(name: str, tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def test_hotpaths_has_call_graph_section_in_graph_mode(tmp_path):
-    """DEC-029: HOTPATHS gets a 'Call-graph hot spots' section when
-    the LadybugDB graph has at least one CALLS edge."""
+def test_hotpaths_dependency_hotspots_use_graph_in_graph_mode(tmp_path):
+    """DEC-030: in graph mode, the "Dependency hot spots" section
+    reads from CALLS edges (DEC-025 resolver) and includes the
+    confidence-mix column the v0.1 NetworkX path can't produce."""
     repo = _copy("python_sample", tmp_path)
     artifacts = _run_with_graph(repo, tmp_path / "graph.lbug")
     hot = artifacts["HOTPATHS.md"].read_text(encoding="utf-8")
-    assert "## Call-graph hot spots" in hot
-    # python_sample has Greeter.greet calling format_message and
-    # app.py::run calling format_message + Greeter — so
-    # format_message should appear with >= 1 caller.
+    # Graph-mode "Dependency hot spots" mentions CALLS resolver
+    # explicitly and adds a Callers / Confidence-mix column.
+    assert "## Dependency hot spots" in hot
+    assert "CALLS" in hot or "Callers" in hot
+    # python_sample's format_message is called from app.py::run and
+    # greeter.py::Greeter.greet -> 2 callers, both EXTRACTED.
     assert "format_message" in hot
+    assert "EXTRACTED" in hot
 
 
-def test_hotpaths_call_graph_section_absent_without_graph(tmp_path):
-    """DEC-029 invariant: when build_graph_db is off, the graph-mode
-    sections do NOT render — protects the golden-emit fixtures from
-    drifting."""
-    from forensic_deepdive.pipeline import run_extract
+def test_hotpaths_graph_only_sections_absent_without_graph(tmp_path):
+    """DEC-029/030 invariant: when build_graph_db is off, "Co-change
+    clusters" does not render and "Dependency hot spots" falls back to
+    the v0.1 NetworkX rendering (different column shape)."""
+    from forensic_deepdive.pipeline import (
+        BuildGraphPhase,
+        Context,
+        ExtractConfig,
+        InventoryPhase,
+        PipelineRunner,
+        StaticPhase,
+        default_phases,
+    )
 
     repo = _copy("python_sample", tmp_path)
-    run_extract(repo, flatten=False, write_editor_shims=False)
+    # Force graph-off (the default flips to True in this phase, so
+    # we explicitly opt out to test the fallback path).
+    cfg = ExtractConfig(
+        repo_path=repo.resolve(),
+        output_dir=repo / "docs" / "codebase",
+        flatten=False,
+        write_editor_shims=False,
+        build_graph_db=False,
+    )
+    PipelineRunner(default_phases()).run(cfg)
     hot = (repo / "docs" / "codebase" / "HOTPATHS.md").read_text(encoding="utf-8")
-    assert "## Call-graph hot spots" not in hot
+    # Co-change is a graph-only section — must not appear.
     assert "## Co-change clusters" not in hot
+    # v0.1 path uses "Rank" column header instead of "Callers".
+    assert "Rank" in hot
+    # Silence unused-import — these are needed elsewhere in the module.
+    _ = (BuildGraphPhase, Context, InventoryPhase, StaticPhase)
 
 
 # ---------------------------------------------------------------------------

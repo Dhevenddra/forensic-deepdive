@@ -109,6 +109,19 @@ def _central_files(facts: RepoFacts, limit: int = 15) -> list[str]:
 
 
 def _key_definitions(facts: RepoFacts, limit: int = 20) -> list[str]:
+    """Top symbols. Graph mode (DEC-030) ranks by inbound CALLS edge
+    count with full qualified names (parent chain) and SymbolKind;
+    NetworkX fallback uses v0.1 PageRank-on-name."""
+    graph_rows = _graph_key_definitions(facts, limit)
+    if graph_rows is not None:
+        return [
+            "## Key definitions",
+            "",
+            "Symbols ranked by inbound `CALLS` count (DEC-025 resolver).",
+            "",
+            md_table(["Symbol", "Kind", "Defined in", "Callers"], graph_rows),
+            "",
+        ]
     rows: list[list[str]] = []
     for definition in facts.ranked.definitions[:limit]:
         category = definition.tags[0].category if definition.tags else "—"
@@ -128,3 +141,36 @@ def _key_definitions(facts: RepoFacts, limit: int = 20) -> list[str]:
         md_table(["Symbol", "Kind", "Defined in", "Rank"], rows),
         "",
     ]
+
+
+def _graph_key_definitions(facts: RepoFacts, limit: int) -> list[list[str]] | None:
+    """DEC-030 graph-mode: top symbols by inbound CALLS. Each row carries
+    the full qualified name (parent chain via DEC-023) and the
+    SymbolKind from the graph (more accurate than the v0.1 first-tag
+    category guess)."""
+    if facts.graph_db_path is None:
+        return None
+    from forensic_deepdive.graph import LadybugStore
+
+    try:
+        with LadybugStore(facts.graph_db_path) as store:
+            rows = list(
+                store.query(
+                    "MATCH (caller:Symbol)-[:CALLS]->(callee:Symbol) "
+                    "RETURN callee.qualified_name, callee.kind, "
+                    "callee.file_path, count(caller) AS inbound "
+                    "ORDER BY inbound DESC, callee.qualified_name "
+                    f"LIMIT {limit}"
+                )
+            )
+    except Exception:  # pragma: no cover
+        return None
+    if not rows:
+        return []
+    body: list[list[str]] = []
+    for qn, kind, fp, inbound in rows:
+        # Show the qn_local (everything after ``<file>::``) so the
+        # parent chain stays readable.
+        local = qn.split("::", 1)[-1]
+        body.append([f"`{local}`", kind, f"`{fp}`", str(int(inbound))])
+    return body

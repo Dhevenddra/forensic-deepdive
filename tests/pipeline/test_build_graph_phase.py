@@ -154,15 +154,31 @@ def test_polyglot_persists_every_language(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_public_run_extract_does_not_build_graph_by_default(tmp_path):
-    """v0.2 invariant: the public ``run_extract`` keeps v0.1 behavior —
-    the LadybugDB graph is opt-in via the lower-level runner only, until
-    the markdown emitters cut over (PRD §10 item 9). This test will be
-    inverted when item 9 lands."""
+def test_public_run_extract_builds_graph_by_default(tmp_path):
+    """DEC-030 (item 9 phase 2): the public ``run_extract`` now builds
+    the LadybugDB graph AND emits the markdown artifacts by default.
+    Inverted from the v0.2-phase-1 invariant."""
     repo = _copy_fixture("python_sample", tmp_path)
     result = run_extract(repo, flatten=False, write_editor_shims=False)
     assert result.artifacts  # markdown still emitted
-    assert not (repo / ".deepdive").exists()  # no LadybugDB built
+    # LadybugDB is built at the default path now.
+    assert (repo / ".deepdive" / "graph.lbug").exists()
+
+
+def test_public_run_extract_can_opt_out_of_graph(tmp_path):
+    """DEC-030 escape hatch: callers wanting the v0.1-only path can
+    pass ``build_graph_db=False`` via the lower-level runner. Used by
+    a few existing test paths that want speed over richness."""
+    repo = _copy_fixture("python_sample", tmp_path)
+    cfg = ExtractConfig(
+        repo_path=repo.resolve(),
+        output_dir=repo / "docs" / "codebase",
+        flatten=False,
+        write_editor_shims=False,
+        build_graph_db=False,
+    )
+    PipelineRunner(default_phases()).run(cfg)
+    assert not (repo / ".deepdive" / "graph.lbug").exists()
 
 
 def test_runner_opt_in_builds_graph_at_configured_path(tmp_path):

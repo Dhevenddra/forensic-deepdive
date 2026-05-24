@@ -307,6 +307,28 @@ class BuildGraphPhase(Phase):
             return BuildGraphOutput(enabled=False, db_path=None)
 
         db_path = cfg.graph_db_path or cfg.repo_path.joinpath(*_DEFAULT_GRAPH_DB_SUBDIR)
+        # DEC-030: every extract REGENERATES the graph from current source
+        # state — matching the v0.1 "extract rebuilds artifacts" semantics.
+        # Without this, a second extract on the same repo collides on
+        # File / Symbol / Module / etc. primary keys. real-ladybug uses
+        # a single-file ``.lbug`` plus a sibling ``.lbug.wal`` on Windows;
+        # other platforms may use a directory. Handle both.
+        import shutil
+
+        if db_path.exists():
+            if db_path.is_dir():
+                shutil.rmtree(db_path)
+            else:
+                db_path.unlink()
+        # Also clean up the WAL sidecar real-ladybug writes next to the
+        # main DB file. Without this, reopening picks up stale state and
+        # PKs collide.
+        wal_path = db_path.with_suffix(db_path.suffix + ".wal")
+        if wal_path.exists():
+            if wal_path.is_dir():
+                shutil.rmtree(wal_path)
+            else:
+                wal_path.unlink()
         inv = ctx.get(InventoryPhase).inventory
         static = ctx.get(StaticPhase)
 

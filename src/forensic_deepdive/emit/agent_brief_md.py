@@ -117,32 +117,40 @@ def _rules(facts: RepoFacts) -> str:
 
 
 def _derive_rules(facts: RepoFacts) -> tuple[list[str], list[str]]:
-    """Turn deterministic facts into assertive Always / Never directives."""
+    """Turn deterministic facts into assertive Always / Never directives.
+
+    DEC-030: in graph mode, the "load-bearing file" + "central symbol"
+    rules promote to a single "load-bearing SYMBOL" rule grounded in
+    real CALLS counts. The v0.1 file/PageRank rules render only when
+    no graph is available."""
     always: list[str] = []
     never: list[str] = []
     ranked = ranked_files(facts)
 
-    if ranked:
-        top_file = ranked[0][0]
-        in_edges = facts.symbol_graph.graph.in_degree(top_file)
-        always.append(
-            f"Treat `{top_file}` as load-bearing — it is the most depended-on "
-            f"file ({in_edges} inbound dependency edges); changes there ripple "
-            f"widely"
-        )
-    if facts.ranked.definitions:
-        top = facts.ranked.definitions[0]
-        always.append(
-            f"Expect `{top.name}` (in `{top.rel_path}`) to be central — it "
-            f"carries the most dependency weight"
-        )
-    # DEC-029 graph-mode rule: the top callee in the CALLS graph is a
-    # higher-precision "treat as load-bearing" signal than file-level
-    # PageRank because it's symbol-level.
-    always.extend(_graph_call_rules(facts))
-    # DEC-029 graph-mode rule: top co-change pair becomes an "if you
-    # touch X, also touch Y" coupling rule.
-    always.extend(_graph_co_change_rules(facts))
+    graph_call_rules = _graph_call_rules(facts)
+    graph_co_change_rules = _graph_co_change_rules(facts)
+
+    if graph_call_rules:
+        # Graph mode: the most-called-symbol rule replaces the v0.1
+        # file-level + name-level rules.
+        always.extend(graph_call_rules)
+    else:
+        # NetworkX fallback.
+        if ranked:
+            top_file = ranked[0][0]
+            in_edges = facts.symbol_graph.graph.in_degree(top_file)
+            always.append(
+                f"Treat `{top_file}` as load-bearing — it is the most depended-on "
+                f"file ({in_edges} inbound dependency edges); changes there ripple "
+                f"widely"
+            )
+        if facts.ranked.definitions:
+            top = facts.ranked.definitions[0]
+            always.append(
+                f"Expect `{top.name}` (in `{top.rel_path}`) to be central — it "
+                f"carries the most dependency weight"
+            )
+    always.extend(graph_co_change_rules)
 
     if facts.history.is_git_repo and facts.history.churn:
         hottest = facts.history.churn[0]
