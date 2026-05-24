@@ -195,10 +195,35 @@ def query(
 
 @app.command()
 def serve(
-    transport: Annotated[str, typer.Option(help="stdio | sse")] = "stdio",
+    repo: Annotated[
+        Path,
+        typer.Argument(help="Repo with a built `.deepdive/graph.lbug`."),
+    ] = Path("."),
+    graph: Annotated[
+        Path | None,
+        typer.Option(help="Explicit .lbug path (overrides <repo>/.deepdive/graph.lbug)."),
+    ] = None,
+    transport: Annotated[str, typer.Option(help="Currently only stdio.")] = "stdio",
 ) -> None:
-    """Start MCP server exposing artifacts as queryable tools. v0.2 only."""
-    raise NotImplementedError("MCP server is v0.2. See DEC-001.")
+    """Start the MCP server exposing the LadybugDB graph (DEC-016).
+
+    Five composite tools: impact / context / archaeology / flow / query.
+    Consumed by Claude Code, Cursor, Codex, Continue, Cline via stdio.
+    """
+    if transport != "stdio":
+        console.print(f"[red]Only stdio is supported in v0.2; got {transport!r}.[/red]")
+        raise typer.Exit(code=1)
+    db_path = graph or repo / ".deepdive" / "graph.lbug"
+    if not db_path.exists():
+        console.print(
+            f"[red]No graph at {db_path}.[/red] Run `forensic extract` first to build it."
+        )
+        raise typer.Exit(code=1)
+    import asyncio
+
+    from forensic_deepdive.mcp_server import serve_stdio
+
+    asyncio.run(serve_stdio(db_path))
 
 
 if __name__ == "__main__":

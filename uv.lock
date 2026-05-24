@@ -419,6 +419,7 @@ source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "jinja2" },
+    { name = "mcp" },
     { name = "networkx" },
     { name = "pydantic" },
     { name = "pygithub" },
@@ -456,6 +457,7 @@ requires-dist = [
     { name = "graphiti-core", marker = "extra == 'graphiti'", specifier = ">=0.28" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "jinja2", specifier = ">=3.1" },
+    { name = "mcp", specifier = ">=1.27.1" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0" },
     { name = "networkx", specifier = ">=3.3" },
     { name = "pydantic", specifier = ">=2.7" },
