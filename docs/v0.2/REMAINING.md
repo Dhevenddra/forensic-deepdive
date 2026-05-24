@@ -43,11 +43,15 @@ MCP server depends on them.
 - **PRD §10 progress:** 7 of 14 done (items 1, 2, 4, 5, 6, 7, 8). Item
   8b — the extension that completes item 8's graph — is **DONE** (all
   6 steps).
-- **Latest commit:** `e21c2f6 feat: EXTENDS + IMPLEMENTS class-hierarchy
-  edges (DEC-028, item 8b step 6 -- LAST)`.
-- **Active DECs:** DEC-001 → DEC-014, DEC-020 → DEC-028. (DEC-015,
+- **Latest commit:** `b962b46 feat: item 9 phase 1 -- graph-mode
+  sections in HOTPATHS + AGENT_BRIEF (DEC-029)`.
+- **Active DECs:** DEC-001 → DEC-014, DEC-020 → DEC-029. (DEC-015,
   DEC-016, DEC-017, DEC-018, DEC-019 still reserved per PRD §6 for
-  items 3/9/10/11/12/13 below.)
+  items 3/10/11/12/13 below.)
+- **Item 9 progress:** phase 1 done (additive graph-mode sections
+  in HOTPATHS + AGENT_BRIEF, plumbing in place). Phase 2 = cut
+  primary content paths over to the graph + flip default + regenerate
+  goldens.
 - **Languages:** 8 (Python, C, Dart, Swift, TypeScript, JavaScript,
   Java, Go).
 - **Persistent graph: FEATURE-COMPLETE for v0.2.** Opt-in via
@@ -373,32 +377,45 @@ docs/v0.2/REMAINING.md (the forward-looking roadmap — its
 sentence what you understand.
 
 **Item 8b is DONE** (commits `96a50eb`, `2b820a8`, `9948fd0`,
-`6504d15`, `95da3e3`, `e21c2f6`). Confirm by reading the
-2026-05-25 PROGRESS.md entry titled "v0.2 item 8b COMPLETE".
+`6504d15`, `95da3e3`, `e21c2f6`).
 
-Then start item 9 (markdown artifacts regenerated from the LadybugDB
-graph). Foundation: every emitter currently pulls from in-memory
-NetworkX via `static.symbol_graph`. The new path queries
-LadybugStore via Cypher — each emitter gets a graph-mode branch
-selected by `ctx.get(BuildGraphPhase).enabled`. Concrete plan:
+**Item 9 phase 1 is DONE** (commit `b962b46`, DEC-029). HOTPATHS gets
+"Call-graph hot spots" + "Co-change clusters" sections; AGENT_BRIEF
+gets two graph-driven "Always" rules. All gated on
+`RepoFacts.graph_db_path is not None` so v0.1 goldens stay byte-
+identical.
 
-1. Flip `ExtractConfig.build_graph_db` default from False to True so
-   every `forensic extract` produces a `.lbug` AND the markdown
-   artifacts. Update the `test_public_run_extract_does_not_build_graph`
-   test (will need to be inverted or removed).
-2. Per-emitter, add a graph-reading branch that uses the new
-   LadybugStore reader helpers (`iter_symbols_for_file`,
-   `iter_callees_of`/`iter_callers_of`, `parent_of`/`iter_members_of`,
-   `iter_co_changes_of`, etc.). Keep the v0.1 NetworkX branch as
-   fallback only when build_graph_db is off (probably nobody).
-3. Regenerate the 5 golden artifacts under `tests/fixtures/expected_emit/`
-   via `UPDATE_GOLDEN=1` — they'll differ because the graph reads
-   produce richer / more accurate output.
-4. Possibly write DEC-029 capturing the markdown-from-graph cutover.
+**Next: item 9 phase 2 — full markdown-from-graph cutover.**
 
-After item 9: item 10 (MCP server with 5 composite tools) is the
-headline. The graph is now feature-complete so the MCP tools (impact,
-context, archaeology, query, flow) have real data to query.
+1. Per emitter, replace the *primary* content path with graph reads:
+   - **MAP**: "Most central files" — keep file-level PageRank for
+     now (graph PageRank is v0.3); "Key definitions" — switch to
+     `iter_symbols_for_file` results sorted by inbound CALLS count.
+   - **HOTPATHS**: phase 1's two graph sections are additive; in
+     phase 2 they BECOME the primary content of those sections and
+     the old NetworkX-derived "Dependency hot spots" + "Cross-file
+     dependencies" sections get rewritten to query CALLS edges.
+   - **ARCHAEOLOGY**: contributors / churn already come from
+     HistoryPhase (which is now persisted in the graph too).
+     Rewrite to query `AUTHORED_BY` for contributors + Commits-touched-files
+     for churn — same data, but via the graph so v0.3 cross-repo
+     queries compose.
+   - **MENTAL_MODEL**: "Entry points" should join CALLS-in-degree=0
+     symbols with conventional entry-point file names. Currently
+     file-name heuristic only.
+   - **AGENT_BRIEF**: phase 1's two rules are additive; in phase 2,
+     the "load-bearing file" rule promotes to "load-bearing SYMBOL"
+     via top-CALLS-callee.
+2. Flip `ExtractConfig.build_graph_db` default from False to True.
+3. Update `test_public_run_extract_does_not_build_graph_by_default`
+   — invert (and rename) since the new default DOES build a graph.
+4. Regenerate all 5 golden fixtures via `UPDATE_GOLDEN=1`.
+5. The graph_db_path-defensive `try/except` blocks added in phase 1
+   stay — they're the right shape for the cutover too.
+
+After item 9 phase 2: item 10 (MCP server with 5 composite tools) is
+the headline. With item 8b + item 9 done, every MCP tool has rich
+graph data to query.
 
 Working autonomy: full freedom to install tools and web-search
 version-sensitive facts. Spend time on hard problems — write custom
