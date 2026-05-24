@@ -26,11 +26,84 @@ def render_hotpaths(facts: RepoFacts) -> str:
         "",
         *_dependency_hotspots(facts),
         *_cross_file_deps(facts),
+        *_call_graph_hotspots(facts),  # DEC-029
+        *_co_change_clusters(facts),  # DEC-029
         *_change_hotspots(facts),
         *_churn_x_centrality(facts),
         footer(facts),
     ]
     return "\n".join(lines) + "\n"
+
+
+def _call_graph_hotspots(facts: RepoFacts, limit: int = 10) -> list[str]:
+    """DEC-029 graph-driven section: symbols with the most incoming
+    CALLS edges — the load-bearing callees. Only rendered when the
+    LadybugDB graph is available (BuildGraphPhase ran)."""
+    if facts.graph_db_path is None:
+        return []
+    # Local import to keep emit's import-graph free of LadybugStore when
+    # the graph isn't being used (e.g. unit-testing pure emitters).
+    from forensic_deepdive.graph import LadybugStore
+
+    try:
+        with LadybugStore(facts.graph_db_path) as store:
+            rows = list(
+                store.query(
+                    "MATCH (caller:Symbol)-[r:CALLS]->(callee:Symbol) "
+                    "RETURN callee.qualified_name, callee.file_path, "
+                    "count(r) AS inbound "
+                    "ORDER BY inbound DESC, callee.qualified_name "
+                    f"LIMIT {limit}"
+                )
+            )
+    except Exception:  # pragma: no cover — graph may be malformed; degrade
+        return []
+    if not rows:
+        return []
+    body_rows = [[f"`{qn.rsplit('::', 1)[-1]}`", f"`{fp}`", str(int(n))] for qn, fp, n in rows]
+    return [
+        "## Call-graph hot spots",
+        "",
+        "Symbols with the most inbound CALLS edges (DEC-025 resolver). "
+        "These are the symbols most other symbols depend on.",
+        "",
+        md_table(["Callee", "Defined in", "Callers"], body_rows),
+        "",
+    ]
+
+
+def _co_change_clusters(facts: RepoFacts, limit: int = 10) -> list[str]:
+    """DEC-029 graph-driven section: file pairs that change together
+    most often (DEC-027 CO_CHANGES_WITH). The "if you touch X, also
+    touch Y" signal."""
+    if facts.graph_db_path is None:
+        return []
+    from forensic_deepdive.graph import LadybugStore
+
+    try:
+        with LadybugStore(facts.graph_db_path) as store:
+            rows = list(
+                store.query(
+                    "MATCH (a:File)-[r:CO_CHANGES_WITH]->(b:File) "
+                    "RETURN a.path, b.path, r.frequency "
+                    "ORDER BY r.frequency DESC, a.path, b.path "
+                    f"LIMIT {limit}"
+                )
+            )
+    except Exception:  # pragma: no cover
+        return []
+    if not rows:
+        return []
+    body_rows = [[f"`{a}`", f"`{b}`", humanize_int(int(freq))] for a, b, freq in rows]
+    return [
+        "## Co-change clusters",
+        "",
+        "Files most frequently committed together (DEC-027). "
+        "Editing one and not the other is a likely-incomplete change.",
+        "",
+        md_table(["File A", "File B", "Shared commits"], body_rows),
+        "",
+    ]
 
 
 def _dependency_hotspots(facts: RepoFacts, limit: int = 15) -> list[str]:

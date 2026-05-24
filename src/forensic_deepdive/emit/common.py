@@ -64,6 +64,11 @@ class RepoFacts:
     fixture_file_count: int = 0  # fixture files — inventoried, excluded
     vendored_file_count: int = 0  # DEC-021 — inventoried, excluded
     generated_file_count: int = 0  # DEC-021 — inventoried, excluded
+    # DEC-029: when the BuildGraphPhase ran, the LadybugDB graph lives
+    # here and emitters can query it for symbol-level / call-graph /
+    # co-change content. ``None`` when graph mode is off — emitters fall
+    # back to file-level NetworkX (v0.1 behavior).
+    graph_db_path: Path | None = None
 
 
 def language_label(grammar: str) -> str:

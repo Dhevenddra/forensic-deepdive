@@ -230,7 +230,7 @@ class EmitPhase(Phase):
     PRD §10 item 9 makes this read from the LadybugDB projection."""
 
     name = "emit"
-    depends_on = ("inventory", "static", "flatten", "history")
+    depends_on = ("inventory", "static", "flatten", "history", "build_graph")
     output_type = EmitOutput
 
     def run(self, ctx: Context) -> EmitOutput:
@@ -239,6 +239,12 @@ class EmitPhase(Phase):
         static = ctx.get(StaticPhase)
         history = ctx.get(HistoryPhase).history
         flatten = ctx.get(FlattenPhase).result
+        # DEC-029: pass through the populated LadybugDB path (or None)
+        # so emitters can query the graph for symbol-level / co-change /
+        # call-graph content. Path is set IFF BuildGraphPhase populated
+        # the DB on this run.
+        build_graph = ctx.get(BuildGraphPhase)
+        graph_db_path = build_graph.db_path if build_graph.enabled else None
 
         facts = RepoFacts(
             repo_path=cfg.repo_path,
@@ -255,6 +261,7 @@ class EmitPhase(Phase):
             fixture_file_count=len(inv.fixture_files),
             vendored_file_count=len(inv.vendored_files),
             generated_file_count=len(inv.generated_files),
+            graph_db_path=graph_db_path,
         )
 
         cfg.output_dir.mkdir(parents=True, exist_ok=True)

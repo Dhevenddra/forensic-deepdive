@@ -136,6 +136,13 @@ def _derive_rules(facts: RepoFacts) -> tuple[list[str], list[str]]:
             f"Expect `{top.name}` (in `{top.rel_path}`) to be central — it "
             f"carries the most dependency weight"
         )
+    # DEC-029 graph-mode rule: the top callee in the CALLS graph is a
+    # higher-precision "treat as load-bearing" signal than file-level
+    # PageRank because it's symbol-level.
+    always.extend(_graph_call_rules(facts))
+    # DEC-029 graph-mode rule: top co-change pair becomes an "if you
+    # touch X, also touch Y" coupling rule.
+    always.extend(_graph_co_change_rules(facts))
 
     if facts.history.is_git_repo and facts.history.churn:
         hottest = facts.history.churn[0]
@@ -150,6 +157,60 @@ def _derive_rules(facts: RepoFacts) -> tuple[list[str], list[str]]:
     if not facts.history.is_git_repo:
         never.append("Never rely on git history here — this directory is not a git repository")
     return always, never
+
+
+def _graph_call_rules(facts: RepoFacts) -> list[str]:
+    """DEC-029. Top-called symbol from the LadybugDB CALLS graph."""
+    if facts.graph_db_path is None:
+        return []
+    from forensic_deepdive.graph import LadybugStore
+
+    try:
+        with LadybugStore(facts.graph_db_path) as store:
+            rows = list(
+                store.query(
+                    "MATCH (caller:Symbol)-[r:CALLS]->(callee:Symbol) "
+                    "RETURN callee.qualified_name, count(r) AS inbound "
+                    "ORDER BY inbound DESC, callee.qualified_name LIMIT 1"
+                )
+            )
+    except Exception:  # pragma: no cover
+        return []
+    if not rows or int(rows[0][1]) < 2:
+        return []
+    qn, inbound = rows[0]
+    short = qn.rsplit("::", 1)[-1]
+    return [
+        f"Treat `{short}` as the most-called symbol "
+        f"({int(inbound)} inbound calls per the DEC-025 resolver) — "
+        f"signature changes touch every caller"
+    ]
+
+
+def _graph_co_change_rules(facts: RepoFacts) -> list[str]:
+    """DEC-029. Tightest co-change pair from the CO_CHANGES_WITH graph."""
+    if facts.graph_db_path is None:
+        return []
+    from forensic_deepdive.graph import LadybugStore
+
+    try:
+        with LadybugStore(facts.graph_db_path) as store:
+            rows = list(
+                store.query(
+                    "MATCH (a:File)-[r:CO_CHANGES_WITH]->(b:File) "
+                    "RETURN a.path, b.path, r.frequency "
+                    "ORDER BY r.frequency DESC, a.path, b.path LIMIT 1"
+                )
+            )
+    except Exception:  # pragma: no cover
+        return []
+    if not rows:
+        return []
+    a, b, freq = rows[0]
+    return [
+        f"When you touch `{a}`, also check `{b}` — they co-change in "
+        f"{int(freq)} shared commit(s) per the DEC-027 join"
+    ]
 
 
 def _risky_files(facts: RepoFacts, window: int = 20) -> list[str]:
