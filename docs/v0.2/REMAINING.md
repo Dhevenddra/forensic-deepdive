@@ -43,15 +43,19 @@ MCP server depends on them.
 - **PRD §10 progress:** 7 of 14 done (items 1, 2, 4, 5, 6, 7, 8). Item
   8b — the extension that completes item 8's graph — is **DONE** (all
   6 steps).
-- **Latest commit:** `b962b46 feat: item 9 phase 1 -- graph-mode
-  sections in HOTPATHS + AGENT_BRIEF (DEC-029)`.
-- **Active DECs:** DEC-001 → DEC-014, DEC-020 → DEC-029. (DEC-015,
-  DEC-016, DEC-017, DEC-018, DEC-019 still reserved per PRD §6 for
-  items 3/10/11/12/13 below.)
-- **Item 9 progress:** phase 1 done (additive graph-mode sections
-  in HOTPATHS + AGENT_BRIEF, plumbing in place). Phase 2 = cut
-  primary content paths over to the graph + flip default + regenerate
-  goldens.
+- **Latest commit:** `2f3ca11 feat: multi-repo registry + forensic
+  list (DEC-018)`.
+- **Active DECs:** DEC-001 → DEC-014, DEC-016 → DEC-018, DEC-020 →
+  DEC-030. (Only DEC-015 / DEC-019 of the originally-reserved set
+  remain — confidence-threading polish + Graphiti.)
+- **Item 9 COMPLETE** (phases 1 + 2): markdown artifacts read from
+  graph; default flipped True.
+- **Item 10 COMPLETE (DEC-016, headline v0.2):** MCP server with 5
+  composite tools live. `forensic serve` works.
+- **Item 12 COMPLETE (DEC-017):** Repomix demoted to
+  `--legacy-repomix`.
+- **DEC-018 done:** registry + `forensic list`. Multi-repo MCP
+  serving deferred to v0.3.
 - **Languages:** 8 (Python, C, Dart, Swift, TypeScript, JavaScript,
   Java, Go).
 - **Persistent graph: FEATURE-COMPLETE for v0.2.** Opt-in via
@@ -376,16 +380,34 @@ docs/v0.2/REMAINING.md (the forward-looking roadmap — its
 "Operating discipline" section is load-bearing). Confirm in one
 sentence what you understand.
 
-**Item 8b is DONE** (commits `96a50eb`, `2b820a8`, `9948fd0`,
-`6504d15`, `95da3e3`, `e21c2f6`).
+**Items 8b, 9, 10, 12, DEC-018 are DONE** (this session, 2026-05-25).
+The graph is complete; the MCP server is live; Repomix demoted;
+multi-repo registry in place.
 
-**Item 9 phase 1 is DONE** (commit `b962b46`, DEC-029). HOTPATHS gets
-"Call-graph hot spots" + "Co-change clusters" sections; AGENT_BRIEF
-gets two graph-driven "Always" rules. All gated on
-`RepoFacts.graph_db_path is not None` so v0.1 goldens stay byte-
-identical.
+**Next: pick one of items 13 / 11 / 3 / 14 / 15.**
 
-**Next: item 9 phase 2 — full markdown-from-graph cutover.**
+Suggested order (in REMAINING priority):
+
+1. **Item 13 — multi-platform skill emission** (medium). Expand
+   `src/forensic_deepdive/emit/shims.py` to write 5+ Claude skills
+   (Exploring, Debugging, Impact-Analysis, Refactoring, Onboarding),
+   `.claude-plugin/plugin.json`, refresh Cursor / Continue rule
+   files. Item 13 closes the "one tool, every editor" wedge that
+   matches GitNexus's distribution shape.
+2. **Item 11 — Graphiti integration (DEC-019)** (large). The
+   persistent agent-memory layer. Optional gated install (DEC-005
+   threshold). Adds the cross-session "what did we learn last
+   time" graph. Real differentiator vs. CodeGraphContext.
+3. **Item 3 — confidence threading polish** (small). Mostly done
+   via DEC-029/030. Could finish by tagging individual lines in MAP
+   and ARCHAEOLOGY emitters (HOTPATHS + AGENT_BRIEF already do it).
+4. **Item 14 — acceptance gates** (large, blocking v0.2.0 tag).
+   Real-repo runs: Omi (re-verify post-graph), spring-petclinic
+   (Java + Spring, no annotation resolution yet — INFERRED edges),
+   GitNexus repo itself (dogfood the competitor), fastapi.
+5. **Item 15 — tag v0.2.0**. Bump pyproject, update README,
+   CHANGELOG, commit `chore: bump to 0.2.0`, `git tag v0.2.0`,
+   **never push without explicit ask**.
 
 1. Per emitter, replace the *primary* content path with graph reads:
    - **MAP**: "Most central files" — keep file-level PageRank for
