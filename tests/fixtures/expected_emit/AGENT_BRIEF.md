@@ -1,7 +1,7 @@
 # AGENT_BRIEF — tiny_fixture
 
 > Forensic brief for AI coding agents. **Read this first.**
-> Every rule is `EXTRACTED` — deterministic from AST and git (DEC-007).
+> Each rule carries a confidence tag (DEC-015): `[EXTRACTED]` from AST/git, `[INFERRED]` from a ranking or heuristic.
 > Full detail: `MAP.md`, `HOTPATHS.md`, `ARCHAEOLOGY.md`, `MENTAL_MODEL.md`.
 
 ## What this is
@@ -12,8 +12,8 @@ A **Python** codebase, 12 source file(s), 3 test file(s).
 
 ### Always
 
-- Treat `mobile/lib/post.dart` as load-bearing — it is the most depended-on file (2 inbound dependency edges); changes there ripple widely `[EXTRACTED]`
-- Expect `Post` (in `mobile/lib/post.dart`) to be central — it carries the most dependency weight `[EXTRACTED]`
+- Treat `mobile/lib/post.dart` as load-bearing — it is the most depended-on file (2 inbound dependency edges); changes there ripple widely `[INFERRED]`
+- Expect `Post` (in `mobile/lib/post.dart`) to be central — it carries the most dependency weight `[INFERRED]`
 
 ### Never
 

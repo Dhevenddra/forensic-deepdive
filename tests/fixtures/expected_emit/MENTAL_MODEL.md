@@ -1,7 +1,7 @@
 # MENTAL_MODEL — tiny_fixture
 
 > How to think about this codebase. v0.1 emits a deterministic skeleton from structure and history; v0.2 will enrich it with LLM synthesis.
-> **Confidence:** every fact below is `EXTRACTED` — deterministic from Tree-sitter AST and git history (DEC-007).
+> **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise (DEC-015).
 
 ## At a glance
 
@@ -9,14 +9,18 @@
 
 ## Likely entry points
 
-Files whose names conventionally mark an entry point:
+_Confidence: `INFERRED` (DEC-015)._
+
+Files whose names conventionally mark an entry point (stem matches `main` / `app` / `cli` / `index` / `__main__` / `server` / `run` / `manage`):
 
 - `mobile/lib/main.dart`
 - `src/blog/cli.py`
 
 ## Core modules
 
-The load-bearing files — highest dependency centrality:
+_Confidence: `INFERRED` (DEC-015)._
+
+The load-bearing files — highest dependency centrality (PageRank over the symbol graph):
 
 1. `mobile/lib/post.dart` (centrality 0.1735)
 2. `src/blog/utils.py` (centrality 0.1575)

@@ -7,8 +7,10 @@ GitHub metadata. One of the five contract artifacts.
 from __future__ import annotations
 
 from forensic_deepdive.emit.common import (
+    INFERRED,
     RepoFacts,
     confidence_banner,
+    confidence_note,
     fmt_date,
     footer,
     humanize_age,
@@ -88,7 +90,12 @@ def _automation(facts: RepoFacts, limit: int = 10) -> list[str]:
     return [
         "## Automation",
         "",
-        f"{humanize_int(len(bots))} bot account(s) — separated from human attribution per DEC-022.",
+        confidence_note(INFERRED),
+        "",
+        f"{humanize_int(len(bots))} bot account(s) — separated from human "
+        "attribution per DEC-022. Bot classification is a regex heuristic "
+        "(`[bot]` suffix, `-bot` suffix, known infra emails); a human "
+        "account that matches one of those patterns will appear here.",
         "",
         md_table(["Bot", "Commits", "Share"], rows),
         "",

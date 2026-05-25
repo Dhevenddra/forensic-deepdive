@@ -10,8 +10,10 @@ from collections import Counter
 from pathlib import PurePosixPath
 
 from forensic_deepdive.emit.common import (
+    INFERRED,
     RepoFacts,
     confidence_banner,
+    confidence_note,
     footer,
     humanize_age,
     humanize_int,
@@ -64,9 +66,13 @@ def _entry_points(facts: RepoFacts) -> list[str]:
         for path in facts.symbol_graph.files
         if PurePosixPath(path).stem.lower() in _ENTRY_STEMS
     )
-    out = ["## Likely entry points", ""]
+    out = ["## Likely entry points", "", confidence_note(INFERRED), ""]
     if entries:
-        out.append("Files whose names conventionally mark an entry point:")
+        out.append(
+            "Files whose names conventionally mark an entry point "
+            "(stem matches `main` / `app` / `cli` / `index` / `__main__` / "
+            "`server` / `run` / `manage`):"
+        )
         out.append("")
         out += [f"- `{path}`" for path in entries]
     else:
@@ -80,7 +86,9 @@ def _core_modules(facts: RepoFacts, limit: int = 8) -> list[str]:
     out = [
         "## Core modules",
         "",
-        "The load-bearing files — highest dependency centrality:",
+        confidence_note(INFERRED),
+        "",
+        "The load-bearing files — highest dependency centrality (PageRank over the symbol graph):",
         "",
     ]
     if ranked:

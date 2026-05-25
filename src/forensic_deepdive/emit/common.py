@@ -4,11 +4,15 @@ Every emitter consumes one :class:`RepoFacts` bundle and returns markdown.
 ``RepoFacts`` is the contract between the (forthcoming) extract pipeline and
 the emit layer.
 
-Confidence taxonomy (DEC-007): every emitted fact carries a confidence level.
-v0.1 produces only ``EXTRACTED`` facts (deterministic from AST / git), so the
-four long-form artifacts state this once in a banner rather than tagging every
-line, and ``AGENT_BRIEF`` tags each rule explicitly. v0.2 introduces
-``INFERRED`` / ``AMBIGUOUS`` per item.
+Confidence taxonomy (DEC-007 + DEC-015): every emitted fact / rule carries a
+confidence level — ``EXTRACTED`` (1:1 from AST / git), ``INFERRED`` (derived
+ranking, heuristic, or single-candidate resolution), or ``AMBIGUOUS`` (multi-
+candidate resolver fallback, per DEC-025). The artifacts default to
+``EXTRACTED`` and override per section / per line where the derivation
+warrants a different label: MAP's "Most central files" is INFERRED (PageRank
+ranking), ARCHAEOLOGY's "Automation" is INFERRED (bot regex), MENTAL_MODEL's
+"Likely entry points" + "Core modules" are INFERRED. AGENT_BRIEF carries an
+explicit per-rule tag because the rule list mixes derivations and git facts.
 """
 
 from __future__ import annotations
@@ -125,14 +129,39 @@ def md_table(headers: list[str], rows: list[list[str]]) -> str:
     return f"{head}\n{rule}\n{body}"
 
 
-def confidence_banner(level: str = EXTRACTED) -> str:
-    """Return the one-line confidence banner placed under each artifact title."""
-    if level == EXTRACTED:
-        return (
-            "> **Confidence:** every fact below is `EXTRACTED` — deterministic "
-            "from Tree-sitter AST and git history (DEC-007)."
-        )
-    return f"> **Confidence:** `{level}` (DEC-007)."
+def confidence_banner() -> str:
+    """Return the one-line confidence banner placed under each artifact title.
+
+    DEC-015: the v0.1 "every fact below is EXTRACTED" claim was a literal lie
+    about MAP's PageRank rankings, MENTAL_MODEL's filename-stem heuristics, and
+    ARCHAEOLOGY's bot detection. The new banner declares EXTRACTED as the
+    default and points readers at the per-section / per-rule overrides.
+    """
+    return (
+        "> **Confidence:** facts are `EXTRACTED` (deterministic from AST and "
+        "git) unless a section / line says otherwise (DEC-015)."
+    )
+
+
+def confidence_note(level: str) -> str:
+    """Return the italic per-section confidence note (DEC-015).
+
+    Placed immediately after a section heading when the section's level
+    differs from the EXTRACTED default — typically ``INFERRED`` for
+    PageRank-derived rankings, heuristic classifications, or single-candidate
+    resolver fallbacks. Sections that are pure EXTRACTED skip the note.
+    """
+    return f"_Confidence: `{level}` (DEC-015)._"
+
+
+def confidence_tag(level: str) -> str:
+    """Return the inline per-line confidence tag (DEC-015).
+
+    Used in AGENT_BRIEF rule lists where individual rules in the same list
+    can have different confidence levels — git-fact rules stay EXTRACTED
+    while ranking-derived rules become INFERRED.
+    """
+    return f"`[{level}]`"
 
 
 def footer(facts: RepoFacts) -> str:

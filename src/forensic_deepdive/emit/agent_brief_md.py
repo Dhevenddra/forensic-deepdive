@@ -2,7 +2,10 @@
 
 Hard ≤5 KB cap (CLAUDE.md "Sacred abstractions"): beyond it, instruction
 following degrades. Sections are packed in priority order; whatever does not
-fit overflows into AGENT_BRIEF_DEEP.md. v0.1 derives only ``EXTRACTED`` rules.
+fit overflows into AGENT_BRIEF_DEEP.md. DEC-015: each rule in the list
+carries its own confidence tag — git-fact rules stay ``EXTRACTED`` while
+ranking-derived rules (PageRank centrality, top-called symbol, co-change
+pairs) are ``INFERRED``.
 """
 
 from __future__ import annotations
@@ -12,8 +15,11 @@ from pathlib import PurePosixPath
 
 from forensic_deepdive.emit.common import (
     AGENT_BRIEF_BYTE_CAP,
+    EXTRACTED,
+    INFERRED,
     RepoFacts,
     byte_len,
+    confidence_tag,
     footer,
     humanize_age,
     humanize_int,
@@ -68,7 +74,8 @@ def _header(facts: RepoFacts) -> str:
             f"# AGENT_BRIEF — {facts.repo_name}",
             "",
             "> Forensic brief for AI coding agents. **Read this first.**",
-            "> Every rule is `EXTRACTED` — deterministic from AST and git (DEC-007).",
+            "> Each rule carries a confidence tag (DEC-015): `[EXTRACTED]` "
+            "from AST/git, `[INFERRED]` from a ranking or heuristic.",
             "> Full detail: `MAP.md`, `HOTPATHS.md`, `ARCHAEOLOGY.md`, `MENTAL_MODEL.md`.",
         ]
     )
@@ -80,7 +87,7 @@ def _deep_header(facts: RepoFacts) -> str:
             f"# AGENT_BRIEF_DEEP — {facts.repo_name}",
             "",
             "> Overflow from `AGENT_BRIEF.md` — sections that did not fit the "
-            "5 KB cap. Lower priority, same `EXTRACTED` confidence.",
+            "5 KB cap. Lower priority, same per-rule confidence tags.",
         ]
     )
 
@@ -110,65 +117,97 @@ def _what_this_is(facts: RepoFacts) -> str:
 def _rules(facts: RepoFacts) -> str:
     always, never = _derive_rules(facts)
     lines = ["## Rules", "", "### Always", ""]
-    lines += [f"- {rule} `[EXTRACTED]`" for rule in always] or ["- _(none derived)_"]
+    if always:
+        lines += [f"- {rule} {confidence_tag(level)}" for rule, level in always]
+    else:
+        lines += ["- _(none derived)_"]
     lines += ["", "### Never", ""]
-    lines += [f"- {rule} `[EXTRACTED]`" for rule in never] or ["- _(none derived)_"]
+    if never:
+        lines += [f"- {rule} {confidence_tag(level)}" for rule, level in never]
+    else:
+        lines += ["- _(none derived)_"]
     return "\n".join(lines)
 
 
-def _derive_rules(facts: RepoFacts) -> tuple[list[str], list[str]]:
-    """Turn deterministic facts into assertive Always / Never directives.
+def _derive_rules(
+    facts: RepoFacts,
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """Turn deterministic facts into assertive Always / Never directives,
+    each paired with its honest DEC-015 confidence level.
+
+    Per DEC-015: PageRank-derived rankings, heuristic interpretations, and
+    co-change derivations are INFERRED. Raw git counts and the literal
+    "not a git repo" claim are EXTRACTED.
 
     DEC-030: in graph mode, the "load-bearing file" + "central symbol"
     rules promote to a single "load-bearing SYMBOL" rule grounded in
-    real CALLS counts. The v0.1 file/PageRank rules render only when
-    no graph is available."""
-    always: list[str] = []
-    never: list[str] = []
+    real CALLS counts. That rule is still INFERRED — the count is a fact
+    but the framing as "load-bearing" is the derivation."""
+    always: list[tuple[str, str]] = []
+    never: list[tuple[str, str]] = []
     ranked = ranked_files(facts)
 
     graph_call_rules = _graph_call_rules(facts)
     graph_co_change_rules = _graph_co_change_rules(facts)
 
     if graph_call_rules:
-        # Graph mode: the most-called-symbol rule replaces the v0.1
-        # file-level + name-level rules.
         always.extend(graph_call_rules)
     else:
-        # NetworkX fallback.
+        # NetworkX fallback — PageRank rankings are INFERRED (DEC-015).
         if ranked:
             top_file = ranked[0][0]
             in_edges = facts.symbol_graph.graph.in_degree(top_file)
             always.append(
-                f"Treat `{top_file}` as load-bearing — it is the most depended-on "
-                f"file ({in_edges} inbound dependency edges); changes there ripple "
-                f"widely"
+                (
+                    f"Treat `{top_file}` as load-bearing — it is the most "
+                    f"depended-on file ({in_edges} inbound dependency edges); "
+                    "changes there ripple widely",
+                    INFERRED,
+                )
             )
         if facts.ranked.definitions:
             top = facts.ranked.definitions[0]
             always.append(
-                f"Expect `{top.name}` (in `{top.rel_path}`) to be central — it "
-                f"carries the most dependency weight"
+                (
+                    f"Expect `{top.name}` (in `{top.rel_path}`) to be central — "
+                    "it carries the most dependency weight",
+                    INFERRED,
+                )
             )
     always.extend(graph_co_change_rules)
 
     if facts.history.is_git_repo and facts.history.churn:
         hottest = facts.history.churn[0]
         never.append(
-            f"Never assume `{hottest.path}` is stable — it is the repo's "
-            f"biggest churn point ({hottest.commits} commits)"
+            (
+                f"Never assume `{hottest.path}` is stable — it is the repo's "
+                f"biggest churn point ({hottest.commits} commits)",
+                EXTRACTED,
+            )
         )
     risky = _risky_files(facts)
     if risky:
         listed = ", ".join(f"`{path}`" for path in risky[:3])
-        never.append(f"Never edit {listed} casually — they are both highly central and high-churn")
+        never.append(
+            (
+                f"Never edit {listed} casually — they are both highly central and high-churn",
+                INFERRED,
+            )
+        )
     if not facts.history.is_git_repo:
-        never.append("Never rely on git history here — this directory is not a git repository")
+        never.append(
+            (
+                "Never rely on git history here — this directory is not a git repository",
+                EXTRACTED,
+            )
+        )
     return always, never
 
 
-def _graph_call_rules(facts: RepoFacts) -> list[str]:
-    """DEC-029. Top-called symbol from the LadybugDB CALLS graph."""
+def _graph_call_rules(facts: RepoFacts) -> list[tuple[str, str]]:
+    """DEC-029 + DEC-015. Top-called symbol from the LadybugDB CALLS graph.
+    Returned as an INFERRED rule — the count is EXTRACTED but the
+    "load-bearing" framing is a ranking interpretation."""
     if facts.graph_db_path is None:
         return []
     from forensic_deepdive.graph import LadybugStore
@@ -189,14 +228,19 @@ def _graph_call_rules(facts: RepoFacts) -> list[str]:
     qn, inbound = rows[0]
     short = qn.rsplit("::", 1)[-1]
     return [
-        f"Treat `{short}` as the most-called symbol "
-        f"({int(inbound)} inbound calls per the DEC-025 resolver) — "
-        f"signature changes touch every caller"
+        (
+            f"Treat `{short}` as the most-called symbol "
+            f"({int(inbound)} inbound calls per the DEC-025 resolver) — "
+            "signature changes touch every caller",
+            INFERRED,
+        )
     ]
 
 
-def _graph_co_change_rules(facts: RepoFacts) -> list[str]:
-    """DEC-029. Tightest co-change pair from the CO_CHANGES_WITH graph."""
+def _graph_co_change_rules(facts: RepoFacts) -> list[tuple[str, str]]:
+    """DEC-029 + DEC-015. Tightest co-change pair from CO_CHANGES_WITH.
+    Always INFERRED per DEC-027 — the count is a git fact, the
+    "should change together" implication is the derivation."""
     if facts.graph_db_path is None:
         return []
     from forensic_deepdive.graph import LadybugStore
@@ -216,8 +260,11 @@ def _graph_co_change_rules(facts: RepoFacts) -> list[str]:
         return []
     a, b, freq = rows[0]
     return [
-        f"When you touch `{a}`, also check `{b}` — they co-change in "
-        f"{int(freq)} shared commit(s) per the DEC-027 join"
+        (
+            f"When you touch `{a}`, also check `{b}` — they co-change in "
+            f"{int(freq)} shared commit(s) per the DEC-027 join",
+            INFERRED,
+        )
     ]
 
 

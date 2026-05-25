@@ -16,8 +16,10 @@ DEC-025). The NetworkX fallback stays for callers that pass
 from __future__ import annotations
 
 from forensic_deepdive.emit.common import (
+    INFERRED,
     RepoFacts,
     confidence_banner,
+    confidence_note,
     footer,
     humanize_int,
     md_table,
@@ -71,7 +73,11 @@ def _dependency_hotspots(facts: RepoFacts, limit: int = 15) -> list[str]:
     return [
         "## Dependency hot spots",
         "",
-        "Definitions with the widest blast radius — the most depended-on symbols.",
+        confidence_note(INFERRED),
+        "",
+        "Definitions with the widest blast radius — the most depended-on "
+        "symbols. Definitions are EXTRACTED; the PageRank ranking is the "
+        "derivation.",
         "",
         md_table(["Symbol", "Defined in", "Rank"], rows),
         "",
@@ -256,8 +262,11 @@ def _co_change_clusters(facts: RepoFacts, limit: int = 10) -> list[str]:
     return [
         "## Co-change clusters",
         "",
-        "Files most frequently committed together (DEC-027). "
-        "Editing one and not the other is a likely-incomplete change.",
+        confidence_note(INFERRED),
+        "",
+        "Files most frequently committed together (DEC-027). The shared-"
+        "commit count is EXTRACTED from git; the implication 'these should "
+        "change together' is the derivation.",
         "",
         md_table(["File A", "File B", "Shared commits"], body_rows),
         "",
@@ -298,8 +307,11 @@ def _churn_x_centrality(facts: RepoFacts, limit: int = 10) -> list[str]:
     return [
         "## Churn × centrality",
         "",
+        confidence_note(INFERRED),
+        "",
         "Files that are **both** highly depended-on and frequently changed — "
-        "the riskiest edits in the repo.",
+        "the riskiest edits in the repo. Commit counts are EXTRACTED; the "
+        "centrality column and the risk framing are the derivation.",
         "",
         md_table(["File", "Centrality", "Commits"], rows),
         "",

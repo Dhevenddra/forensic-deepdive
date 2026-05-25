@@ -39,16 +39,16 @@ MCP server depends on them.
 ## Current state (snapshot)
 
 - **Branch:** `main`. Tree clean at HEAD. Never pushed.
-- **Tests:** 309 passing. `ruff check` + `ruff format` clean.
-- **PRD §10 progress:** 12 of 14 done (items 1, 2, 4, 5, 6, 7, 8, 8b,
-  9, 10, 12, 13). Item 8b — the extension that completes item 8's
+- **Tests:** 322 passing. `ruff check` + `ruff format` clean.
+- **PRD §10 progress:** 13 of 14 done (items 1, 2, 3, 4, 5, 6, 7, 8,
+  8b, 9, 10, 12, 13). Item 8b — the extension that completes item 8's
   graph — is **DONE** (all 6 steps).
 - **Latest commit:** `7cdbd66 docs: REMAINING.md -- items 8b/9/10/12
   + DEC-018 done, next session opens at items 13/11/3/14/15`
   (DEC-031 commit will follow this session).
-- **Active DECs:** DEC-001 → DEC-014, DEC-016 → DEC-018, DEC-020 →
-  DEC-031. (Only DEC-015 / DEC-019 of the originally-reserved set
-  remain — confidence-threading polish + Graphiti.)
+- **Active DECs:** DEC-001 → DEC-018, DEC-020 → DEC-031. (Only
+  DEC-019 — Graphiti — of the originally-reserved set remains
+  unwritten.)
 - **Item 9 COMPLETE** (phases 1 + 2): markdown artifacts read from
   graph; default flipped True.
 - **Item 10 COMPLETE (DEC-016, headline v0.2):** MCP server with 5
@@ -109,27 +109,16 @@ decision. Or fold into DEC-009/DEC-011 family if scope is small.
 
 ---
 
-### Item 3 — Confidence taxonomy plumbing through emitters  **(small)**
+### Item 3 — Confidence taxonomy plumbing through emitters  **DONE — DEC-015**
 
-**Unlocks:** DEC-015 (already reserved). Every emitted fact tagged
-`EXTRACTED` / `INFERRED` / `AMBIGUOUS`. Today only the schema layer
-carries it; the markdown emitters still use a global banner. MCP
-responses (item 10) also need confidence on every node/edge they
-return.
-
-**Complexity:** small / mechanical when item 9 is done. The new
-graph-reading emitters naturally carry confidence per edge (it's a
-column in the DDL).
-
-**Touchpoints:**
-- All five emit/*.py — replace the single banner with per-line
-  `[EXTRACTED]` / `[INFERRED]` markers (AGENT_BRIEF already does this).
-- The new graph reads in item 9 already get `confidence` as a column.
-
-**DEC:** DEC-015 (reserved). Write when work lands.
-
-**Order note:** do item 9 first so item 3 has a real target. Doing them
-together in one session is fine — item 3 is ~30 min once item 9 is in.
+Shipped 2026-05-25. The v0.1 blanket "every fact below is EXTRACTED"
+banner replaced with per-section / per-rule honest labels. MAP's
+PageRank sections, ARCHAEOLOGY's bot-classification section, and
+MENTAL_MODEL's heuristic sections all carry `INFERRED` notes.
+AGENT_BRIEF rules carry per-rule confidence tags — git facts stay
+`EXTRACTED`, ranking derivations become `INFERRED`. 5 golden fixtures
+regenerated. 13 new tests verify section-level and rule-level
+honesty.
 
 ---
 
@@ -374,15 +363,15 @@ can be folded into item 10 or done as a standalone commit.
 
 ```
 Read CLAUDE.md, DECISIONS.md, PROGRESS.md (the 2026-05-25 entry
-titled "v0.2 item 13: multi-platform skill emission (DEC-031)"),
+titled "v0.2 item 3: confidence threading + DEC-015"),
 docs/v0.2/PRD_v0.2.md, and docs/v0.2/REMAINING.md (the
 "Operating discipline" section is load-bearing). Confirm in one
 sentence what you understand.
 
-**Items 8b, 9, 10, 12, 13, DEC-018 are DONE.** The graph is
+**Items 3, 8b, 9, 10, 12, 13, DEC-018 are DONE.** The graph is
 complete; the MCP server is live; Repomix demoted; multi-repo
 registry in place; the 5 emitted skills + plugin manifest ship per
-extract.
+extract; confidence labels are honest at section and rule level.
 
 **Remaining v0.2 work, in suggested priority:**
 
@@ -390,14 +379,11 @@ extract.
    persistent agent-memory layer. Optional gated install (DEC-005
    threshold). Adds the cross-session "what did we learn last
    time" graph. Real differentiator vs. CodeGraphContext.
-2. **Item 3 — confidence threading polish** (small). Mostly done
-   via DEC-029/030. Could finish by tagging individual lines in MAP
-   and ARCHAEOLOGY emitters (HOTPATHS + AGENT_BRIEF already do it).
-3. **Item 14 — acceptance gates** (large, blocking v0.2.0 tag).
+2. **Item 14 — acceptance gates** (large, blocking v0.2.0 tag).
    Real-repo runs: Omi (re-verify post-graph), spring-petclinic
    (Java + Spring, no annotation resolution yet — INFERRED edges),
    GitNexus repo itself (dogfood the competitor), fastapi.
-4. **Item 15 — tag v0.2.0**. Bump pyproject, update README,
+3. **Item 15 — tag v0.2.0**. Bump pyproject, update README,
    CHANGELOG, commit `chore: bump to 0.2.0`, `git tag v0.2.0`,
    **never push without explicit ask**.
 

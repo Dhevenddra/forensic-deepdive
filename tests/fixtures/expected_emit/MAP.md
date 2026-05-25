@@ -1,7 +1,7 @@
 # MAP — tiny_fixture
 
 > Structural map: files and symbols ranked by dependency centrality (PageRank over the symbol graph).
-> **Confidence:** every fact below is `EXTRACTED` — deterministic from Tree-sitter AST and git history (DEC-007).
+> **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise (DEC-015).
 
 ## Overview
 
@@ -12,6 +12,8 @@
 - **Test surface:** 3 test file(s), 1 fixture file(s) (inventoried, excluded from the dependency graph per DEC-012)
 
 ## Most central files
+
+_Confidence: `INFERRED` (DEC-015)._
 
 Files ranked by PageRank — edits here ripple widest.
 
@@ -31,7 +33,9 @@ Files ranked by PageRank — edits here ripple widest.
 
 ## Key definitions
 
-Symbols ranked by inbound dependency mass.
+_Confidence: `INFERRED` (DEC-015)._
+
+Symbols ranked by inbound dependency mass. Definitions are EXTRACTED; the ranking is the derivation.
 
 | Symbol | Kind | Defined in | Rank |
 | --- | --- | --- | --- |

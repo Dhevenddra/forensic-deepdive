@@ -1,7 +1,7 @@
 # ARCHAEOLOGY — tiny_fixture
 
 > What git history reveals: age, contributors, and churn.
-> **Confidence:** every fact below is `EXTRACTED` — deterministic from Tree-sitter AST and git history (DEC-007).
+> **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise (DEC-015).
 
 ## History
 

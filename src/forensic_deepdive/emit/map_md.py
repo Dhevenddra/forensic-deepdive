@@ -7,8 +7,10 @@ graph). One of the five contract artifacts.
 from __future__ import annotations
 
 from forensic_deepdive.emit.common import (
+    INFERRED,
     RepoFacts,
     confidence_banner,
+    confidence_note,
     footer,
     humanize_int,
     language_label,
@@ -101,6 +103,8 @@ def _central_files(facts: RepoFacts, limit: int = 15) -> list[str]:
     return [
         "## Most central files",
         "",
+        confidence_note(INFERRED),
+        "",
         "Files ranked by PageRank — edits here ripple widest.",
         "",
         md_table(["#", "File", "Score", "Key definitions"], rows),
@@ -117,7 +121,10 @@ def _key_definitions(facts: RepoFacts, limit: int = 20) -> list[str]:
         return [
             "## Key definitions",
             "",
-            "Symbols ranked by inbound `CALLS` count (DEC-025 resolver).",
+            confidence_note(INFERRED),
+            "",
+            "Symbols ranked by inbound `CALLS` count (DEC-025 resolver). "
+            "Definitions are EXTRACTED; the ranking is the derivation.",
             "",
             md_table(["Symbol", "Kind", "Defined in", "Callers"], graph_rows),
             "",
@@ -136,7 +143,10 @@ def _key_definitions(facts: RepoFacts, limit: int = 20) -> list[str]:
     return [
         "## Key definitions",
         "",
-        "Symbols ranked by inbound dependency mass.",
+        confidence_note(INFERRED),
+        "",
+        "Symbols ranked by inbound dependency mass. Definitions are "
+        "EXTRACTED; the ranking is the derivation.",
         "",
         md_table(["Symbol", "Kind", "Defined in", "Rank"], rows),
         "",
