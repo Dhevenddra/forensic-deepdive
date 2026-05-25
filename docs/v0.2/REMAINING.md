@@ -320,18 +320,39 @@ is real. Probably 1–2 more sessions of focused work to finish item 8b.
 
 ## Deferred to v0.3 (do NOT do in v0.2)
 
-Per PRD §11. Restated so I don't drift:
+Per PRD §11 + 2026-05-25 decisions. Restated so I don't drift:
 - Spring annotation resolution.
 - React component / hook resolution.
 - Cross-stack tracing (React fetch ↔ Spring @RequestMapping).
 - LSP-on-demand integration.
 - SCIP ingestion (v0.3 stub only).
 - ast-grep YAML framework rule packs.
-- Sigma.js visual viewer.
-- Traceability matrix.
+- Rust grammar.
+- **Parse-phase threading** (the perf lever this session's item 14a
+  exposed — 8 langs × ~5500 files sequential parse is the biggest
+  remaining bottleneck after DEC-032's UNWIND fix).
+- Multi-repo MCP serving (currently single-graph per server).
+- **Graph visualization stack** (added 2026-05-25; see
+  [[tool-visualization-stack]] in memory). Order: Mermaid → Graphviz
+  DOT → pyvis → terminal-image → Sigma.js (v0.4 per PRD §11) →
+  ASCII. Mermaid first — renders inline in any markdown surface
+  (Claude Code, PRs), single half-day commit.
+- **Polyglot stress-test repos** (added 2026-05-25; see
+  [[stress-test-repos]] in memory). **Apache Superset** is the best
+  v0.3 target — Python+TS+React polyglot, prototypical cross-stack
+  use case, before/after demonstration of the v0.3 wedge. Then
+  **Backstage** (TS monorepo, ~30k files, plugin architecture) and
+  **Odoo** (~50k Python files, v1.0 scale test).
+- Traceability matrix (v0.4).
 - Merkle-tree incremental indexing (v1.0).
 - `rename`, `cross_language_navigate`, `detect_changes`, `trace` MCP tools.
 - Web UI, cloud hosting, wiki generation.
+
+**Out of any v0.X cycle (ideation only — 2026-05-25):** DEEPDIVE IDE
+concept (purpose-built IDE for agentic development with Jira / Linear
+/ Teams MCP integration). User has notes. Not a build target. The
+foundation (graph + MCP + insights + skills + shims) already supports
+this if it ever becomes scope, but it is explicitly NOT scope today.
 
 ## DEC-018 — Multi-repo registry (small, can be done any session)
 
@@ -345,39 +366,65 @@ can be folded into item 10 or done as a standalone commit.
 Read CLAUDE.md, DECISIONS.md (DEC-032 is the newest — batched UNWIND
 writes; read at least its Decision + Consequences), PROGRESS.md (the
 2026-05-25 entries — top one is "v0.2 item 14a (perf gate + Omi/
-spring-petclinic acceptance, DEC-032)"), docs/v0.2/PRD_v0.2.md, and
-docs/v0.2/REMAINING.md (this file — "Operating discipline" + the
-§5.2 perf-budget note at the bottom are load-bearing). Confirm in
-one sentence what you understand.
+spring-petclinic acceptance, DEC-032)"), docs/v0.2/PRD_v0.2.md
+(focus on §5 acceptance gates), docs/v0.2/REMAINING.md (this file
+— "Operating discipline" + the §5.2 budget decision below are
+load-bearing), CHANGELOG.md (v0.2.0 draft), and the memory files
+[[v0-2-priorities]], [[tool-visualization-stack]],
+[[stress-test-repos]]. Confirm in one sentence what you understand.
 
-**State: 14a-1 (Omi) + 14a-2 (spring-petclinic) acceptance runs
-PASSED cleanly.** All 14 PRD §10 items shipped:
-- 1, 2 — LadybugDB GraphStore + Pipeline DAG (DEC-013/014)
-- 3 — confidence threading at section + rule level (DEC-015)
-- 4, 5, 6, 7 — 8 languages, Dart precision, vendored/generated,
-  mailmap+bots (DEC-020/021/022)
-- 8, 8b — full graph (every node + edge type in the schema)
-  (DEC-023..028)
-- 9, 10 — markdown reads from graph + MCP server with 5 composite
-  tools (DEC-016/029/030)
-- 11 — agent-insight layer (DEC-019)
-- 12 — Repomix demoted (DEC-017)
-- 13 — 5 emitted skills + plugin manifest (DEC-031)
-- plus DEC-018: multi-repo registry + `forensic list`
+**State after the 2026-05-25 session:** v0.2 is feature-complete +
+14a-1 (Omi) + 14a-2 (spring-petclinic) acceptance runs PASSED
+cleanly. CHANGELOG.md drafted. All 14 PRD §10 items + 32 DECs
+shipped. **Latest commit:** 285b1f7 (CHANGELOG.md). **Tests:** 394
+passing. **Tree:** clean. Never pushed.
 
-**Latest commit:** f88c8f5. **Tests:** 394 passing. **Tree:** clean.
-Never pushed. All 32 DECs active (DEC-032 = batched UNWIND perf).
-MCP server exposes 7 tools.
+**Perf measurements** (cold extract on commodity Win11 hardware):
+- Omi (2103 src files, 18k commits): 930s. AGENT_BRIEF 1555 bytes.
+  Graph 41MB. MCP context 146ms / impact 289ms.
+- spring-petclinic (30 Java files, 1.5k commits): 125s.
+- §5.2 budgets: Omi ≤ 120s (8× over), GitNexus ≤ 600s (untested).
+- MCP query budgets all comfortably met.
 
-**Omi cold-extract: 930s** (the perf fix unblocked artifact
-emission; queries are well under §5.2 budgets: context 146ms /
-impact 289ms). **spring-petclinic cold-extract: 125s.** Examples
-committed under `examples/omi/` (updated) and `examples/spring-
-petclinic/` (new).
+**The §5.2 perf-budget decision is the first task this session.**
+Three options laid out, pick one with the user:
 
-**Remaining for v0.2.0 tag:** 14a-3 (GitNexus, optional), 14a-4
-(fastapi, optional), 14b (Graphiti real-LLM), 14c (CHANGELOG + PRD
-§5 sign-off including the §5.2 budget reconciliation), 15 (tag).
+  (A) **Relax §5.2** to a real-measured budget (e.g. Omi ≤ 1200s,
+      GitNexus ≤ 2400s for cold; cache-hit and MCP queries keep
+      their existing tight budgets). Update PRD §5.2; document the
+      relaxation in CHANGELOG. Ship v0.2.0 today.
+  (B) **Thread the parse phase first.** ~1-2 sessions of work
+      (ProcessPoolExecutor across language workers). 4-6× projected
+      speedup on parse-bound repos. Pushes tag back a session.
+  (C) **Defer to v0.2.1.** Ship v0.2.0 with §5.2 explicitly noted
+      as "perf gate deferred to v0.2.1"; come back with threading
+      as a clean patch release.
+
+**After the §5.2 decision is made, work through:**
+
+1. **14a-3 (optional)** — GitNexus dogfood. Skip if Omi/petclinic
+   are the §5.2 evidence; run it if §5.2 needs the 600s number.
+2. **14a-4 (lowest priority)** — fastapi. Pure Python. Skip if time.
+3. **14b** — Real-LLM Graphiti acceptance. Skip-and-document if
+   Ollama / API key not set up — per DEC-019's stated v0.2 scope
+   honest deferral is acceptable.
+4. **14c** — Walk PRD §5.1–§5.5 checklist; mark each box.
+   CHANGELOG.md already drafted at commit 285b1f7 — extend if §5.2
+   gets a relaxation note.
+5. **Item 15** — Bump pyproject.toml `0.1.0` → `0.2.0`; rewrite
+   README.md from the v0.1 "structural orienter" framing to the
+   v0.2 "code knowledge graph + MCP for AI agents" framing (CHANGELOG
+   `[Unreleased]` text is the source); commit `chore: bump to
+   0.2.0`; `git tag v0.2.0`. **Never push without explicit ask.**
+
+**Out of scope reminders (do NOT pull in):**
+- Graph visualization (Mermaid / Graphviz / pyvis / Sigma.js) is
+  v0.3+, see [[tool-visualization-stack]] memory.
+- Apache Superset / Backstage / Odoo stress-tests are v0.3+, see
+  [[stress-test-repos]] memory.
+- DEEPDIVE IDE concept stays in ideation, not in any build cycle.
+- Spring/React framework resolvers, cross-stack tracing, LSP, SCIP,
+  ast-grep, Rust, traceability — all v0.3+ per PRD §11.
 
 ---
 
@@ -442,10 +489,12 @@ tests. Item 14 verifies the runtime path. Options:
 
 Run through PRD §5.1 — §5.5 checklist. Anything failing → fix
 (small fixes) or defer with documentation (large fixes). The §5.4
-quality gates (pytest -x, ruff, all DECs committed, PROGRESS up to
-date, CHANGELOG) are the floor — pytest is already at 362 passing,
-ruff is clean, all DECs are in. CHANGELOG.md is the only file
-that doesn't yet exist — create it as part of 14c.
+quality gates are met as of session-end 2026-05-25: **pytest 394
+passing, ruff clean, all 32 DECs committed, PROGRESS up to date,
+CHANGELOG.md drafted at commit 285b1f7.** The remaining work in
+14c is the §5.2 budget decision (see the kickoff prompt's three
+options) and walking the §5.1 / §5.3 / §5.5 functional + honest-
+mode checklists box-by-box.
 
 ## Item 15 — Tag v0.2.0 (this session, after 14)
 
