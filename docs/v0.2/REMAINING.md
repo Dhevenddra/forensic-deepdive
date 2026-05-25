@@ -39,17 +39,18 @@ MCP server depends on them.
 ## Current state (snapshot)
 
 - **Branch:** `main`. Tree clean at HEAD. Never pushed.
-- **Tests:** 362 passing. `ruff check` + `ruff format` clean.
+- **Tests:** 394 passing. `ruff check` + `ruff format` clean.
 - **PRD §10 progress:** 14 of 14 done (items 1, 2, 3, 4, 5, 6, 7, 8,
-  8b, 9, 10, 11, 12, 13). Item 8b — the extension that completes
-  item 8's graph — is **DONE** (all 6 steps). **Only item 14
-  (acceptance gates) + item 15 (tag) left before v0.2.0.**
-- **Latest commit:** `7cdbd66 docs: REMAINING.md -- items 8b/9/10/12
-  + DEC-018 done, next session opens at items 13/11/3/14/15`
-  (DEC-031 commit will follow this session).
-- **Active DECs:** DEC-001 → DEC-031. **All reserved DECs written**
-  (DEC-015 confidence taxonomy + DEC-019 insight layer shipped
-  this 2026-05-25 session).
+  8b, 9, 10, 11, 12, 13). Item 14 (acceptance gates) is **partially
+  done** — 14a-1 (Omi) + 14a-2 (spring-petclinic) cleanly passed;
+  14a-3 (GitNexus) / 14a-4 (fastapi) / 14b (Graphiti real-LLM) /
+  14c (PRD §5 sign-off + CHANGELOG) remain. **Item 15 (tag) blocked
+  on item 14 completion.**
+- **Latest commit:** `f88c8f5 perf: batched UNWIND graph writes +
+  single-pass git history (DEC-032)`.
+- **Active DECs:** DEC-001 → DEC-032. **All reserved + perf DECs
+  written.** DEC-032 added this session for batched UNWIND writes —
+  see DECISIONS.md.
 - **Item 9 COMPLETE** (phases 1 + 2): markdown artifacts read from
   graph; default flipped True.
 - **Item 10 COMPLETE (DEC-016, headline v0.2):** MCP server with 5
@@ -341,14 +342,16 @@ can be folded into item 10 or done as a standalone commit.
 ## Next-session kickoff prompt
 
 ```
-Read CLAUDE.md, DECISIONS.md, PROGRESS.md (the 2026-05-25 entries —
-three this date, top one is "v0.2 item 11: agent-insight layer
-(DEC-019)"), docs/v0.2/PRD_v0.2.md (the contract), and
-docs/v0.2/REMAINING.md (this file — its "Operating discipline"
-section is load-bearing). Confirm in one sentence what you
-understand.
+Read CLAUDE.md, DECISIONS.md (DEC-032 is the newest — batched UNWIND
+writes; read at least its Decision + Consequences), PROGRESS.md (the
+2026-05-25 entries — top one is "v0.2 item 14a (perf gate + Omi/
+spring-petclinic acceptance, DEC-032)"), docs/v0.2/PRD_v0.2.md, and
+docs/v0.2/REMAINING.md (this file — "Operating discipline" + the
+§5.2 perf-budget note at the bottom are load-bearing). Confirm in
+one sentence what you understand.
 
-**State: v0.2 is feature-complete.** All 14 PRD §10 items shipped:
+**State: 14a-1 (Omi) + 14a-2 (spring-petclinic) acceptance runs
+PASSED cleanly.** All 14 PRD §10 items shipped:
 - 1, 2 — LadybugDB GraphStore + Pipeline DAG (DEC-013/014)
 - 3 — confidence threading at section + rule level (DEC-015)
 - 4, 5, 6, 7 — 8 languages, Dart precision, vendored/generated,
@@ -362,10 +365,19 @@ understand.
 - 13 — 5 emitted skills + plugin manifest (DEC-031)
 - plus DEC-018: multi-repo registry + `forensic list`
 
-**Latest commit:** abc812f. **Tests:** 362 passing. **Tree:** clean.
-Never pushed. All 31 DECs active. MCP server exposes 7 tools.
+**Latest commit:** f88c8f5. **Tests:** 394 passing. **Tree:** clean.
+Never pushed. All 32 DECs active (DEC-032 = batched UNWIND perf).
+MCP server exposes 7 tools.
 
-**Only items 14 (acceptance gates) + 15 (tag) left before v0.2.0.**
+**Omi cold-extract: 930s** (the perf fix unblocked artifact
+emission; queries are well under §5.2 budgets: context 146ms /
+impact 289ms). **spring-petclinic cold-extract: 125s.** Examples
+committed under `examples/omi/` (updated) and `examples/spring-
+petclinic/` (new).
+
+**Remaining for v0.2.0 tag:** 14a-3 (GitNexus, optional), 14a-4
+(fastapi, optional), 14b (Graphiti real-LLM), 14c (CHANGELOG + PRD
+§5 sign-off including the §5.2 budget reconciliation), 15 (tag).
 
 ---
 
