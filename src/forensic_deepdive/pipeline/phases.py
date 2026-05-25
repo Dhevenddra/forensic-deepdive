@@ -509,173 +509,167 @@ class BuildGraphPhase(Phase):
                         )
                     )
 
-        file_count = symbol_count = defines_count = member_of_count = 0
-        module_count = imports_count = calls_count = 0
-        commit_count = author_count = 0
-        touched_by_commit_count = authored_by_count = 0
-        co_changes_count = extends_count = implements_count = 0
+        # DEC-032: collect everything in memory, then write each table via
+        # a single batched UNWIND call (chunked at LadybugStore._BATCH_SIZE).
+        # The lists are sorted for determinism — UNWIND preserves row order,
+        # so byte-identical graph hashes survive the batch path.
+
+        # Files.
+        files_to_write = [_source_to_file(sf, cfg.repo_path) for sf in inv.source_files]
+
+        # Modules (already deduped in module_pks).
+        modules_to_write = [module_pks[pk] for pk in sorted(module_pks)]
+
+        # Symbols + DEFINES + MEMBER_OF.
+        # DEC-025: synthetic per-file ``<module>`` Symbol first so module-level
+        # CALLS have a valid caller endpoint. Kind=MODULE distinguishes them.
+        symbols_to_write: list[Symbol] = []
+        edges_defines: list[DefinesEdge] = []
+        edges_member_of: list[MemberOfEdge] = []
+        for sf in inv.source_files:
+            module_qn = _qualified_name(sf.rel_path, MODULE_SCOPE)
+            symbols_to_write.append(
+                Symbol(
+                    qualified_name=module_qn,
+                    kind=SymbolKind.MODULE,
+                    file_path=sf.rel_path,
+                    line_start=0,
+                    line_end=0,
+                    signature="",
+                )
+            )
+            edges_defines.append(
+                DefinesEdge(
+                    file_path=sf.rel_path,
+                    symbol=module_qn,
+                    confidence=Confidence.EXTRACTED,
+                    evidence="synthetic-module-scope",
+                )
+            )
+        # DEC-023: parents must be written before their members (the v0.1
+        # path relied on lexical qn_local sort — same here). UNWIND inside
+        # a single batch is fine, but the MATCH for MEMBER_OF needs both
+        # endpoint Symbols to already exist — so we write Symbols (incl.
+        # synthetics + real) in one batch, then DEFINES, then MEMBER_OF.
+        for (rel_path, qn_local), tag_list in sorted(def_groups.items()):
+            first = tag_list[0]
+            qn = _qualified_name(rel_path, qn_local)
+            symbols_to_write.append(
+                Symbol(
+                    qualified_name=qn,
+                    kind=_category_to_kind(first.category),
+                    file_path=rel_path,
+                    line_start=first.line,
+                    line_end=max(t.line for t in tag_list),
+                    signature="",
+                )
+            )
+            edges_defines.append(
+                DefinesEdge(
+                    file_path=rel_path,
+                    symbol=qn,
+                    confidence=Confidence.EXTRACTED,
+                    evidence="tree-sitter",
+                )
+            )
+            if first.parent:
+                parent_qn = _qualified_name(rel_path, first.parent)
+                edges_member_of.append(
+                    MemberOfEdge(
+                        member=qn,
+                        parent=parent_qn,
+                        confidence=Confidence.EXTRACTED,
+                        evidence="tree-sitter-ast-walk",
+                    )
+                )
+
+        # IMPORTS — File and Module endpoints exist after the bulk writes
+        # above. Deterministic sort.
+        edges_imports.sort(key=lambda e: (e.file_path, e.module_path))
+
+        # CALLS — defensive endpoint filter (resolver's index aligns with
+        # def_groups, so this is belt-and-suspenders).
+        valid_symbol_qns = {
+            _qualified_name(sf.rel_path, MODULE_SCOPE) for sf in inv.source_files
+        } | {_qualified_name(rel_path, qn_local) for (rel_path, qn_local) in def_groups}
+        edges_calls = [
+            CallsEdge(
+                caller=call.caller_qn,
+                callee=call.callee_qn,
+                confidence=call.confidence,
+                evidence=call.evidence,
+            )
+            for call in resolved_calls
+            if call.caller_qn in valid_symbol_qns and call.callee_qn in valid_symbol_qns
+        ]
+
+        # DEC-026 history-into-graph: Authors first, then Commits, then
+        # the two edges.
+        authors_to_write = [author_records[email] for email in sorted(author_records)]
+        commit_records_to_write.sort(key=lambda c: c.sha)
+        edges_authored_by.sort(key=lambda e: (e.commit_sha, e.author_email))
+        edges_touched_by_commit.sort(key=lambda e: (e.file_path, e.commit_sha))
+
+        # DEC-027: CO_CHANGES_WITH edges with threshold filter.
+        threshold = cfg.co_changes_threshold
+        edges_co_changes: list[CoChangesWithEdge] = [
+            CoChangesWithEdge(
+                file_a=a,
+                file_b=b,
+                frequency=float(count),
+                confidence=Confidence.INFERRED,
+                evidence="touched-by-commit-join",
+            )
+            for (a, b), count in sorted(co_change_counts.items())
+            if count >= threshold
+        ]
+
+        # DEC-028: EXTENDS / IMPLEMENTS — both endpoints filter + sort.
+        resolved_extends.sort(key=lambda e: (e.child, e.parent))
+        resolved_implements.sort(key=lambda e: (e.implementation, e.interface))
+        edges_extends_to_write = [
+            e
+            for e in resolved_extends
+            if e.child in valid_symbol_qns and e.parent in valid_symbol_qns
+        ]
+        edges_implements_to_write = [
+            e
+            for e in resolved_implements
+            if e.implementation in valid_symbol_qns and e.interface in valid_symbol_qns
+        ]
+
         with LadybugStore(db_path) as store:
-            for sf in inv.source_files:
-                store.add_file(_source_to_file(sf, cfg.repo_path))
-                file_count += 1
+            # Order matters: nodes before edges; for edges, both endpoints
+            # must already exist.
+            store.add_many_files(files_to_write)
+            store.add_many_modules(modules_to_write)
+            store.add_many_symbols(symbols_to_write)
+            store.add_many_authors(authors_to_write)
+            store.add_many_commits(commit_records_to_write)
+            store.add_many_defines(edges_defines)
+            store.add_many_member_of(edges_member_of)
+            store.add_many_imports(edges_imports)
+            store.add_many_calls(edges_calls)
+            store.add_many_extends(edges_extends_to_write)
+            store.add_many_implements(edges_implements_to_write)
+            store.add_many_authored_by(edges_authored_by)
+            store.add_many_touched_by_commit(edges_touched_by_commit)
+            store.add_many_co_changes_with(edges_co_changes)
 
-            # DEC-024: Module nodes first, then IMPORTS edges. Dedup
-            # already done in module_pks; sort for deterministic order.
-            for pk in sorted(module_pks):
-                store.add_module(module_pks[pk])
-                module_count += 1
-
-            # DEC-025: synthetic per-file ``<module>`` Symbol. Required
-            # so module-level CALLS (refs outside any function/method)
-            # have a valid caller endpoint. Kind=MODULE distinguishes
-            # these from real symbols. The file DEFINES its own module
-            # scope — keeping the invariant ``defines_count ==
-            # symbol_count`` (every Symbol has a File defining it).
-            for sf in inv.source_files:
-                module_qn = _qualified_name(sf.rel_path, MODULE_SCOPE)
-                store.add_symbol(
-                    Symbol(
-                        qualified_name=module_qn,
-                        kind=SymbolKind.MODULE,
-                        file_path=sf.rel_path,
-                        line_start=0,
-                        line_end=0,
-                        signature="",
-                    )
-                )
-                symbol_count += 1
-                store.add_defines(
-                    DefinesEdge(
-                        file_path=sf.rel_path,
-                        symbol=module_qn,
-                        confidence=Confidence.EXTRACTED,
-                        evidence="synthetic-module-scope",
-                    )
-                )
-                defines_count += 1
-
-            # Sort by (rel_path, qn_local). The lexical order of the
-            # dotted qn_local guarantees a parent (e.g. ``Greeter``) is
-            # written before any of its members (``Greeter.greet``,
-            # ``Greeter.Inner.deep``) — the MEMBER_OF MATCH then resolves.
-            for (rel_path, qn_local), tag_list in sorted(def_groups.items()):
-                first = tag_list[0]
-                qn = _qualified_name(rel_path, qn_local)
-                store.add_symbol(
-                    Symbol(
-                        qualified_name=qn,
-                        kind=_category_to_kind(first.category),
-                        file_path=rel_path,
-                        line_start=first.line,
-                        line_end=max(t.line for t in tag_list),
-                        signature="",
-                    )
-                )
-                symbol_count += 1
-                store.add_defines(
-                    DefinesEdge(
-                        file_path=rel_path,
-                        symbol=qn,
-                        confidence=Confidence.EXTRACTED,
-                        evidence="tree-sitter",
-                    )
-                )
-                defines_count += 1
-                # DEC-023: emit MEMBER_OF when the definition is nested
-                # inside another definition (class method, nested class,
-                # Go receiver method, etc.). EXTRACTED — the parent chain
-                # is AST-deterministic.
-                if first.parent:
-                    parent_qn = _qualified_name(rel_path, first.parent)
-                    store.add_member_of(
-                        MemberOfEdge(
-                            member=qn,
-                            parent=parent_qn,
-                            confidence=Confidence.EXTRACTED,
-                            evidence="tree-sitter-ast-walk",
-                        )
-                    )
-                    member_of_count += 1
-
-            # DEC-024: IMPORTS edges last — after both File and Module
-            # endpoints exist. Deterministic order via the staged list.
-            edges_imports.sort(key=lambda e: (e.file_path, e.module_path))
-            for edge in edges_imports:
-                store.add_imports(edge)
-                imports_count += 1
-
-            # DEC-025: CALLS edges last — both endpoints (caller +
-            # callee Symbols) must be present. The resolver's output is
-            # already deterministically sorted, but we filter to skip
-            # any whose callee Symbol won't exist (defensive: the
-            # resolver's index aligns with def_groups, so this is
-            # belt-and-suspenders).
-            valid_symbol_qns = {
-                _qualified_name(sf.rel_path, MODULE_SCOPE) for sf in inv.source_files
-            } | {_qualified_name(rel_path, qn_local) for (rel_path, qn_local) in def_groups}
-            for call in resolved_calls:
-                if call.caller_qn not in valid_symbol_qns or call.callee_qn not in valid_symbol_qns:
-                    continue
-                store.add_calls(
-                    CallsEdge(
-                        caller=call.caller_qn,
-                        callee=call.callee_qn,
-                        confidence=call.confidence,
-                        evidence=call.evidence,
-                    )
-                )
-                calls_count += 1
-
-            # DEC-026: history into the graph. Authors first (Commits
-            # reference them via AUTHORED_BY), then Commits, then the
-            # two edge types. Deterministic order via sorted iteration.
-            for email in sorted(author_records):
-                store.add_author(author_records[email])
-                author_count += 1
-            commit_records_to_write.sort(key=lambda c: c.sha)
-            for commit in commit_records_to_write:
-                store.add_commit(commit)
-                commit_count += 1
-            edges_authored_by.sort(key=lambda e: (e.commit_sha, e.author_email))
-            for edge in edges_authored_by:
-                store.add_authored_by(edge)
-                authored_by_count += 1
-            edges_touched_by_commit.sort(key=lambda e: (e.file_path, e.commit_sha))
-            for edge in edges_touched_by_commit:
-                store.add_touched_by_commit(edge)
-                touched_by_commit_count += 1
-
-            # DEC-027: CO_CHANGES_WITH edges last — Files must exist
-            # (they already do from the inventory loop). Threshold from
-            # cfg.co_changes_threshold filters out coincidence.
-            threshold = cfg.co_changes_threshold
-            for (file_a, file_b), count in sorted(co_change_counts.items()):
-                if count < threshold:
-                    continue
-                store.add_co_changes_with(
-                    CoChangesWithEdge(
-                        file_a=file_a,
-                        file_b=file_b,
-                        frequency=float(count),
-                        confidence=Confidence.INFERRED,
-                        evidence="touched-by-commit-join",
-                    )
-                )
-                co_changes_count += 1
-
-            # DEC-028: EXTENDS / IMPLEMENTS edges — both endpoints
-            # (Symbol qns) must exist. The resolver above filtered out
-            # unresolved cases. Deterministic order via sort.
-            resolved_extends.sort(key=lambda e: (e.child, e.parent))
-            for edge in resolved_extends:
-                if edge.child in valid_symbol_qns and edge.parent in valid_symbol_qns:
-                    store.add_extends(edge)
-                    extends_count += 1
-            resolved_implements.sort(key=lambda e: (e.implementation, e.interface))
-            for edge in resolved_implements:
-                if edge.implementation in valid_symbol_qns and edge.interface in valid_symbol_qns:
-                    store.add_implements(edge)
-                    implements_count += 1
+        file_count = len(files_to_write)
+        module_count = len(modules_to_write)
+        symbol_count = len(symbols_to_write)
+        defines_count = len(edges_defines)
+        member_of_count = len(edges_member_of)
+        imports_count = len(edges_imports)
+        calls_count = len(edges_calls)
+        author_count = len(authors_to_write)
+        commit_count = len(commit_records_to_write)
+        authored_by_count = len(edges_authored_by)
+        touched_by_commit_count = len(edges_touched_by_commit)
+        co_changes_count = len(edges_co_changes)
+        extends_count = len(edges_extends_to_write)
+        implements_count = len(edges_implements_to_write)
 
         return BuildGraphOutput(
             enabled=True,

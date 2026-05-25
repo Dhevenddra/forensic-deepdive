@@ -26,7 +26,7 @@ from github import Auth, Github
 
 # Unit-separator byte: a field delimiter that cannot occur in git metadata.
 _FIELD_SEP = "\x1f"
-_GIT_TIMEOUT_S = 300.0
+_GIT_TIMEOUT_S = 600.0
 
 # Matches owner/repo in both HTTPS and SSH GitHub remote URLs.
 _GITHUB_REMOTE_RE = re.compile(r"github\.com[/:]([^/]+)/(.+?)(?:\.git)?/?$")
@@ -170,12 +170,25 @@ def analyze_history(
             churn=[],
         )
 
-    commits = _read_commits(repo_path)
+    # When include_commit_files=True, one ``git log --name-only`` pass covers
+    # everything: per-commit headers, file-touch lists, and (derived from
+    # those file lists) churn. The v0.1 path keeps the cheaper header-only +
+    # separate churn pass when commit-files aren't needed. On a 18k-commit
+    # repo like Omi this saves two redundant full-history walks.
+    if include_commit_files:
+        commit_records = _read_commits_with_files(repo_path)
+        commits = [
+            _Commit(sha=r.sha, date=r.date, name=r.author_name, email=r.author_email)
+            for r in commit_records
+        ]
+        churn = _churn_from_records(commit_records)[:churn_limit]
+    else:
+        commits = _read_commits(repo_path)
+        churn = _read_churn(repo_path)[:churn_limit]
+        commit_records = []
     humans, bots = _aggregate_contributors(commits)
     contributors = humans[:contributor_limit]
     bots = bots[:contributor_limit]
-    churn = _read_churn(repo_path)[:churn_limit]
-    commit_records = _read_commits_with_files(repo_path) if include_commit_files else []
 
     github = None
     if fetch_github:
@@ -372,6 +385,16 @@ def _read_churn(repo_path: Path) -> list[FileChurn]:
     if proc.returncode != 0:
         return []
     counts = Counter(line.strip() for line in proc.stdout.splitlines() if line.strip())
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [FileChurn(path=path, commits=n) for path, n in ranked]
+
+
+def _churn_from_records(records: list[CommitRecord]) -> list[FileChurn]:
+    """Derive churn from already-walked commit records — avoids a second
+    ``git log --name-only`` pass when DEC-026 commit-files are present."""
+    counts: Counter[str] = Counter()
+    for r in records:
+        counts.update(r.files_touched)
     ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
     return [FileChurn(path=path, commits=n) for path, n in ranked]
 

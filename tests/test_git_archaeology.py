@@ -354,3 +354,84 @@ def test_analyze_history_with_github(monkeypatch: pytest.MonkeyPatch, sample_rep
     result = analyze_history(sample_repo, fetch_github=True)
     assert result.github is not None
     assert result.github.stars == 42
+
+
+# --- include_commit_files: shared-pass derivation (perf fix) --------------
+
+
+def test_include_commit_files_derives_same_contributors_and_churn(
+    sample_repo: Path,
+) -> None:
+    """The include_commit_files=True path derives contributors + churn from
+    the single ``git log --name-only`` walk. It must produce the same data
+    as the include_commit_files=False path that does separate passes."""
+    cheap = analyze_history(sample_repo, include_commit_files=False)
+    shared = analyze_history(sample_repo, include_commit_files=True)
+
+    # Same total commits, same contributors (name + count, in order).
+    assert shared.total_commits == cheap.total_commits
+    assert [(c.name, c.commits) for c in shared.contributors] == [
+        (c.name, c.commits) for c in cheap.contributors
+    ]
+    # Same bots split.
+    assert [(c.name, c.commits) for c in shared.bots] == [(c.name, c.commits) for c in cheap.bots]
+    # Same churn (path + count, in order).
+    assert [(f.path, f.commits) for f in shared.churn] == [(f.path, f.commits) for f in cheap.churn]
+    # First / last commit dates match.
+    assert shared.first_commit == cheap.first_commit
+    assert shared.last_commit == cheap.last_commit
+    # The shared path additionally populates commit_records.
+    assert len(shared.commits) == cheap.total_commits
+    assert cheap.commits == []
+
+
+def test_include_commit_files_uses_one_git_log_pass(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_repo: Path,
+) -> None:
+    """When commit-files are needed, only one ``git log`` invocation runs —
+    the heavy ``--name-only`` walk. The header-only and churn passes are
+    derived from its output, not re-fetched. Other git plumbing calls
+    (``rev-parse --is-inside-work-tree``) still happen."""
+    log_calls: list[list[str]] = []
+    real_run_git = ga._run_git
+
+    def _spy(repo_path: Path, args: list[str], *, check: bool):
+        if args and args[0] == "log":
+            log_calls.append(list(args))
+        return real_run_git(repo_path, args, check=check)
+
+    monkeypatch.setattr(ga, "_run_git", _spy)
+    analyze_history(sample_repo, include_commit_files=True)
+    assert len(log_calls) == 1, log_calls
+    # The single pass is the --name-only one (it's what feeds both derivations).
+    assert "--name-only" in log_calls[0]
+
+
+def test_legacy_path_still_uses_two_passes(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_repo: Path,
+) -> None:
+    """When commit-files aren't needed (v0.1 default), the cheaper
+    header-only + churn pair is used — no --name-only walk at all."""
+    log_calls: list[list[str]] = []
+    real_run_git = ga._run_git
+
+    def _spy(repo_path: Path, args: list[str], *, check: bool):
+        if args and args[0] == "log":
+            log_calls.append(list(args))
+        return real_run_git(repo_path, args, check=check)
+
+    monkeypatch.setattr(ga, "_run_git", _spy)
+    analyze_history(sample_repo, include_commit_files=False)
+    assert len(log_calls) == 2, log_calls
+    # First call: header-only (no --name-only).
+    assert "--name-only" not in log_calls[0]
+    # Second call: churn (--name-only, --format=).
+    assert "--name-only" in log_calls[1]
+    assert "--format=" in log_calls[1]
+
+
+def test_churn_from_records_helper_handles_empty() -> None:
+    """Empty records yield empty churn — DEC-026 graceful no-op."""
+    assert ga._churn_from_records([]) == []

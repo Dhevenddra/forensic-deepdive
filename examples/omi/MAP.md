@@ -1,66 +1,70 @@
-# MAP — omi-test
+# MAP — omi
 
 > Structural map: files and symbols ranked by dependency centrality (PageRank over the symbol graph).
-> **Confidence:** every fact below is `EXTRACTED` — deterministic from Tree-sitter AST and git history (DEC-007).
+> **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise (DEC-015).
 
 ## Overview
 
-- **Source files:** 1,860
-- **Languages:** Dart (566), C (513), Python (464), Swift (317)
-- **Symbols:** 32,099 definitions, 756,635 references
-- **Symbol graph:** 1758 files, 42854 dependency edges
-- **Test surface:** 257 test file(s), 0 fixture file(s) (inventoried, excluded from the dependency graph per DEC-012)
-- **Flattened pack:** `repomix-pack.md` (99,511,517 chars, ~31,994,977 tokens)
+- **Source files:** 2,103
+- **Languages:** Dart (555), Python (464), Tsx (378), Swift (315), Typescript (224), C (103), Javascript (63), Java (1)
+- **Symbols:** 31,650 definitions, 688,998 references
+- **Symbol graph:** 2006 files, 18211 dependency edges
+- **Test surface:** 270 test file(s), 0 fixture file(s) (inventoried, excluded from the dependency graph per DEC-012)
+- **Non-authored:** 410 vendored, 11 generated (inventoried, excluded from the dependency graph per DEC-021)
 
 ## Most central files
+
+_Confidence: `INFERRED` (DEC-015)._
 
 Files ranked by PageRank — edits here ripple widest.
 
 | # | File | Score | Key definitions |
 | --- | --- | --- | --- |
-| 1 | `app/lib/utils/logger.dart` | 0.0341 | Logger, debug, error, log… |
-| 2 | `desktop/Desktop/Sources/Logger.swift` | 0.0215 | log, logError, logSync, measurePerfAsync… |
-| 3 | `app/lib/backend/schema/bt_device/bt_device.dart` | 0.0141 | fromJson, toString, BtDevice, toJson… |
-| 4 | `app/lib/l10n/app_localizations.dart` | 0.0131 | of, isSupported, AppLocalizations, durationSeconds… |
-| 5 | `app/lib/services/custom_stt_log_service.dart` | 0.0130 | error, log, clear, CustomSttLogService… |
-| 6 | `app/lib/services/services.dart` | 0.0126 | instance, start, init, stop… |
-| 7 | `omi/firmware/devkit/src/lib/opus-1.2.1/MacroCount.h` | 0.0125 | silk_SMULBB, silk_SMLAWB, silk_SMULWB, silk_RSHIFT_ROUND… |
-| 8 | `omi/firmware/omi/src/lib/core/lib/opus-1.2.1/MacroCount.h` | 0.0125 | silk_SMULBB, silk_SMLAWB, silk_SMULWB, silk_RSHIFT_ROUND… |
-| 9 | `desktop/Desktop/Sources/Bluetooth/DeviceUUIDs.swift` | 0.0116 | Button |
-| 10 | `app/lib/backend/schema/structured.dart` | 0.0114 | fromJson, toString, Structured, AppResponse… |
-| 11 | `backend/database/cache_manager.py` | 0.0110 | set, InMemoryCacheManager |
-| 12 | `app/lib/services/devices/device_connection.dart` | 0.0096 | toString, DeviceConnection, create, isConnected… |
-| 13 | `app/lib/backend/schema/message.dart` | 0.0095 | fromJson, ServerMessage, empty, toJson… |
-| 14 | `app/lib/backend/http/shared.dart` | 0.0078 | toString, makeApiCall, dispose, buildHeaders… |
-| 15 | `app/lib/backend/schema/geolocation.dart` | 0.0074 | fromJson, toJson, Geolocation |
+| 1 | `app/lib/utils/logger.dart` | 0.0414 | Logger, error, debug, onError… |
+| 2 | `app/lib/services/services.dart` | 0.0233 | instance, start, ServiceManager, init… |
+| 3 | `desktop/Desktop/Sources/Logger.swift` | 0.0219 | log, logError, logSync, measurePerfAsync… |
+| 4 | `app/lib/pages/settings/people.dart` | 0.0161 | onPressed, UserPeoplePage, initState |
+| 5 | `app/lib/utils/responsive/responsive_helper.dart` | 0.0142 | contentPadding, ResponsiveHelper, spacing, iconSize… |
+| 6 | `app/lib/utils/debug_log_manager.dart` | 0.0129 | DebugLogManager, clear |
+| 7 | `desktop/Desktop/Sources/Bluetooth/DeviceUUIDs.swift` | 0.0117 | Button |
+| 8 | `backend/database/cache_manager.py` | 0.0112 | set, InMemoryCacheManager |
+| 9 | `app/lib/services/custom_stt_log_service.dart` | 0.0111 | error, CustomSttLogService, log, clear… |
+| 10 | `app/lib/backend/schema/bt_device/bt_device.dart` | 0.0096 | fromJson, BtDevice, mapNameToCodec, toString… |
+| 11 | `web/frontend/src/app/memories/[id]/error.tsx` | 0.0090 | Error |
+| 12 | `web/admin/lib/firebase/admin.ts` | 0.0090 | getDb, getAdminAuth |
+| 13 | `app/lib/backend/preferences.dart` | 0.0085 | SharedPreferencesUtil, init, clear, remove |
+| 14 | `app/lib/backend/schema/message.dart` | 0.0084 | fromJson, ServerMessage, empty, toJson… |
+| 15 | `app/lib/services/sockets.dart` | 0.0084 | conversation, ISocketService, socket, SocketServicePool… |
 
 ## Key definitions
 
-Symbols ranked by inbound dependency mass.
+_Confidence: `INFERRED` (DEC-015)._
 
-| Symbol | Kind | Defined in | Rank |
+Symbols ranked by inbound `CALLS` count (DEC-025 resolver). Definitions are EXTRACTED; the ranking is the derivation.
+
+| Symbol | Kind | Defined in | Callers |
 | --- | --- | --- | --- |
-| `log` | function | `desktop/Desktop/Sources/Logger.swift` | 0.0203 |
-| `Logger` | class | `app/lib/utils/logger.dart` | 0.0136 |
-| `Button` | class | `desktop/Desktop/Sources/Bluetooth/DeviceUUIDs.swift` | 0.0133 |
-| `debug` | function | `app/lib/utils/logger.dart` | 0.0123 |
-| `set` | function | `backend/database/cache_manager.py` | 0.0123 |
-| `error` | function | `app/lib/utils/logger.dart` | 0.0104 |
-| `error` | function | `app/lib/services/custom_stt_log_service.dart` | 0.0104 |
-| `instance` | function | `app/lib/services/services.dart` | 0.0099 |
-| `fromJson` | function | `app/lib/backend/schema/bt_device/bt_device.dart` | 0.0075 |
-| `fromJson` | function | `app/lib/backend/schema/geolocation.dart` | 0.0075 |
-| `fromJson` | function | `app/lib/backend/schema/message.dart` | 0.0075 |
-| `fromJson` | function | `app/lib/backend/schema/structured.dart` | 0.0075 |
-| `of` | function | `app/lib/l10n/app_localizations.dart` | 0.0072 |
-| `of` | function | `app/lib/main.dart` | 0.0072 |
-| `isSupported` | function | `app/lib/l10n/app_localizations.dart` | 0.0068 |
-| `toString` | function | `app/lib/backend/schema/transcript_segment.dart` | 0.0054 |
-| `toString` | function | `app/lib/backend/http/shared.dart` | 0.0054 |
-| `toString` | function | `app/lib/backend/schema/bt_device/bt_device.dart` | 0.0054 |
-| `toString` | function | `app/lib/backend/schema/folder.dart` | 0.0054 |
-| `toString` | function | `app/lib/backend/http/api/tts.dart` | 0.0054 |
+| `log` | function | `desktop/Desktop/Sources/Logger.swift` | 1580 |
+| `Logger` | class | `app/lib/utils/logger.dart` | 1462 |
+| `PlatformManager` | class | `app/lib/utils/platform/platform_manager.dart` | 463 |
+| `ChatToolResponse` | class | `plugins/omi-github-app/models.py` | 449 |
+| `ChatToolResponse` | class | `plugins/omi-google-calendar-app/models.py` | 449 |
+| `ChatToolResponse` | class | `plugins/omi-hive-app/models.py` | 449 |
+| `ChatToolResponse` | class | `plugins/omi-linear-app/models.py` | 449 |
+| `ChatToolResponse` | class | `plugins/omi-notion-app/models.py` | 449 |
+| `ChatToolResponse` | class | `plugins/omi-shipbob-app/models.py` | 449 |
+| `ChatToolResponse` | class | `plugins/omi-shopify-app/models.py` | 449 |
+| `ChatToolResponse` | class | `plugins/omi-twitter-chat-tools-app/models.py` | 449 |
+| `ChatToolResponse` | class | `plugins/omi-whoop-app/models.py` | 449 |
+| `ChatToolResponse` | class | `plugins/omi-zomato-app/models.py` | 449 |
+| `SharedPreferencesUtil` | class | `app/lib/backend/preferences.dart` | 446 |
+| `logError` | function | `desktop/Desktop/Sources/Logger.swift` | 309 |
+| `ResponsiveHelper` | class | `app/lib/utils/responsive/responsive_helper.dart` | 290 |
+| `AnalyticsManager.track` | function | `app/lib/utils/analytics/analytics_manager.dart` | 289 |
+| `run_blocking` | function | `backend/utils/executors.py` | 277 |
+| `makeApiCall` | function | `app/lib/backend/http/shared.dart` | 200 |
+| `Wal` | class | `app/lib/services/wals/wal.dart` | 164 |
 
 ---
 
-*Generated by forensic-deepdive 0.1.0 on 2026-05-23. Regenerate with `forensic update` — do not hand-edit.*
+*Generated by forensic-deepdive 0.1.0 on 2026-05-25. Regenerate with `forensic update` — do not hand-edit.*

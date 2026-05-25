@@ -111,6 +111,67 @@ class GraphStore(ABC):
     @abstractmethod
     def add_co_changes_with(self, edge: CoChangesWithEdge) -> None: ...
 
+    # --- writes (batch, DEC-032) -------------------------------------------
+    # Default implementations loop over the single-row equivalents — backends
+    # that have a native bulk path (LadybugStore's UNWIND, future COPY FROM)
+    # override these. Empty iterables are a no-op.
+
+    def add_many_files(self, nodes: Iterable[File]) -> None:
+        for n in nodes:
+            self.add_file(n)
+
+    def add_many_symbols(self, nodes: Iterable[Symbol]) -> None:
+        for n in nodes:
+            self.add_symbol(n)
+
+    def add_many_modules(self, nodes: Iterable[Module]) -> None:
+        for n in nodes:
+            self.add_module(n)
+
+    def add_many_commits(self, nodes: Iterable[Commit]) -> None:
+        for n in nodes:
+            self.add_commit(n)
+
+    def add_many_authors(self, nodes: Iterable[Author]) -> None:
+        for n in nodes:
+            self.add_author(n)
+
+    def add_many_defines(self, edges: Iterable[DefinesEdge]) -> None:
+        for e in edges:
+            self.add_defines(e)
+
+    def add_many_member_of(self, edges: Iterable[MemberOfEdge]) -> None:
+        for e in edges:
+            self.add_member_of(e)
+
+    def add_many_imports(self, edges: Iterable[ImportsEdge]) -> None:
+        for e in edges:
+            self.add_imports(e)
+
+    def add_many_calls(self, edges: Iterable[CallsEdge]) -> None:
+        for e in edges:
+            self.add_calls(e)
+
+    def add_many_extends(self, edges: Iterable[ExtendsEdge]) -> None:
+        for e in edges:
+            self.add_extends(e)
+
+    def add_many_implements(self, edges: Iterable[ImplementsEdge]) -> None:
+        for e in edges:
+            self.add_implements(e)
+
+    def add_many_touched_by_commit(self, edges: Iterable[TouchedByCommitEdge]) -> None:
+        for e in edges:
+            self.add_touched_by_commit(e)
+
+    def add_many_authored_by(self, edges: Iterable[AuthoredByEdge]) -> None:
+        for e in edges:
+            self.add_authored_by(e)
+
+    def add_many_co_changes_with(self, edges: Iterable[CoChangesWithEdge]) -> None:
+        for e in edges:
+            self.add_co_changes_with(e)
+
     # --- reads --------------------------------------------------------------
 
     @abstractmethod

@@ -1,51 +1,70 @@
-# HOTPATHS — omi-test
+# HOTPATHS — omi
 
 > The code most other code depends on, and the files that change most.
-> **Confidence:** every fact below is `EXTRACTED` — deterministic from Tree-sitter AST and git history (DEC-007).
+> **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise (DEC-015).
 
 ## Dependency hot spots
 
-Definitions with the widest blast radius — the most depended-on symbols.
+Symbols with the most inbound `CALLS` edges (DEC-025 resolver). The load-bearing callees — signature changes touch every caller.
 
-| Symbol | Defined in | Rank |
-| --- | --- | --- |
-| `log` | `desktop/Desktop/Sources/Logger.swift` | 0.0203 |
-| `Logger` | `app/lib/utils/logger.dart` | 0.0136 |
-| `Button` | `desktop/Desktop/Sources/Bluetooth/DeviceUUIDs.swift` | 0.0133 |
-| `debug` | `app/lib/utils/logger.dart` | 0.0123 |
-| `set` | `backend/database/cache_manager.py` | 0.0123 |
-| `error` | `app/lib/utils/logger.dart` | 0.0104 |
-| `error` | `app/lib/services/custom_stt_log_service.dart` | 0.0104 |
-| `instance` | `app/lib/services/services.dart` | 0.0099 |
-| `fromJson` | `app/lib/backend/schema/bt_device/bt_device.dart` | 0.0075 |
-| `fromJson` | `app/lib/backend/schema/geolocation.dart` | 0.0075 |
-| `fromJson` | `app/lib/backend/schema/message.dart` | 0.0075 |
-| `fromJson` | `app/lib/backend/schema/structured.dart` | 0.0075 |
-| `of` | `app/lib/l10n/app_localizations.dart` | 0.0072 |
-| `of` | `app/lib/main.dart` | 0.0072 |
-| `isSupported` | `app/lib/l10n/app_localizations.dart` | 0.0068 |
+| Symbol | Defined in | Callers | Confidence mix |
+| --- | --- | --- | --- |
+| `log` | `desktop/Desktop/Sources/Logger.swift` | 1580 | 1580 `INFERRED` |
+| `Logger` | `app/lib/utils/logger.dart` | 1462 | 4 `EXTRACTED`, 1458 `INFERRED` |
+| `PlatformManager` | `app/lib/utils/platform/platform_manager.dart` | 463 | 5 `EXTRACTED`, 458 `INFERRED` |
+| `ChatToolResponse` | `plugins/omi-github-app/models.py` | 449 | 449 `AMBIGUOUS` |
+| `ChatToolResponse` | `plugins/omi-google-calendar-app/models.py` | 449 | 449 `AMBIGUOUS` |
+| `ChatToolResponse` | `plugins/omi-hive-app/models.py` | 449 | 449 `AMBIGUOUS` |
+| `ChatToolResponse` | `plugins/omi-linear-app/models.py` | 449 | 449 `AMBIGUOUS` |
+| `ChatToolResponse` | `plugins/omi-notion-app/models.py` | 449 | 449 `AMBIGUOUS` |
+| `ChatToolResponse` | `plugins/omi-shipbob-app/models.py` | 449 | 449 `AMBIGUOUS` |
+| `ChatToolResponse` | `plugins/omi-shopify-app/models.py` | 449 | 449 `AMBIGUOUS` |
+| `ChatToolResponse` | `plugins/omi-twitter-chat-tools-app/models.py` | 449 | 449 `AMBIGUOUS` |
+| `ChatToolResponse` | `plugins/omi-whoop-app/models.py` | 449 | 449 `AMBIGUOUS` |
+| `ChatToolResponse` | `plugins/omi-zomato-app/models.py` | 449 | 449 `AMBIGUOUS` |
+| `SharedPreferencesUtil` | `app/lib/backend/preferences.dart` | 446 | 4 `EXTRACTED`, 442 `INFERRED` |
+| `logError` | `desktop/Desktop/Sources/Logger.swift` | 309 | 309 `INFERRED` |
 
 ## Cross-file dependencies
 
-Which file leans on which (referencer → definer), by shared symbols.
+File-to-file dependencies aggregated from symbol-level `CALLS` edges (DEC-025 resolver). Self-edges (intra-file calls) excluded.
 
-| From | To | Shared symbols |
+| From | To | Calls | Top callee |
+| --- | --- | --- | --- |
+| `desktop/Desktop/Sources/AppState.swift` | `desktop/Desktop/Sources/Logger.swift` | 205 | `log` |
+| `desktop/Desktop/Sources/Providers/ChatProvider.swift` | `desktop/Desktop/Sources/Logger.swift` | 102 | `log` |
+| `desktop/Desktop/Sources/Stores/TasksStore.swift` | `desktop/Desktop/Sources/Logger.swift` | 90 | `log` |
+| `app/lib/services/devices/omi_connection.dart` | `app/lib/utils/logger.dart` | 86 | `Logger` |
+| `desktop/Desktop/Sources/ProactiveAssistants/ProactiveAssistantsPlugin.swift` | `desktop/Desktop/Sources/Logger.swift` | 73 | `log` |
+| `plugins/omi-twitter-chat-tools-app/main.py` | `plugins/omi-github-app/models.py` | 67 | `ChatToolResponse` |
+| `plugins/omi-twitter-chat-tools-app/main.py` | `plugins/omi-google-calendar-app/models.py` | 67 | `ChatToolResponse` |
+| `plugins/omi-twitter-chat-tools-app/main.py` | `plugins/omi-hive-app/models.py` | 67 | `ChatToolResponse` |
+| `plugins/omi-twitter-chat-tools-app/main.py` | `plugins/omi-linear-app/models.py` | 67 | `ChatToolResponse` |
+| `plugins/omi-twitter-chat-tools-app/main.py` | `plugins/omi-notion-app/models.py` | 67 | `ChatToolResponse` |
+| `plugins/omi-twitter-chat-tools-app/main.py` | `plugins/omi-shipbob-app/models.py` | 67 | `ChatToolResponse` |
+| `plugins/omi-twitter-chat-tools-app/main.py` | `plugins/omi-shopify-app/models.py` | 67 | `ChatToolResponse` |
+| `plugins/omi-twitter-chat-tools-app/main.py` | `plugins/omi-twitter-chat-tools-app/models.py` | 67 | `ChatToolResponse` |
+| `plugins/omi-twitter-chat-tools-app/main.py` | `plugins/omi-whoop-app/models.py` | 67 | `ChatToolResponse` |
+| `plugins/omi-twitter-chat-tools-app/main.py` | `plugins/omi-zomato-app/models.py` | 67 | `ChatToolResponse` |
+
+## Co-change clusters
+
+_Confidence: `INFERRED` (DEC-015)._
+
+Files most frequently committed together (DEC-027). The shared-commit count is EXTRACTED from git; the implication 'these should change together' is the derivation.
+
+| File A | File B | Shared commits |
 | --- | --- | --- |
-| `backend/routers/apps.py` | `backend/utils/apps.py` | add_app_access_for_tester, add_tester, build_capability_category_groups_response, build_capability_groups_response, build_pagination_metadata… |
-| `backend/routers/users.py` | `backend/database/users.py` | create_person, delete_person, delete_user_data, finalize_migration, get_conversation_summary_rating_score… |
-| `backend/utils/apps.py` | `backend/database/redis_db.py` | can_update_persona, delete_generic_cache, get_app_cache_by_id, get_app_money_made_amount_cache, get_app_money_made_cache… |
-| `backend/utils/apps.py` | `backend/database/apps.py` | add_app_access_for_tester_db, add_tester_db, can_tester_access_app_db, get_api_key_by_hash_db, get_app_by_id_db… |
-| `app/lib/pages/chat/page.dart` | `app/lib/providers/message_provider.dart` | MessageProvider, addMessage, addMessageLocally, captureImage, clearChat… |
-| `app/lib/pages/action_items/action_items_page.dart` | `app/lib/providers/action_items_provider.dart` | ActionItemsProvider, batchUpdateSortOrders, clearSearchQuery, clearSelection, createActionItem… |
-| `app/lib/pages/conversation_detail/page.dart` | `app/lib/utils/analytics/analytics_manager.dart` | audioShareCompleted, audioShareFailed, audioShareStarted, checkedActionItem, conversationDetailSearchClicked… |
-| `app/lib/models/announcement.dart` | `app/lib/models/announcement.g.dart` | _$AnnouncementCTAFromJson, _$AnnouncementCTAToJson, _$AnnouncementContentFromJson, _$AnnouncementContentToJson, _$AnnouncementFromJson… |
-| `app/lib/utils/other/time_utils.dart` | `app/lib/l10n/app_localizations.dart` | AppLocalizations, of, timeCompactHours, timeCompactHoursAndMins, timeCompactMins… |
-| `app/lib/utils/other/time_utils.dart` | `app/lib/l10n/app_localizations_ar.dart` | timeCompactHours, timeCompactHoursAndMins, timeCompactMins, timeCompactMinsAndSecs, timeCompactSecs… |
-| `app/lib/utils/other/time_utils.dart` | `app/lib/l10n/app_localizations_be.dart` | timeCompactHours, timeCompactHoursAndMins, timeCompactMins, timeCompactMinsAndSecs, timeCompactSecs… |
-| `app/lib/utils/other/time_utils.dart` | `app/lib/l10n/app_localizations_bg.dart` | timeCompactHours, timeCompactHoursAndMins, timeCompactMins, timeCompactMinsAndSecs, timeCompactSecs… |
-| `app/lib/utils/other/time_utils.dart` | `app/lib/l10n/app_localizations_bn.dart` | timeCompactHours, timeCompactHoursAndMins, timeCompactMins, timeCompactMinsAndSecs, timeCompactSecs… |
-| `app/lib/utils/other/time_utils.dart` | `app/lib/l10n/app_localizations_bs.dart` | timeCompactHours, timeCompactHoursAndMins, timeCompactMins, timeCompactMinsAndSecs, timeCompactSecs… |
-| `app/lib/utils/other/time_utils.dart` | `app/lib/l10n/app_localizations_ca.dart` | timeCompactHours, timeCompactHoursAndMins, timeCompactMins, timeCompactMinsAndSecs, timeCompactSecs… |
+| `app/lib/l10n/app_localizations_de.dart` | `app/lib/l10n/app_localizations_es.dart` | 121 |
+| `app/lib/l10n/app_localizations_de.dart` | `app/lib/l10n/app_localizations_ja.dart` | 121 |
+| `app/lib/l10n/app_localizations_es.dart` | `app/lib/l10n/app_localizations_ja.dart` | 120 |
+| `app/lib/l10n/app_localizations_es.dart` | `app/lib/l10n/app_localizations_zh.dart` | 120 |
+| `app/lib/l10n/app_localizations_es.dart` | `app/lib/l10n/app_localizations_hi.dart` | 119 |
+| `app/lib/l10n/app_localizations_es.dart` | `app/lib/l10n/app_localizations_pt.dart` | 119 |
+| `app/lib/l10n/app_localizations_hi.dart` | `app/lib/l10n/app_localizations_ja.dart` | 119 |
+| `app/lib/l10n/app_localizations_hi.dart` | `app/lib/l10n/app_localizations_zh.dart` | 119 |
+| `app/lib/l10n/app_localizations_ja.dart` | `app/lib/l10n/app_localizations_zh.dart` | 119 |
+| `app/lib/l10n/app_localizations_cs.dart` | `app/lib/l10n/app_localizations_de.dart` | 118 |
 
 ## Change hot spots
 
@@ -53,39 +72,41 @@ Files touched by the most commits (git churn).
 
 | File | Commits |
 | --- | --- |
-| `desktop/CHANGELOG.json` | 423 |
-| `backend/routers/transcribe.py` | 217 |
-| `app/lib/pages/settings/developer.dart` | 177 |
-| `app/pubspec.yaml` | 156 |
-| `app/lib/l10n/app_localizations_ja.dart` | 140 |
-| `app/lib/l10n/app_localizations_de.dart` | 138 |
-| `codemagic.yaml` | 138 |
-| `app/lib/l10n/app_localizations_es.dart` | 136 |
-| `app/lib/pages/home/page.dart` | 135 |
-| `app/lib/l10n/app_localizations_hi.dart` | 134 |
-| `app/lib/l10n/app_localizations_pt.dart` | 133 |
-| `app/lib/l10n/app_localizations_zh.dart` | 133 |
-| `app/lib/l10n/app_localizations_ar.dart` | 131 |
-| `app/lib/l10n/app_localizations_cs.dart` | 131 |
-| `app/lib/l10n/app_localizations_sk.dart` | 131 |
+| `desktop/CHANGELOG.json` | 421 |
+| `backend/routers/transcribe.py` | 400 |
+| `app/lib/pages/settings/developer.dart` | 381 |
+| `app/lib/pages/home/page.dart` | 334 |
+| `app/pubspec.yaml` | 315 |
+| `app/lib/providers/capture_provider.dart` | 304 |
+| `community-plugins.json` | 247 |
+| `app/lib/main.dart` | 220 |
+| `backend/utils/llm.py` | 208 |
+| `backend/routers/apps.py` | 183 |
+| `README.md` | 176 |
+| `backend/routers/chat.py` | 168 |
+| `app/lib/pages/chat/page.dart` | 164 |
+| `codemagic.yaml` | 164 |
+| `app/lib/backend/preferences.dart` | 161 |
 
 ## Churn × centrality
 
-Files that are **both** highly depended-on and frequently changed — the riskiest edits in the repo.
+_Confidence: `INFERRED` (DEC-015)._
+
+Files that are **both** highly depended-on and frequently changed — the riskiest edits in the repo. Commit counts are EXTRACTED; the centrality column and the risk framing are the derivation.
 
 | File | Centrality | Commits |
 | --- | --- | --- |
-| `app/lib/l10n/app_localizations_ar.dart` | 0.0008 | 131 |
-| `app/lib/l10n/app_localizations_bg.dart` | 0.0008 | 130 |
-| `app/lib/l10n/app_localizations_cs.dart` | 0.0008 | 131 |
-| `app/lib/l10n/app_localizations_de.dart` | 0.0008 | 138 |
-| `app/lib/l10n/app_localizations_el.dart` | 0.0008 | 130 |
-| `app/lib/l10n/app_localizations_es.dart` | 0.0008 | 136 |
-| `app/lib/l10n/app_localizations_fi.dart` | 0.0008 | 130 |
-| `app/lib/l10n/app_localizations_fr.dart` | 0.0008 | 130 |
-| `app/lib/l10n/app_localizations_hi.dart` | 0.0008 | 134 |
-| `app/lib/l10n/app_localizations_hu.dart` | 0.0008 | 130 |
+| `app/lib/backend/preferences.dart` | 0.0085 | 161 |
+| `app/lib/providers/capture_provider.dart` | 0.0033 | 304 |
+| `app/lib/pages/apps/app_detail/app_detail.dart` | 0.0005 | 129 |
+| `app/lib/pages/home/page.dart` | 0.0005 | 334 |
+| `app/lib/l10n/app_localizations_ja.dart` | 0.0004 | 129 |
+| `backend/routers/chat.py` | 0.0003 | 168 |
+| `app/lib/pages/chat/page.dart` | 0.0003 | 164 |
+| `backend/routers/memories.py` | 0.0003 | 155 |
+| `app/lib/pages/settings/developer.dart` | 0.0002 | 381 |
+| `backend/routers/transcribe.py` | 0.0002 | 400 |
 
 ---
 
-*Generated by forensic-deepdive 0.1.0 on 2026-05-23. Regenerate with `forensic update` — do not hand-edit.*
+*Generated by forensic-deepdive 0.1.0 on 2026-05-25. Regenerate with `forensic update` — do not hand-edit.*

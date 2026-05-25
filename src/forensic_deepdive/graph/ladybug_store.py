@@ -44,6 +44,11 @@ from forensic_deepdive.graph.store import GraphStore
 class LadybugStore(GraphStore):
     """Embedded graph store backed by LadybugDB (Kuzu community fork)."""
 
+    # DEC-032: rows per UNWIND batch. Bench-confirmed sweet spot — 10× larger
+    # gave diminishing returns; 10× smaller paid round-trip overhead. Override
+    # on an instance for tests that want to force chunking on small fixtures.
+    _BATCH_SIZE: int = 1000
+
     def __init__(self, db_path: str | Path) -> None:
         super().__init__(db_path)
         self._db: Any | None = None
@@ -519,7 +524,260 @@ class LadybugStore(GraphStore):
         while result.has_next():
             yield result.get_next()
 
+    # --- writes (batch, DEC-032) -------------------------------------------
+    # One UNWIND-with-$rows Cypher call per chunk of ``_BATCH_SIZE``. On Omi
+    # scale (~250k writes total) this drops BuildGraphPhase from ~13 min
+    # (single-row CREATE per edge) to ~15 s (bench: 10k edges in 550 ms via
+    # UNWIND MATCH+CREATE). The single-row methods above stay — they're the
+    # right shape for one-record callers (MCP insight writes, isolated
+    # tests). Single-row methods could delegate to these (DEC-032 §"single-
+    # row delegates"); preserved separately here because real-ladybug's
+    # parameter-binding is slightly cheaper for the literal-CREATE form on a
+    # single row, and the duplication is tightly bounded to one place.
+
+    def add_many_files(self, nodes: Iterable[File]) -> None:
+        rows = [
+            {
+                "path": n.path,
+                "language": n.language,
+                "role": str(n.role),
+                "sha": n.sha,
+                "loc": n.loc,
+                "last_modified": n.last_modified,
+            }
+            for n in nodes
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row CREATE (n:File {"
+            "path: row.path, language: row.language, role: row.role, "
+            "sha: row.sha, loc: row.loc, last_modified: row.last_modified})",
+            rows,
+        )
+
+    def add_many_symbols(self, nodes: Iterable[Symbol]) -> None:
+        rows = [
+            {
+                "qualified_name": n.qualified_name,
+                "kind": str(n.kind),
+                "file_path": n.file_path,
+                "line_start": n.line_start,
+                "line_end": n.line_end,
+                "signature": n.signature,
+            }
+            for n in nodes
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row CREATE (n:Symbol {"
+            "qualified_name: row.qualified_name, kind: row.kind, "
+            "file_path: row.file_path, line_start: row.line_start, "
+            "line_end: row.line_end, signature: row.signature})",
+            rows,
+        )
+
+    def add_many_modules(self, nodes: Iterable[Module]) -> None:
+        rows = [{"path": n.path, "language": n.language} for n in nodes]
+        self._batch_execute(
+            "UNWIND $rows AS row CREATE (n:Module {path: row.path, language: row.language})",
+            rows,
+        )
+
+    def add_many_commits(self, nodes: Iterable[Commit]) -> None:
+        rows = [
+            {
+                "sha": n.sha,
+                "email": n.author_email,
+                "date": n.date,
+                "msg": n.message,
+                "ftc": n.files_touched_count,
+            }
+            for n in nodes
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row CREATE (n:Commit {"
+            "sha: row.sha, author_email: row.email, date: row.date, "
+            "message: row.msg, files_touched_count: row.ftc})",
+            rows,
+        )
+
+    def add_many_authors(self, nodes: Iterable[Author]) -> None:
+        rows = [{"email": n.email_canonical, "name": n.name} for n in nodes]
+        self._batch_execute(
+            "UNWIND $rows AS row CREATE (n:Author {email_canonical: row.email, name: row.name})",
+            rows,
+        )
+
+    def add_many_defines(self, edges: Iterable[DefinesEdge]) -> None:
+        rows = [
+            {
+                "fp": e.file_path,
+                "sq": e.symbol,
+                "conf": str(e.confidence),
+                "ev": e.evidence,
+            }
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (f:File {path: row.fp}), (s:Symbol {qualified_name: row.sq}) "
+            "CREATE (f)-[:DEFINES {confidence: row.conf, evidence: row.ev}]->(s)",
+            rows,
+        )
+
+    def add_many_member_of(self, edges: Iterable[MemberOfEdge]) -> None:
+        rows = [
+            {
+                "mq": e.member,
+                "pq": e.parent,
+                "conf": str(e.confidence),
+                "ev": e.evidence,
+            }
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (m:Symbol {qualified_name: row.mq}), "
+            "(p:Symbol {qualified_name: row.pq}) "
+            "CREATE (m)-[:MEMBER_OF {confidence: row.conf, evidence: row.ev}]->(p)",
+            rows,
+        )
+
+    def add_many_imports(self, edges: Iterable[ImportsEdge]) -> None:
+        rows = [
+            {
+                "fp": e.file_path,
+                "mp": e.module_path,
+                "conf": str(e.confidence),
+                "ev": e.evidence,
+            }
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (f:File {path: row.fp}), (m:Module {path: row.mp}) "
+            "CREATE (f)-[:IMPORTS {confidence: row.conf, evidence: row.ev}]->(m)",
+            rows,
+        )
+
+    def add_many_calls(self, edges: Iterable[CallsEdge]) -> None:
+        rows = [
+            {
+                "cq": e.caller,
+                "eq": e.callee,
+                "conf": str(e.confidence),
+                "ev": e.evidence,
+            }
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (caller:Symbol {qualified_name: row.cq}), "
+            "(callee:Symbol {qualified_name: row.eq}) "
+            "CREATE (caller)-[:CALLS {confidence: row.conf, evidence: row.ev}]->(callee)",
+            rows,
+        )
+
+    def add_many_extends(self, edges: Iterable[ExtendsEdge]) -> None:
+        rows = [
+            {
+                "cq": e.child,
+                "pq": e.parent,
+                "conf": str(e.confidence),
+                "ev": e.evidence,
+            }
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (c:Symbol {qualified_name: row.cq}), "
+            "(p:Symbol {qualified_name: row.pq}) "
+            "CREATE (c)-[:EXTENDS {confidence: row.conf, evidence: row.ev}]->(p)",
+            rows,
+        )
+
+    def add_many_implements(self, edges: Iterable[ImplementsEdge]) -> None:
+        rows = [
+            {
+                "iq": e.implementation,
+                "fq": e.interface,
+                "conf": str(e.confidence),
+                "ev": e.evidence,
+            }
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (impl:Symbol {qualified_name: row.iq}), "
+            "(iface:Symbol {qualified_name: row.fq}) "
+            "CREATE (impl)-[:IMPLEMENTS {confidence: row.conf, evidence: row.ev}]->(iface)",
+            rows,
+        )
+
+    def add_many_touched_by_commit(self, edges: Iterable[TouchedByCommitEdge]) -> None:
+        rows = [
+            {
+                "fp": e.file_path,
+                "sha": e.commit_sha,
+                "conf": str(e.confidence),
+                "ev": e.evidence,
+            }
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (f:File {path: row.fp}), (c:Commit {sha: row.sha}) "
+            "CREATE (f)-[:TOUCHED_BY_COMMIT {confidence: row.conf, evidence: row.ev}]->(c)",
+            rows,
+        )
+
+    def add_many_authored_by(self, edges: Iterable[AuthoredByEdge]) -> None:
+        rows = [
+            {
+                "sha": e.commit_sha,
+                "email": e.author_email,
+                "conf": str(e.confidence),
+                "ev": e.evidence,
+            }
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (c:Commit {sha: row.sha}), (a:Author {email_canonical: row.email}) "
+            "CREATE (c)-[:AUTHORED_BY {confidence: row.conf, evidence: row.ev}]->(a)",
+            rows,
+        )
+
+    def add_many_co_changes_with(self, edges: Iterable[CoChangesWithEdge]) -> None:
+        rows = [
+            {
+                "a": e.file_a,
+                "b": e.file_b,
+                "conf": str(e.confidence),
+                "ev": e.evidence,
+                "freq": e.frequency,
+            }
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (a:File {path: row.a}), (b:File {path: row.b}) "
+            "CREATE (a)-[:CO_CHANGES_WITH "
+            "{confidence: row.conf, evidence: row.ev, frequency: row.freq}]->(b)",
+            rows,
+        )
+
     # --- internals ----------------------------------------------------------
+
+    def _batch_execute(self, query: str, rows: list[dict]) -> None:
+        """DEC-032. Execute *query* as an UNWIND over *rows*, chunked by
+        ``_BATCH_SIZE`` to bound the per-call parameter blob. Empty input is
+        a no-op (skips the round-trip entirely)."""
+        if not rows:
+            return
+        self._require_conn()
+        size = self._BATCH_SIZE
+        for i in range(0, len(rows), size):
+            chunk = rows[i : i + size]
+            self._conn.execute(query, {"rows": chunk})
 
     def _require_conn(self) -> None:
         if not self._connected or self._conn is None:
