@@ -68,9 +68,10 @@ uv run ruff format src/ tests/
 | New CLI subcommand | `src/forensic_deepdive/cli.py` + `tests/test_cli.py` |
 | New skill | `.claude/skills/<name>/SKILL.md` + add to `docs/SKILLS.md` index |
 | New decision | `DECISIONS.md` (append-only, never edit historical) |
+| New real-repo findings | `docs/findings/v<X.Y>/<repo>-test.md` (one folder per release; see `docs/findings/README.md`) |
+| New real-repo examples | `examples/<repo>/` (the 5 emitted artifacts; updated alongside the findings doc) |
 
 ## Coupling rules ("if you touch X, also touch Y")
-- Change CLAUDE.md → also update `AGENTS.md` (same content, different filename for cross-tool standard).
 - Change the artifact-name contract → update the SKILL.md files for all three skills.
 - Change `RepoMap` algorithm → update `DECISIONS.md` with rationale.
 - Add a new artifact → update `cli.py`, all three SKILL.md files, README, and `examples/omi/` outputs.
@@ -82,4 +83,4 @@ uv run ruff format src/ tests/
 4. `wc -c docs/codebase/AGENT_BRIEF.md` returns ≤5120.
 
 ## When this file goes stale
-Bump version in `pyproject.toml`. Update relevant sections. Mirror to `AGENTS.md`. Commit both in one commit.
+Bump `pyproject.toml`; update relevant sections; commit.

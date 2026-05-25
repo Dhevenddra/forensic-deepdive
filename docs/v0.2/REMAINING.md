@@ -338,11 +338,15 @@ Per PRD §11 + 2026-05-25 decisions. Restated so I don't drift:
   ASCII. Mermaid first — renders inline in any markdown surface
   (Claude Code, PRs), single half-day commit.
 - **Polyglot stress-test repos** (added 2026-05-25; see
-  [[stress-test-repos]] in memory). **Apache Superset** is the best
-  v0.3 target — Python+TS+React polyglot, prototypical cross-stack
-  use case, before/after demonstration of the v0.3 wedge. Then
-  **Backstage** (TS monorepo, ~30k files, plugin architecture) and
-  **Odoo** (~50k Python files, v1.0 scale test).
+  [[stress-test-repos]] in memory). v0.3+ acceptance keeps v0.2's
+  set (Omi, spring-petclinic, GitNexus, fastapi) AND adds:
+  **Apache Superset** (best v0.3 target — Python+TS+React polyglot,
+  prototypical cross-stack use case, before/after demonstration of
+  the v0.3 wedge), **Backstage** (TS monorepo, ~30k files, plugin
+  architecture), **Odoo** (~50k Python files, v1.0 scale test).
+  Findings for each go under `docs/findings/v0.3/<repo>-test.md`
+  per the version-hierarchical convention (see
+  `docs/findings/README.md`).
 - Traceability matrix (v0.4).
 - Merkle-tree incremental indexing (v1.0).
 - `rename`, `cross_language_navigate`, `detect_changes`, `trace` MCP tools.
