@@ -279,7 +279,10 @@ def test_query_requires_either_arg(populated_db: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_make_server_registers_5_tools(populated_db: Path) -> None:
+def test_make_server_registers_all_tools(populated_db: Path) -> None:
+    """DEC-016 (5 composite tools) + DEC-019 (2 insight tools). The
+    server registers 7 tools total in v0.2: the 5 graph-side composite
+    tools plus the 2 insight tools."""
     import asyncio
 
     server = srv.make_server(populated_db)
@@ -287,11 +290,15 @@ def test_make_server_registers_5_tools(populated_db: Path) -> None:
     tools = asyncio.run(server.list_tools())
     names = {t.name for t in tools}
     assert names == {
+        # DEC-016 graph composites.
         "impact_tool",
         "context_tool",
         "archaeology_tool",
         "flow_tool",
         "query_tool",
+        # DEC-019 insight layer.
+        "record_insight_tool",
+        "recall_insights_tool",
     }
 
 
@@ -304,3 +311,117 @@ def test_each_tool_description_is_bounded(populated_db: Path) -> None:
     tools = asyncio.run(server.list_tools())
     for tool in tools:
         assert len(tool.description or "") <= 1000, tool.name
+
+
+# ---------------------------------------------------------------------------
+# DEC-019 — insight tools (record_insight, recall_insights, context augment)
+# ---------------------------------------------------------------------------
+
+
+def test_record_insight_persists_and_returns_dict(populated_db: Path) -> None:
+    """record_insight returns the persisted insight; recall_insights
+    finds it on the same store."""
+    out = srv.record_insight(
+        populated_db,
+        symbol="greeter.py::format_message",
+        claim="returns string with greeting prefix",
+        evidence="src/greeter.py:5",
+        verified_by="static",
+    )
+    assert "recorded" in out
+    assert out["recorded"]["symbol"] == "greeter.py::format_message"
+    assert out["recorded"]["verified_by"] == "static"
+    # Recall the same insight.
+    recalled = srv.recall_insights(populated_db, "format_message")
+    assert recalled["count"] == 1
+    assert recalled["insights"][0]["claim"] == "returns string with greeting prefix"
+
+
+def test_record_insight_validates_verified_by(populated_db: Path) -> None:
+    """An invalid ``verified_by`` returns an error payload (matches the
+    query() error-as-payload pattern from DEC-016)."""
+    out = srv.record_insight(
+        populated_db,
+        symbol="s",
+        claim="c",
+        evidence="e",
+        verified_by="bogus_value",
+    )
+    assert "error" in out
+    assert "verified_by" in out["error"]
+
+
+def test_recall_insights_returns_empty_when_none(populated_db: Path) -> None:
+    out = srv.recall_insights(populated_db, "never_recorded_xyz")
+    assert out["count"] == 0
+    assert out["insights"] == []
+
+
+def test_recall_insights_orders_newest_first(populated_db: Path) -> None:
+    import time
+
+    for n in range(3):
+        srv.record_insight(
+            populated_db,
+            symbol="format_message",
+            claim=f"claim {n}",
+            evidence=f"e{n}",
+            verified_by="ai",
+        )
+        time.sleep(0.001)
+    out = srv.recall_insights(populated_db, "format_message")
+    assert [i["claim"] for i in out["insights"]] == ["claim 2", "claim 1", "claim 0"]
+
+
+def test_context_includes_recent_insights(populated_db: Path) -> None:
+    """DEC-019: context() augments its payload with up to 3 recent
+    insights for the queried symbol. Always present, even if empty."""
+    # Empty case — field present, empty list.
+    out = srv.context(populated_db, "format_message")
+    assert "recent_insights" in out
+    assert out["recent_insights"] == []
+    # After recording one insight, context surfaces it.
+    srv.record_insight(
+        populated_db,
+        symbol="greeter.py::format_message",
+        claim="frequently used by greeting subsystem",
+        evidence="src/greeter.py:5",
+        verified_by="human",
+    )
+    out2 = srv.context(populated_db, "format_message")
+    assert len(out2["recent_insights"]) == 1
+    assert out2["recent_insights"][0]["claim"] == ("frequently used by greeting subsystem")
+
+
+def test_context_recent_insights_capped_at_3(populated_db: Path) -> None:
+    """Even if 10 insights exist, context() returns only the 3 newest."""
+    import time
+
+    for n in range(10):
+        srv.record_insight(
+            populated_db,
+            symbol="greeter.py::format_message",
+            claim=f"claim {n}",
+            evidence=f"e{n}",
+            verified_by="ai",
+        )
+        time.sleep(0.001)
+    out = srv.context(populated_db, "format_message")
+    assert len(out["recent_insights"]) == 3
+    # Newest first.
+    assert out["recent_insights"][0]["claim"] == "claim 9"
+
+
+def test_insight_store_lives_next_to_graph(populated_db: Path) -> None:
+    """The JSONL store path is ``<graph_parent>/insights.jsonl`` — both
+    sit under ``<repo>/.deepdive/``."""
+    out = srv.record_insight(
+        populated_db,
+        symbol="s",
+        claim="c",
+        evidence="e",
+        verified_by="human",
+    )
+    insight_path = Path(out["path"])
+    assert insight_path.name == "insights.jsonl"
+    assert insight_path.parent == populated_db.parent

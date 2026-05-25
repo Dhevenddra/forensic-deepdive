@@ -39,16 +39,17 @@ MCP server depends on them.
 ## Current state (snapshot)
 
 - **Branch:** `main`. Tree clean at HEAD. Never pushed.
-- **Tests:** 322 passing. `ruff check` + `ruff format` clean.
-- **PRD §10 progress:** 13 of 14 done (items 1, 2, 3, 4, 5, 6, 7, 8,
-  8b, 9, 10, 12, 13). Item 8b — the extension that completes item 8's
-  graph — is **DONE** (all 6 steps).
+- **Tests:** 362 passing. `ruff check` + `ruff format` clean.
+- **PRD §10 progress:** 14 of 14 done (items 1, 2, 3, 4, 5, 6, 7, 8,
+  8b, 9, 10, 11, 12, 13). Item 8b — the extension that completes
+  item 8's graph — is **DONE** (all 6 steps). **Only item 14
+  (acceptance gates) + item 15 (tag) left before v0.2.0.**
 - **Latest commit:** `7cdbd66 docs: REMAINING.md -- items 8b/9/10/12
   + DEC-018 done, next session opens at items 13/11/3/14/15`
   (DEC-031 commit will follow this session).
-- **Active DECs:** DEC-001 → DEC-018, DEC-020 → DEC-031. (Only
-  DEC-019 — Graphiti — of the originally-reserved set remains
-  unwritten.)
+- **Active DECs:** DEC-001 → DEC-031. **All reserved DECs written**
+  (DEC-015 confidence taxonomy + DEC-019 insight layer shipped
+  this 2026-05-25 session).
 - **Item 9 COMPLETE** (phases 1 + 2): markdown artifacts read from
   graph; default flipped True.
 - **Item 10 COMPLETE (DEC-016, headline v0.2):** MCP server with 5
@@ -164,37 +165,15 @@ NL-query simplification.
 
 ---
 
-### Item 11 — Graphiti integration  **(optional, gated)**
+### Item 11 — Graphiti integration  **DONE — DEC-019**
 
-**Unlocks:** DEC-019. The agent's persistent learning brain across
-sessions. **The "self-updating tool" story.** What makes v0.2
-defensibly different from CodeGraphContext.
-
-**Complexity:** medium. Heavy dependency footprint but a focused code
-surface.
-
-**Touchpoints:**
-- `src/forensic_deepdive/graphiti_brain/store.py` (new) — wraps
-  `graphiti-core ≥ 0.28`.
-- A new MCP tool `record_insight(symbol, claim, evidence, verified_by)`.
-- `context(symbol)` tool extended to merge structural + temporal
-  insights.
-- Threshold gate from DEC-005 (≥50k LOC, ≥25 contributors, ≥18 months
-  old, ≥200 PRs/12mo, ≥100 issues w/ discussion — 2 of 5).
-- Below threshold: JSONL append-log fallback.
-
-**Traps:**
-- Graphiti needs an LLM for entity extraction. Local mode = Ollama
-  (Qwen2.5-Coder-32B per DEC-009). Cloud mode = Claude Haiku.
-- Pure-static mode must still work end-to-end (DEC-019 honest-mode
-  acceptance — PRD §5.5).
-- LadybugDB / Graphiti share the same Kuzu-fork engine — two `.lbug`
-  files in `.deepdive/`. Verify version compatibility on install.
-
-**DEC:** DEC-019 (reserved).
-
-**Order note:** Can ship before or after item 10. Probably *after* —
-the headline `record_insight` MCP tool needs item 10's server.
+Shipped 2026-05-25. Two-backend insight layer behind an `InsightStore`
+ABC: `JsonlInsightStore` always-available default, `GraphitiInsightStore`
+opt-in via the `[graphiti]` PyPI extra. DEC-005 2-of-5 threshold gates
+the Graphiti path. Two new MCP tools (`record_insight`, `recall_insights`)
++ `context()` augmented with `recent_insights`. 40 new tests. Real-LLM
+acceptance of the Graphiti runtime path is item 14 scope — the
+structural wiring is real and tested with a mocked graphiti-core.
 
 ---
 
@@ -363,29 +342,32 @@ can be folded into item 10 or done as a standalone commit.
 
 ```
 Read CLAUDE.md, DECISIONS.md, PROGRESS.md (the 2026-05-25 entry
-titled "v0.2 item 3: confidence threading + DEC-015"),
+titled "v0.2 item 11: agent-insight layer (DEC-019)"),
 docs/v0.2/PRD_v0.2.md, and docs/v0.2/REMAINING.md (the
 "Operating discipline" section is load-bearing). Confirm in one
 sentence what you understand.
 
-**Items 3, 8b, 9, 10, 12, 13, DEC-018 are DONE.** The graph is
-complete; the MCP server is live; Repomix demoted; multi-repo
-registry in place; the 5 emitted skills + plugin manifest ship per
-extract; confidence labels are honest at section and rule level.
+**Items 3, 8b, 9, 10, 11, 12, 13, DEC-018 are DONE.** All 14 PRD §10
+items shipped; the agent-insight layer (DEC-019) was the last
+substantive feature work. **Only acceptance gates (item 14) + the
+v0.2.0 tag (item 15) left.**
 
-**Remaining v0.2 work, in suggested priority:**
+**Remaining v0.2 work:**
 
-1. **Item 11 — Graphiti integration (DEC-019)** (large). The
-   persistent agent-memory layer. Optional gated install (DEC-005
-   threshold). Adds the cross-session "what did we learn last
-   time" graph. Real differentiator vs. CodeGraphContext.
-2. **Item 14 — acceptance gates** (large, blocking v0.2.0 tag).
-   Real-repo runs: Omi (re-verify post-graph), spring-petclinic
-   (Java + Spring, no annotation resolution yet — INFERRED edges),
-   GitNexus repo itself (dogfood the competitor), fastapi.
-3. **Item 15 — tag v0.2.0**. Bump pyproject, update README,
-   CHANGELOG, commit `chore: bump to 0.2.0`, `git tag v0.2.0`,
-   **never push without explicit ask**.
+1. **Item 14 — acceptance gates** (large, blocking v0.2.0 tag).
+   Real-repo runs: Omi (re-verify post-graph + 8-language coverage),
+   spring-petclinic (Java + Spring, no annotation resolution yet —
+   INFERRED edges), GitNexus repo itself (dogfood the competitor),
+   fastapi. **Also: real-LLM acceptance of the GraphitiInsightStore
+   path** — requires Ollama + Qwen2.5-Coder-32B local OR a cloud
+   API key. The structural wiring is real and unit-tested with a
+   mocked graphiti-core; what's left is to verify the runtime path
+   against an actual LLM-backed graphiti-core session.
+2. **Item 15 — tag v0.2.0**. Bump pyproject (0.1.0 → 0.2.0), update
+   README to v0.2 product shape (knowledge graph + MCP, not
+   "structural orienter"), CHANGELOG entry, commit
+   `chore: bump to 0.2.0`, `git tag v0.2.0`. **Never push without
+   explicit ask.**
 
 Working autonomy: full freedom to install tools and web-search
 version-sensitive facts. Spend time on hard problems — write custom

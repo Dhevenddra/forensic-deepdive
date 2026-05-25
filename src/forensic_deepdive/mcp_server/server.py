@@ -26,10 +26,23 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from forensic_deepdive.graph import LadybugStore
+from forensic_deepdive.insights import Insight, JsonlInsightStore
 
 DEFAULT_DEPTH = 3
 DEFAULT_MAX_DEPTH = 10
 DEFAULT_MIN_CONFIDENCE = "INFERRED"
+
+# DEC-019 — insight store lives at ``<repo>/.deepdive/insights.jsonl``
+# next to the graph DB. Resolved from the graph_db_path by walking up to
+# the ``.deepdive`` parent.
+_INSIGHT_SUBPATH = "insights.jsonl"
+
+
+def _insight_store_path(graph_db_path: Path) -> Path:
+    """Resolve the insight store path from the graph DB path. The graph
+    lives at ``<repo>/.deepdive/graph.lbug``; insights live alongside at
+    ``<repo>/.deepdive/insights.jsonl``."""
+    return Path(graph_db_path).parent / _INSIGHT_SUBPATH
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +306,12 @@ def context(db_path: Path, symbol: str) -> dict[str, Any]:
         dominant_author = (
             {"name": author_rows[0][0], "commits": int(author_rows[0][1])} if author_rows else None
         )
+        # DEC-019: surface up-to-3 most-recent insights for this symbol.
+        # Always present (even when empty) — the field is part of the
+        # agent-facing contract; surprising agents with a sometimes-
+        # absent field destroys trust.
+        insight_store = JsonlInsightStore(_insight_store_path(db_path))
+        recent_insights = [i.to_dict() for i in insight_store.recall(qn, limit=3)]
         return {
             "symbol": target,
             "all_matches": matches,
@@ -305,6 +324,7 @@ def context(db_path: Path, symbol: str) -> dict[str, Any]:
             "implements": implements,
             "recent_commits": recent_commits,
             "dominant_author": dominant_author,
+            "recent_insights": recent_insights,
         }
 
 
@@ -563,6 +583,71 @@ def query(
 
 
 # ---------------------------------------------------------------------------
+# Tool 6: record_insight(symbol, claim, evidence, verified_by) — DEC-019
+# ---------------------------------------------------------------------------
+
+
+def record_insight(
+    graph_db_path: Path,
+    symbol: str,
+    claim: str,
+    evidence: str,
+    verified_by: str = "ai",
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """Persist one durable agent learning about this codebase
+    (DEC-019).
+
+    Appends to the JSONL insight store at ``.deepdive/insights.jsonl``.
+    Returns the persisted insight as a dict so the agent can verify
+    what was stored. ``verified_by`` must be one of the four allowed
+    values; an invalid value returns an error payload rather than
+    raising (matches the ``query()`` error-as-payload pattern from
+    DEC-016)."""
+    try:
+        insight = Insight.now(
+            symbol=symbol,
+            claim=claim,
+            evidence=evidence,
+            verified_by=verified_by,
+            session_id=session_id,
+        )
+    except ValueError as exc:
+        return {"error": str(exc)}
+    path = _insight_store_path(graph_db_path)
+    store = JsonlInsightStore(path)
+    store.record(insight)
+    return {"recorded": insight.to_dict(), "path": str(path)}
+
+
+# ---------------------------------------------------------------------------
+# Tool 7: recall_insights(symbol, since=, limit=) — DEC-019
+# ---------------------------------------------------------------------------
+
+
+def recall_insights(
+    graph_db_path: Path,
+    symbol: str,
+    since: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Return prior agent learnings matching *symbol* (DEC-019).
+
+    Substring match on the stored insight's ``symbol`` field. Newest
+    first, capped at *limit*. ``since`` is an ISO timestamp — when
+    provided, only insights recorded at or after that timestamp are
+    returned."""
+    path = _insight_store_path(graph_db_path)
+    store = JsonlInsightStore(path)
+    matches = store.recall(symbol, since=since, limit=limit)
+    return {
+        "symbol": symbol,
+        "insights": [m.to_dict() for m in matches],
+        "count": len(matches),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Server factory + stdio entry point
 # ---------------------------------------------------------------------------
 
@@ -630,6 +715,41 @@ def make_server(graph_db_path: Path) -> FastMCP:
         qualified names. Use Cypher for precise queries the agent
         knows how to write; use natural_language for discovery."""
         return query(graph_db_path, cypher=cypher, natural_language=natural_language)
+
+    @server.tool()
+    def record_insight_tool(
+        symbol: str,
+        claim: str,
+        evidence: str,
+        verified_by: str = "ai",
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Persist one durable learning about this codebase (DEC-019).
+        Use after verifying a hypothesis, fixing a bug, or noticing a
+        cross-session pattern. ``verified_by`` must be one of: "human",
+        "static", "test", "ai". Surfaces back via context() and
+        recall_insights() on future sessions."""
+        return record_insight(
+            graph_db_path,
+            symbol,
+            claim,
+            evidence,
+            verified_by=verified_by,
+            session_id=session_id,
+        )
+
+    @server.tool()
+    def recall_insights_tool(
+        symbol: str,
+        since: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Return prior learnings about *symbol* recorded via
+        record_insight (DEC-019). Newest first, capped at ``limit``.
+        ``since`` (ISO timestamp) filters to insights at or after that
+        time. Use when starting work on a symbol to surface what past
+        sessions learned."""
+        return recall_insights(graph_db_path, symbol, since=since, limit=limit)
 
     return server
 
