@@ -38,15 +38,16 @@ MCP server depends on them.
 
 ## Current state (snapshot)
 
-- **Branch:** `main`. Tree clean at `e21c2f6`. Never pushed.
-- **Tests:** 260 passing. `ruff check` + `ruff format` clean.
-- **PRD §10 progress:** 7 of 14 done (items 1, 2, 4, 5, 6, 7, 8). Item
-  8b — the extension that completes item 8's graph — is **DONE** (all
-  6 steps).
-- **Latest commit:** `2f3ca11 feat: multi-repo registry + forensic
-  list (DEC-018)`.
+- **Branch:** `main`. Tree clean at HEAD. Never pushed.
+- **Tests:** 309 passing. `ruff check` + `ruff format` clean.
+- **PRD §10 progress:** 12 of 14 done (items 1, 2, 4, 5, 6, 7, 8, 8b,
+  9, 10, 12, 13). Item 8b — the extension that completes item 8's
+  graph — is **DONE** (all 6 steps).
+- **Latest commit:** `7cdbd66 docs: REMAINING.md -- items 8b/9/10/12
+  + DEC-018 done, next session opens at items 13/11/3/14/15`
+  (DEC-031 commit will follow this session).
 - **Active DECs:** DEC-001 → DEC-014, DEC-016 → DEC-018, DEC-020 →
-  DEC-030. (Only DEC-015 / DEC-019 of the originally-reserved set
+  DEC-031. (Only DEC-015 / DEC-019 of the originally-reserved set
   remain — confidence-threading polish + Graphiti.)
 - **Item 9 COMPLETE** (phases 1 + 2): markdown artifacts read from
   graph; default flipped True.
@@ -54,6 +55,10 @@ MCP server depends on them.
   composite tools live. `forensic serve` works.
 - **Item 12 COMPLETE (DEC-017):** Repomix demoted to
   `--legacy-repomix`.
+- **Item 13 COMPLETE (DEC-031):** 5 emitted skills
+  (`codebase-exploring` / `-debugging` / `-impact-analysis` /
+  `-refactoring` / `-onboarding`) + `.claude-plugin/plugin.json` +
+  refreshed editor shims; all write-if-absent.
 - **DEC-018 done:** registry + `forensic list`. Multi-repo MCP
   serving deferred to v0.3.
 - **Languages:** 8 (Python, C, Dart, Swift, TypeScript, JavaScript,
@@ -222,23 +227,16 @@ repo for LLM."
 
 ---
 
-### Item 13 — Agent skill emission updates  **(medium)**
+### Item 13 — Agent skill emission updates  **DONE — DEC-031**
 
-**Unlocks:** at least 5 skills in `.claude/skills/`, plus
-`.claude-plugin/plugin.json`, `.cursor/rules/codebase.mdc`,
-`.continue/rules/codebase.md`. The "one tool, every editor" wedge.
-
-**Touchpoints:**
-- `src/forensic_deepdive/emit/shims.py` — currently writes 4 thin
-  files. Expand to write 5+ skills, each focused (PRD §4.10): Exploring,
-  Debugging, Impact-Analysis, Refactoring, Onboarding.
-- Each skill's description is the load-bearing selector (CLAUDE.md
-  "Sacred abstractions"). Single-intent each.
-
-**Traps:** the existing 3 skills (`forensic-deepdive-extract`,
-`-query`, `-update`) at `.claude/skills/` are the ones the project
-itself uses internally. The new emitted skills go into the **target
-repo**'s `.claude/skills/`. Don't conflate.
+Shipped 2026-05-25. `emit/shims.py` now writes 10 targets per extract:
+the 4 v0.1 editor shims, 5 single-intent skills under
+`<target>/.claude/skills/codebase-{exploring,debugging,impact-analysis,
+refactoring,onboarding}/SKILL.md`, and a `.claude-plugin/plugin.json`
+manifest listing them. All write-if-absent. The internal 3 skills
+(`forensic-deepdive-{extract,query,update}` in this project's
+`.claude/skills/`) are untouched — different namespace, different
+purpose.
 
 ---
 
@@ -375,69 +373,33 @@ can be folded into item 10 or done as a standalone commit.
 ## Next-session kickoff prompt
 
 ```
-Read CLAUDE.md, DECISIONS.md, PROGRESS.md, docs/v0.2/PRD_v0.2.md, and
-docs/v0.2/REMAINING.md (the forward-looking roadmap — its
+Read CLAUDE.md, DECISIONS.md, PROGRESS.md (the 2026-05-25 entry
+titled "v0.2 item 13: multi-platform skill emission (DEC-031)"),
+docs/v0.2/PRD_v0.2.md, and docs/v0.2/REMAINING.md (the
 "Operating discipline" section is load-bearing). Confirm in one
 sentence what you understand.
 
-**Items 8b, 9, 10, 12, DEC-018 are DONE** (this session, 2026-05-25).
-The graph is complete; the MCP server is live; Repomix demoted;
-multi-repo registry in place.
+**Items 8b, 9, 10, 12, 13, DEC-018 are DONE.** The graph is
+complete; the MCP server is live; Repomix demoted; multi-repo
+registry in place; the 5 emitted skills + plugin manifest ship per
+extract.
 
-**Next: pick one of items 13 / 11 / 3 / 14 / 15.**
+**Remaining v0.2 work, in suggested priority:**
 
-Suggested order (in REMAINING priority):
-
-1. **Item 13 — multi-platform skill emission** (medium). Expand
-   `src/forensic_deepdive/emit/shims.py` to write 5+ Claude skills
-   (Exploring, Debugging, Impact-Analysis, Refactoring, Onboarding),
-   `.claude-plugin/plugin.json`, refresh Cursor / Continue rule
-   files. Item 13 closes the "one tool, every editor" wedge that
-   matches GitNexus's distribution shape.
-2. **Item 11 — Graphiti integration (DEC-019)** (large). The
+1. **Item 11 — Graphiti integration (DEC-019)** (large). The
    persistent agent-memory layer. Optional gated install (DEC-005
    threshold). Adds the cross-session "what did we learn last
    time" graph. Real differentiator vs. CodeGraphContext.
-3. **Item 3 — confidence threading polish** (small). Mostly done
+2. **Item 3 — confidence threading polish** (small). Mostly done
    via DEC-029/030. Could finish by tagging individual lines in MAP
    and ARCHAEOLOGY emitters (HOTPATHS + AGENT_BRIEF already do it).
-4. **Item 14 — acceptance gates** (large, blocking v0.2.0 tag).
+3. **Item 14 — acceptance gates** (large, blocking v0.2.0 tag).
    Real-repo runs: Omi (re-verify post-graph), spring-petclinic
    (Java + Spring, no annotation resolution yet — INFERRED edges),
    GitNexus repo itself (dogfood the competitor), fastapi.
-5. **Item 15 — tag v0.2.0**. Bump pyproject, update README,
+4. **Item 15 — tag v0.2.0**. Bump pyproject, update README,
    CHANGELOG, commit `chore: bump to 0.2.0`, `git tag v0.2.0`,
    **never push without explicit ask**.
-
-1. Per emitter, replace the *primary* content path with graph reads:
-   - **MAP**: "Most central files" — keep file-level PageRank for
-     now (graph PageRank is v0.3); "Key definitions" — switch to
-     `iter_symbols_for_file` results sorted by inbound CALLS count.
-   - **HOTPATHS**: phase 1's two graph sections are additive; in
-     phase 2 they BECOME the primary content of those sections and
-     the old NetworkX-derived "Dependency hot spots" + "Cross-file
-     dependencies" sections get rewritten to query CALLS edges.
-   - **ARCHAEOLOGY**: contributors / churn already come from
-     HistoryPhase (which is now persisted in the graph too).
-     Rewrite to query `AUTHORED_BY` for contributors + Commits-touched-files
-     for churn — same data, but via the graph so v0.3 cross-repo
-     queries compose.
-   - **MENTAL_MODEL**: "Entry points" should join CALLS-in-degree=0
-     symbols with conventional entry-point file names. Currently
-     file-name heuristic only.
-   - **AGENT_BRIEF**: phase 1's two rules are additive; in phase 2,
-     the "load-bearing file" rule promotes to "load-bearing SYMBOL"
-     via top-CALLS-callee.
-2. Flip `ExtractConfig.build_graph_db` default from False to True.
-3. Update `test_public_run_extract_does_not_build_graph_by_default`
-   — invert (and rename) since the new default DOES build a graph.
-4. Regenerate all 5 golden fixtures via `UPDATE_GOLDEN=1`.
-5. The graph_db_path-defensive `try/except` blocks added in phase 1
-   stay — they're the right shape for the cutover too.
-
-After item 9 phase 2: item 10 (MCP server with 5 composite tools) is
-the headline. With item 8b + item 9 done, every MCP tool has rich
-graph data to query.
 
 Working autonomy: full freedom to install tools and web-search
 version-sensitive facts. Spend time on hard problems — write custom
