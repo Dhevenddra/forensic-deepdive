@@ -1,7 +1,7 @@
 [project]
 name = "forensic-deepdive"
-version = "0.1.0"
-description = "Forensic deep-dive of any codebase. Produces 5 durable markdown artifacts (MAP, HOTPATHS, ARCHAEOLOGY, MENTAL_MODEL, AGENT_BRIEF) for AI coding agents."
+version = "0.2.0"
+description = "Forensic deep-dive of any codebase. Persistent code knowledge graph + MCP server for AI coding agents, with 5 durable markdown artifacts (MAP, HOTPATHS, ARCHAEOLOGY, MENTAL_MODEL, AGENT_BRIEF) as the human-readable projection."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
