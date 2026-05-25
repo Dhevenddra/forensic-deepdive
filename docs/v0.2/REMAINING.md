@@ -341,40 +341,121 @@ can be folded into item 10 or done as a standalone commit.
 ## Next-session kickoff prompt
 
 ```
-Read CLAUDE.md, DECISIONS.md, PROGRESS.md (the 2026-05-25 entry
-titled "v0.2 item 11: agent-insight layer (DEC-019)"),
-docs/v0.2/PRD_v0.2.md, and docs/v0.2/REMAINING.md (the
-"Operating discipline" section is load-bearing). Confirm in one
-sentence what you understand.
+Read CLAUDE.md, DECISIONS.md, PROGRESS.md (the 2026-05-25 entries —
+three this date, top one is "v0.2 item 11: agent-insight layer
+(DEC-019)"), docs/v0.2/PRD_v0.2.md (the contract), and
+docs/v0.2/REMAINING.md (this file — its "Operating discipline"
+section is load-bearing). Confirm in one sentence what you
+understand.
 
-**Items 3, 8b, 9, 10, 11, 12, 13, DEC-018 are DONE.** All 14 PRD §10
-items shipped; the agent-insight layer (DEC-019) was the last
-substantive feature work. **Only acceptance gates (item 14) + the
-v0.2.0 tag (item 15) left.**
+**State: v0.2 is feature-complete.** All 14 PRD §10 items shipped:
+- 1, 2 — LadybugDB GraphStore + Pipeline DAG (DEC-013/014)
+- 3 — confidence threading at section + rule level (DEC-015)
+- 4, 5, 6, 7 — 8 languages, Dart precision, vendored/generated,
+  mailmap+bots (DEC-020/021/022)
+- 8, 8b — full graph (every node + edge type in the schema)
+  (DEC-023..028)
+- 9, 10 — markdown reads from graph + MCP server with 5 composite
+  tools (DEC-016/029/030)
+- 11 — agent-insight layer (DEC-019)
+- 12 — Repomix demoted (DEC-017)
+- 13 — 5 emitted skills + plugin manifest (DEC-031)
+- plus DEC-018: multi-repo registry + `forensic list`
 
-**Remaining v0.2 work:**
+**Latest commit:** abc812f. **Tests:** 362 passing. **Tree:** clean.
+Never pushed. All 31 DECs active. MCP server exposes 7 tools.
 
-1. **Item 14 — acceptance gates** (large, blocking v0.2.0 tag).
-   Real-repo runs: Omi (re-verify post-graph + 8-language coverage),
-   spring-petclinic (Java + Spring, no annotation resolution yet —
-   INFERRED edges), GitNexus repo itself (dogfood the competitor),
-   fastapi. **Also: real-LLM acceptance of the GraphitiInsightStore
-   path** — requires Ollama + Qwen2.5-Coder-32B local OR a cloud
-   API key. The structural wiring is real and unit-tested with a
-   mocked graphiti-core; what's left is to verify the runtime path
-   against an actual LLM-backed graphiti-core session.
-2. **Item 15 — tag v0.2.0**. Bump pyproject (0.1.0 → 0.2.0), update
-   README to v0.2 product shape (knowledge graph + MCP, not
-   "structural orienter"), CHANGELOG entry, commit
-   `chore: bump to 0.2.0`, `git tag v0.2.0`. **Never push without
-   explicit ask.**
+**Only items 14 (acceptance gates) + 15 (tag) left before v0.2.0.**
 
-Working autonomy: full freedom to install tools and web-search
-version-sensitive facts. Spend time on hard problems — write custom
-algorithms, read upstream grammars, dig into ASTs. Don't ship
-half-baked. If the work doesn't fit one session, finish it across
-multiple — under-baked single sessions are the failure mode.
+---
 
-Session-end protocol unchanged: PROGRESS.md entry, new DEC if
-applicable, conventional-commit messages, never push.
+## Item 14 — Acceptance gates (this session)
+
+Substantive but well-scoped. Three sub-tasks, in this suggested
+order:
+
+### 14a. Real-repo acceptance runs
+
+Pick targets in priority order. Don't try all four in one session
+unless they're fast — better to nail two cleanly than half-ship four.
+
+1. **Omi re-verify post-graph** (`github.com/BasedHardware/omi`).
+   v0.1 ran it in 92s. Now with graph mode default-on, expect
+   ≥ 2x longer cold but still under the PRD §5.2 budget of 120s.
+   Verify:
+   - Graph builds without error across 8 languages.
+   - AGENT_BRIEF still ≤ 5 KB.
+   - HOTPATHS confidence-mix column shows real EXTRACTED /
+     INFERRED / AMBIGUOUS spread.
+   - `forensic serve` then `impact(Logger)` returns sensible
+     callers with confidence labels.
+   - Update `examples/omi/` with the new 5 artifacts.
+
+2. **spring-petclinic** (`github.com/spring-projects/spring-petclinic`).
+   Java + Spring. Acceptance §5.3 says "produce reasonable INFERRED
+   edges for @Controller/@Service/@Repository" — set expectations
+   honestly: annotation resolution is v0.3 (PRD §11). What we
+   verify here is that the Java AST extracts cleanly, CALLS
+   resolve via the v0.2 resolver (DEC-025) at INFERRED level,
+   and the markdown artifacts read coherently.
+
+3. **GitNexus repo itself** (dogfood the competitor). Mostly
+   TypeScript. Look for: does our 8-language graph catch the
+   TS class hierarchy? Does the MCP server's `context(symbol)`
+   return useful output on their codebase?
+
+4. **fastapi**. Pure Python. Last because it's the least new
+   information — we already dogfood Python on our own repo.
+
+For each run: time it, capture node + edge counts, eyeball the
+artifacts, commit the example output under `examples/<repo>/`.
+
+### 14b. Real-LLM acceptance of GraphitiInsightStore
+
+DEC-019 ships the structural wiring with mocked graphiti-core in
+tests. Item 14 verifies the runtime path. Options:
+
+- **Local (DEC-009 default):** Ollama + Qwen2.5-Coder-32B (~20GB
+  model download). Set OLLAMA_HOST, configure graphiti-core via env
+  vars per their docs, run `open_insight_store(..., prefer_graphiti=
+  True, threshold=passing)`, call `record_insight` then
+  `recall_insights`, verify the round-trip works.
+- **Cloud:** OPENAI_API_KEY (cheapest) or Anthropic key. Same flow.
+- If neither is reasonable to bring up in-session, document this
+  explicitly as "deferred to user-verification" — the unit tests
+  cover the structural correctness; an honest deferral is fine
+  per DEC-019's stated v0.2 acceptance scope.
+
+### 14c. PRD §5 sign-off
+
+Run through PRD §5.1 — §5.5 checklist. Anything failing → fix
+(small fixes) or defer with documentation (large fixes). The §5.4
+quality gates (pytest -x, ruff, all DECs committed, PROGRESS up to
+date, CHANGELOG) are the floor — pytest is already at 362 passing,
+ruff is clean, all DECs are in. CHANGELOG.md is the only file
+that doesn't yet exist — create it as part of 14c.
+
+## Item 15 — Tag v0.2.0 (this session, after 14)
+
+1. Bump `pyproject.toml` `version = "0.1.0"` → `"0.2.0"`.
+2. Update README.md to v0.2 product shape — currently still
+   describes the v0.1 structural orienter. v0.2 README leads with
+   "code knowledge graph + MCP server for AI agents" and references
+   the 5 markdown artifacts + 7 MCP tools + 5 emitted skills as
+   the surface.
+3. Append CHANGELOG.md (created in 14c).
+4. Commit: `chore: bump to 0.2.0` — files: pyproject.toml, README.md,
+   CHANGELOG.md.
+5. `git tag v0.2.0`. **Never push without explicit ask.**
+
+## Operating discipline (still load-bearing)
+
+- No half-baked code. Spend the time, dig in.
+- One commit per item.
+- Never push without explicit user instruction.
+- Session-end protocol: PROGRESS.md entry, new DEC if applicable,
+  conventional-commit messages.
+- `DECISIONS.md` and `PROGRESS.md` are gitignored (per .gitignore
+  lines 44-45) — they're local working notes. Commits include
+  the public surface only (src/, tests/, docs/).
 ```
