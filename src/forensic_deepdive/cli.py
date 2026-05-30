@@ -225,6 +225,69 @@ def query(
             console.print(f"  {line}")
 
 
+@app.command()
+def graph(
+    target: Annotated[
+        str,
+        typer.Argument(help="Symbol or file to centre the diagram on (ignored with --central)."),
+    ] = "",
+    repo: Annotated[Path, typer.Option(help="Repo with a built .deepdive/graph.lbug.")] = Path("."),
+    graph_db: Annotated[
+        Path | None,
+        typer.Option(
+            "--graph", help="Explicit .lbug path (overrides <repo>/.deepdive/graph.lbug)."
+        ),
+    ] = None,
+    fmt: Annotated[str, typer.Option("--format", help="Only 'mermaid' in v0.3.")] = "mermaid",
+    diagram: Annotated[
+        str | None,
+        typer.Option(help="flowchart | classDiagram (default: auto by target kind)."),
+    ] = None,
+    depth: Annotated[int, typer.Option(help="Neighborhood depth (flowchart).")] = 2,
+    max_nodes: Annotated[int, typer.Option(help="Node cap (default 40).")] = 40,
+    direction: Annotated[str, typer.Option(help="in | out | both (flowchart).")] = "both",
+    central: Annotated[
+        bool, typer.Option("--central", help="Diagram the top-N central symbols instead.")
+    ] = False,
+) -> None:
+    """Render a bounded Mermaid diagram of the code graph (DEC-039).
+
+    Prints a fenced ```mermaid block, paste-ready into Claude Code, a PR, or
+    Notion. Edge dash style encodes confidence (solid=EXTRACTED,
+    dashed=INFERRED, dotted=AMBIGUOUS)."""
+    from forensic_deepdive.emit.mermaid import render_mermaid
+
+    db_path = graph_db or repo / ".deepdive" / "graph.lbug"
+    if not db_path.exists():
+        console.print(f"[red]No graph at {db_path}.[/red] Run `forensic extract` first.")
+        raise typer.Exit(code=1)
+    if not central and not target:
+        console.print("[red]Pass a target symbol/file, or --central.[/red]")
+        raise typer.Exit(code=1)
+
+    result = render_mermaid(
+        db_path,
+        target or None,
+        diagram=diagram,
+        depth=depth,
+        max_nodes=max_nodes,
+        direction=direction,
+        central=central,
+    )
+    if result.get("error"):
+        console.print(f"[red]Error:[/red] {result['error']}")
+        raise typer.Exit(code=1)
+    if result.get("unresolved"):
+        console.print(f"[yellow]Could not resolve target '{target}' in the graph.[/yellow]")
+        raise typer.Exit(code=1)
+    # Print the raw fenced block (no Rich markup) so it copies cleanly.
+    print(result["mermaid"])
+    if result.get("truncated"):
+        console.print(
+            f"[dim]Diagram truncated at {max_nodes} nodes; pass --max-nodes to widen.[/dim]"
+        )
+
+
 @app.command(name="list")
 def list_repos() -> None:
     """List repos in the multi-repo registry (DEC-018)."""

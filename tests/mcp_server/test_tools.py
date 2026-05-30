@@ -272,6 +272,18 @@ def test_query_natural_language_hybrid(populated_db: Path) -> None:
     assert greet["confidence"] == "EXTRACTED"
 
 
+def test_visualize_returns_mermaid(populated_db: Path) -> None:
+    # DEC-039: the 8th tool. Greeter is a class -> classDiagram auto-pick.
+    out = srv.visualize(populated_db, "Greeter")
+    assert out["mermaid"].startswith("```mermaid")
+    assert out["diagram"] == "classDiagram"
+    assert "class Greeter" in out["mermaid"]
+
+
+def test_visualize_rejects_non_mermaid_format(populated_db: Path) -> None:
+    assert "error" in srv.visualize(populated_db, "Greeter", format="svg")
+
+
 def test_query_natural_language_lexical_index_built(populated_db: Path) -> None:
     # Extract pre-builds the sidecar FTS5 index (DEC-038 / BuildGraphPhase).
     from forensic_deepdive.query.lexical import lexical_index_path_for_db
@@ -301,9 +313,8 @@ def test_query_requires_either_arg(populated_db: Path) -> None:
 
 
 def test_make_server_registers_all_tools(populated_db: Path) -> None:
-    """DEC-016 (5 composite tools) + DEC-019 (2 insight tools). The
-    server registers 7 tools total in v0.2: the 5 graph-side composite
-    tools plus the 2 insight tools."""
+    """DEC-016 (5 composite tools) + DEC-019 (2 insight tools) + DEC-039
+    (visualize). The server registers 8 tools total in v0.3."""
     import asyncio
 
     server = srv.make_server(populated_db)
@@ -320,6 +331,8 @@ def test_make_server_registers_all_tools(populated_db: Path) -> None:
         # DEC-019 insight layer.
         "record_insight_tool",
         "recall_insights_tool",
+        # DEC-039 visual export.
+        "visualize_tool",
     }
 
 

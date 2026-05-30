@@ -1,4 +1,4 @@
-"""MCP server with 5 composite tools (DEC-016).
+"""MCP server with 8 composite tools (DEC-016 / DEC-019 / DEC-039).
 
 Built on FastMCP. The tools are deliberately *composite* — each one
 fires multiple Cypher queries internally and returns a synthesized
@@ -643,19 +643,58 @@ def recall_insights(
 
 
 # ---------------------------------------------------------------------------
+# Tool 8: visualize(target, format, depth, max_nodes) — DEC-039
+# ---------------------------------------------------------------------------
+
+
+def visualize(
+    db_path: Path,
+    target: str | None = None,
+    *,
+    format: str = "mermaid",
+    diagram: str | None = None,
+    depth: int = 2,
+    max_nodes: int = 40,
+    direction: str = "both",
+    central: bool = False,
+) -> dict[str, Any]:
+    """Render a bounded subgraph around *target* as a diagram (DEC-039).
+
+    Only ``format="mermaid"`` is supported in v0.3. Returns a fenced ```mermaid
+    block under ``mermaid`` plus ``{target, diagram, node_count, truncated}``.
+    Edge style encodes confidence in flowchart mode (solid=EXTRACTED,
+    dashed=INFERRED, dotted=AMBIGUOUS)."""
+    if format != "mermaid":
+        return {"error": f"only format='mermaid' is supported in v0.3, got {format!r}"}
+    from forensic_deepdive.emit.mermaid import render_mermaid
+
+    return render_mermaid(
+        db_path,
+        target,
+        diagram=diagram,
+        depth=depth,
+        max_nodes=max_nodes,
+        direction=direction,
+        central=central,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Server factory + stdio entry point
 # ---------------------------------------------------------------------------
 
 
 def make_server(graph_db_path: Path) -> FastMCP:
-    """Build a FastMCP server with the 5 composite tools registered."""
+    """Build a FastMCP server with the 8 composite tools registered."""
     server = FastMCP(
         "forensic-deepdive",
         instructions=(
             "Query a forensic-deepdive code knowledge graph for a "
-            "repository. Five composite tools: impact (blast radius), "
+            "repository. Eight composite tools: impact (blast radius), "
             "context (one-call symbol overview), archaeology (git history), "
-            "flow (execution trace), query (Cypher / substring search)."
+            "flow (execution trace), query (Cypher / hybrid NL search), "
+            "record_insight + recall_insights (durable agent memory), "
+            "visualize (bounded Mermaid diagram, confidence-styled edges)."
         ),
     )
 
@@ -755,6 +794,32 @@ def make_server(graph_db_path: Path) -> FastMCP:
         time. Use when starting work on a symbol to surface what past
         sessions learned."""
         return recall_insights(graph_db_path, symbol, since=since, limit=limit)
+
+    @server.tool()
+    def visualize_tool(
+        target: str | None = None,
+        format: str = "mermaid",
+        diagram: str | None = None,
+        depth: int = 2,
+        max_nodes: int = 40,
+        direction: str = "both",
+        central: bool = False,
+    ) -> dict[str, Any]:
+        """Render a bounded Mermaid diagram of the graph around ``target`` (a
+        symbol or file), or ``central=True`` for the top-``max_nodes`` symbols.
+        Returns a fenced ```mermaid block. Edge dash style encodes confidence
+        (solid=EXTRACTED, dashed=INFERRED, dotted=AMBIGUOUS). Use to answer
+        "show me a diagram of X / how does X connect"."""
+        return visualize(
+            graph_db_path,
+            target,
+            format=format,
+            diagram=diagram,
+            depth=depth,
+            max_nodes=max_nodes,
+            direction=direction,
+            central=central,
+        )
 
     return server
 

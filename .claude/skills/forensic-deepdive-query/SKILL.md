@@ -28,6 +28,7 @@ Answer from precomputed artifacts instead of re-reading the codebase.
 | "Critical path through feature X" / "trace request lifecycle" | `docs/codebase/HOTPATHS.md` |
 | "Explain X" / "what's the architecture" | `docs/codebase/MENTAL_MODEL.md` |
 | "What rules apply when editing X" | `docs/codebase/AGENT_BRIEF.md` |
+| "Show me a diagram of X" / "visualize how X connects" | `forensic graph X --format mermaid` (or the `visualize` MCP tool) — bounded Mermaid, confidence-styled edges |
 
 3. Only if none answer, run:
    ```bash

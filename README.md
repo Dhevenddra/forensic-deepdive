@@ -2,10 +2,10 @@
 
 > A persistent code knowledge graph + MCP server for AI coding agents. Five durable markdown artifacts as the human-readable projection. Apache-2.0.
 
-`forensic-deepdive` analyzes any codebase (8 languages, polyglot) and produces:
+`forensic-deepdive` analyzes any codebase (9 languages, polyglot) and produces:
 
 1. **A persistent embedded graph** at `<repo>/.deepdive/graph.lbug` — File, Symbol, Module, Commit, Author nodes plus DEFINES, MEMBER_OF, IMPORTS, CALLS, EXTENDS, IMPLEMENTS, TOUCHED_BY_COMMIT, AUTHORED_BY, CO_CHANGES_WITH edges. **Every edge carries a confidence tag** (`EXTRACTED` / `INFERRED` / `AMBIGUOUS`) — no hidden heuristics.
-2. **An MCP server** (`forensic serve`) exposing **7 composite tools** (`impact`, `context`, `archaeology`, `flow`, `query`, `record_insight`, `recall_insights`) consumable by Claude Code, Cursor, Codex, Continue, Cline, Windsurf — and any other MCP-aware agent.
+2. **An MCP server** (`forensic serve`) exposing **8 composite tools** (`impact`, `context`, `archaeology`, `flow`, `query`, `record_insight`, `recall_insights`, `visualize`) consumable by Claude Code, Cursor, Codex, Continue, Cline, Windsurf — and any other MCP-aware agent.
 3. **Five durable markdown artifacts** under `<repo>/docs/codebase/`, regenerated from the graph on every extract:
    - **`MAP.md`** — what's where, ranked by centrality.
    - **`HOTPATHS.md`** — the dependency hot spots, with a per-row confidence-mix column so you see exactly how cleanly each symbol resolves.
@@ -42,9 +42,9 @@ forensic list
 
 ## The 8 supported languages
 
-Python, C, Dart, Swift, TypeScript, JavaScript, Java, Go. Rust deferred to v0.3.
+Python, C, Dart, Swift, TypeScript, JavaScript, Java, Go, Rust.
 
-## The 7 MCP tools
+## The 8 MCP tools
 
 | Tool | What it does |
 |---|---|
@@ -52,11 +52,12 @@ Python, C, Dart, Swift, TypeScript, JavaScript, Java, Go. Rust deferred to v0.3.
 | `context(symbol)` | Single-call kitchen sink: definition + callers + callees + parent/siblings/members + extends/implements + recent commits + dominant author + recent insights. |
 | `archaeology(file_or_symbol)` | Churn, top authors with %, bus factor, co-change cluster, defect proximity, recent commits. |
 | `flow(entry_point, max_depth)` | DFS over CALLS with cycle detection. |
-| `query(cypher \| natural_language)` | Raw Cypher or substring discovery. |
+| `query(cypher \| natural_language)` | Raw Cypher, or hybrid NL retrieval (FTS5/BM25 + structural graph signal + opt-in offline semantic, RRF-fused and shaped) with per-hit provenance + confidence. |
 | `record_insight(symbol, claim, evidence, verified_by)` | Persist a verified learning. |
 | `recall_insights(symbol, since, limit)` | Newest-first substring match against stored insights. |
+| `visualize(target, format, depth, max_nodes, ...)` | Bounded Mermaid diagram of a symbol/file neighborhood (or `central`); edge dash style encodes confidence. |
 
-Tool descriptions are individually ≤200 tokens so the 7-tool envelope stays comfortably inside Anthropic's per-turn skill metadata budget.
+Tool descriptions are individually ≤200 tokens so the 8-tool envelope stays comfortably inside Anthropic's per-turn skill metadata budget.
 
 ## The confidence taxonomy
 
@@ -78,7 +79,7 @@ HOTPATHS shows a per-row confidence-mix column so at a glance you can tell `Logg
 |---|---|---|---|---|---|
 | License | **Apache-2.0** | PolyForm Noncommercial | MIT | proprietary (open variant: MIT) | partial |
 | Persistent code knowledge graph | ✅ LadybugDB | ✅ LadybugDB | partial | ❌ | partial |
-| MCP server | ✅ 7 composite tools | ✅ 16 tools | partial | ❌ | ❌ |
+| MCP server | ✅ 8 composite tools | ✅ 16 tools | partial | ❌ | ❌ |
 | Per-edge confidence taxonomy | ✅ EXTRACTED / INFERRED / AMBIGUOUS | ❌ | ❌ | ❌ | ❌ |
 | Git archaeology as a first-class layer | ✅ | ❌ | ❌ | ❌ | partial |
 | Durable committed markdown artifacts | ✅ 5 files | partial | partial | ✅ (wiki) | ❌ |
