@@ -40,6 +40,8 @@ LANG_BY_EXT: dict[str, str] = {
     ".jsx": "javascript",  # the JS grammar accepts JSX
     ".java": "java",
     ".go": "go",
+    # DEC-040 (v0.3 Item D)
+    ".rs": "rust",
 }
 
 

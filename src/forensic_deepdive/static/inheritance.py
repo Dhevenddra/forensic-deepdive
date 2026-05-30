@@ -370,6 +370,38 @@ def _extract_swift(parsed: ParsedFile) -> list[InheritanceRecord]:
 
 
 # ---------------------------------------------------------------------------
+# Rust (DEC-040)
+# ---------------------------------------------------------------------------
+
+
+def _extract_rust(parsed: ParsedFile) -> list[InheritanceRecord]:
+    """``impl Trait for Type`` declares that ``Type`` implements ``Trait`` →
+    one IMPLEMENTS record. (Inherent ``impl Type {}`` blocks carry no trait and
+    produce nothing.) Rust has no struct inheritance, so there are no EXTENDS
+    records — trait *supertraits* (``trait A: B``) are a v0.6 follow-on."""
+    records: list[InheritanceRecord] = []
+    stack = [parsed.tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type == "impl_item":
+            trait_node = node.child_by_field_name("trait")
+            type_node = node.child_by_field_name("type")
+            if trait_node is not None and type_node is not None:
+                records.append(
+                    InheritanceRecord(
+                        rel_path=parsed.rel_path,
+                        child_qn_local=_text(type_node),
+                        parent_name=_text(trait_node),
+                        kind="implements",
+                        language="rust",
+                        line=_row(node),
+                    )
+                )
+        stack.extend(node.children)
+    return records
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -382,6 +414,7 @@ _EXTRACTORS = {
     "java": _extract_java,
     "dart": _extract_dart,
     "swift": _extract_swift,
+    "rust": _extract_rust,  # DEC-040: impl Trait for Type → IMPLEMENTS
     # Go: no class hierarchy; interface satisfaction is structural at
     # use-sites and not declared. v0.3 may infer via type-set analysis.
     # C: no inheritance.

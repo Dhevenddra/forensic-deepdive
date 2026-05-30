@@ -14,11 +14,11 @@ query) mirrors ``imports.py`` / ``inheritance.py``: dotted-call shapes are
 simple field lookups and a walk is easier to read and keep precise than
 correlating two captures per match.
 
-Language scope (v0.3): **Python, TypeScript, TSX, JavaScript, Java** — the
-v0.4-wedge-relevant stack (React TS + Spring Java) plus our own Python dogfood.
-Dart / Swift / Go / C dotted calls stay dropped as today (no regression, no new
-edges) — a documented follow-on in DEC-037. The bare-name path (DEC-025) is
-unchanged for all 8 languages.
+Language scope (v0.3): **Python, TypeScript, TSX, JavaScript, Java** (DEC-037)
+plus **Rust** (DEC-040) — the v0.4-wedge-relevant stack (React TS + Spring Java)
+plus our own Python dogfood and the new Rust support. Dart / Swift / Go / C
+dotted calls stay dropped as today (no regression, no new edges) — a documented
+follow-on. The bare-name path (DEC-025) is unchanged for all languages.
 """
 
 from __future__ import annotations
@@ -101,12 +101,37 @@ def _java_method_call(node: Node, parsed: ParsedFile) -> MethodCall | None:
     return _make(parsed, obj, name)
 
 
+def _rust_method_call(node: Node, parsed: ParsedFile) -> MethodCall | None:
+    # `g.greet()` → call_expression(function: field_expression(value, field))
+    # `Greeter::new()` → call_expression(function: scoped_identifier(path, name))
+    # The latter is Rust's static/associated call; the receiver is the path.
+    if node.type != "call_expression":
+        return None
+    fn = node.child_by_field_name("function")
+    if fn is None:
+        return None
+    if fn.type == "field_expression":
+        value = fn.child_by_field_name("value")
+        field = fn.child_by_field_name("field")
+        if value is None or field is None:
+            return None
+        return _make(parsed, value, field)
+    if fn.type == "scoped_identifier":
+        path = fn.child_by_field_name("path")
+        name = fn.child_by_field_name("name")
+        if path is None or name is None:
+            return None
+        return _make(parsed, path, name)
+    return None
+
+
 _HANDLERS = {
     "python": _python_method_call,
     "typescript": _ts_js_method_call,
     "tsx": _ts_js_method_call,
     "javascript": _ts_js_method_call,
     "java": _java_method_call,
+    "rust": _rust_method_call,  # DEC-040
 }
 
 

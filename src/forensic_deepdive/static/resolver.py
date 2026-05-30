@@ -505,6 +505,8 @@ def _resolve_import_to_file(imp: Import, source_files_by_path: dict[str, str]) -
         return _resolve_dart_import(imp, source_files_by_path)
     if lang == "c":
         return _resolve_c_include(imp, source_files_by_path)
+    if lang == "rust":
+        return _resolve_rust_import(imp, source_files_by_path)
     # Go and Swift module resolution requires project-build-system info
     # (go.mod for Go; SwiftPM/Xcode for Swift). v0.2 treats them as
     # external. v0.3 work tracks this.
@@ -645,6 +647,34 @@ def _resolve_dart_import(imp: Import, source_files_by_path: dict[str, str]) -> s
         with_ext = candidate + ".dart"
         if with_ext in source_files_by_path:
             return with_ext
+    return None
+
+
+def _resolve_rust_import(imp: Import, source_files_by_path: dict[str, str]) -> str | None:
+    """Resolve ``use crate::a::b::Item`` to an intra-crate ``.rs`` file.
+
+    Only ``crate::`` / ``self::`` / ``super::`` paths are intra-repo; ``std::``
+    and bare-crate paths are external (need ``Cargo.toml`` — deferred to v0.6).
+    Without crate-root info we suffix-match: try the full path and the
+    path-minus-leaf (the leaf may be an imported *item*, not a module) as both
+    ``a/b.rs`` and ``a/b/mod.rs``."""
+    module = imp.module_path
+    if not module:
+        return None
+    parts = module.split("::")
+    if not parts or parts[0] not in ("crate", "self", "super"):
+        return None  # std / external crate
+    rest = [p for p in parts[1:] if p not in ("self", "super")]
+    if not rest:
+        return None
+    for depth in (len(rest), len(rest) - 1):
+        if depth < 1:
+            continue
+        base = "/".join(rest[:depth])
+        for cand in (base + ".rs", base + "/mod.rs"):
+            for path in source_files_by_path:
+                if path == cand or path.endswith("/" + cand):
+                    return path
     return None
 
 

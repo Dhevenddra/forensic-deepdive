@@ -25,6 +25,8 @@ def test_detect_language() -> None:
     assert detect_language(Path("a.jsx")) == "javascript"
     assert detect_language(Path("A.java")) == "java"
     assert detect_language(Path("a.go")) == "go"
+    # DEC-040
+    assert detect_language(Path("a.rs")) == "rust"
     assert detect_language(Path("README.md")) is None
 
 
@@ -49,6 +51,7 @@ def test_parse_all_languages() -> None:
         "javascript_sample/greeter.js": "javascript",
         "java_sample/Greeter.java": "java",
         "go_sample/greeter.go": "go",
+        "rust_sample/greeter.rs": "rust",
     }
     for rel, language in cases.items():
         parsed = parse_file(FIXTURES / rel)

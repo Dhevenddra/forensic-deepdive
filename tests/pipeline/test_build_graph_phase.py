@@ -118,6 +118,7 @@ def test_polyglot_persists_every_language(tmp_path):
         "javascript_sample",
         "java_sample",
         "go_sample",
+        "rust_sample",
     ):
         shutil.copytree(FIXTURES / sample, repo / sample)
 
@@ -143,6 +144,7 @@ def test_polyglot_persists_every_language(tmp_path):
             "javascript",
             "java",
             "go",
+            "rust",
         }
         # Every File has at least one DEFINES edge to a Symbol.
         rows = list(

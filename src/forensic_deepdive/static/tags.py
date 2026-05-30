@@ -230,6 +230,35 @@ _GO_TAGS = """\
 """
 
 
+# Rust (DEC-040, v0.3 Item D). Free functions, structs, traits, enums are
+# definitions; `impl` methods are also `function_item` and become methods via
+# the receiver-style parent binding in `_parent_chain` (the impl's `type:`
+# field — non-lexical, like Go). Bare calls (`helper()`) reference; struct
+# construction (`Greeter { .. }`) references the type. Dotted (`g.greet()`) and
+# associated (`Greeter::new()`) calls are NOT captured here — they go through
+# `method_calls.py` + the DEC-037 receiver resolver. `mod` and `macro_rules!`
+# are not symbolized in v0.3 (namespaces / metaprogramming — deferred).
+_RUST_TAGS = """\
+(function_item
+  name: (identifier) @name.definition.function) @definition.function
+
+(struct_item
+  name: (type_identifier) @name.definition.struct) @definition.struct
+
+(trait_item
+  name: (type_identifier) @name.definition.interface) @definition.interface
+
+(enum_item
+  name: (type_identifier) @name.definition.enum) @definition.enum
+
+(call_expression
+  function: (identifier) @name.reference.call) @reference.call
+
+(struct_expression
+  name: (type_identifier) @name.reference.class) @reference.class
+"""
+
+
 TAGS_SCM: dict[str, str] = {
     "python": _PYTHON_TAGS,
     "c": _C_TAGS,
@@ -241,6 +270,8 @@ TAGS_SCM: dict[str, str] = {
     "javascript": _JAVASCRIPT_TAGS,
     "java": _JAVA_TAGS,
     "go": _GO_TAGS,
+    # DEC-040
+    "rust": _RUST_TAGS,
 }
 
 
@@ -298,6 +329,7 @@ _PARENT_DEF_TYPES: dict[str, frozenset[str]] = {
     "javascript": frozenset({"class_declaration"}),
     "java": frozenset({"class_declaration", "interface_declaration", "enum_declaration"}),
     "go": frozenset(),  # see Go branch in _parent_chain
+    "rust": frozenset(),  # see Rust branch in _parent_chain (impl/trait binding)
 }
 
 # DEC-025 — node types that count as "enclosing scopes" for a reference.
@@ -357,6 +389,8 @@ _SCOPE_DEF_TYPES: dict[str, frozenset[str]] = {
         }
     ),
     "go": frozenset({"function_declaration", "method_declaration"}),
+    # Rust: refs live inside `function_item` bodies (free fns + impl methods).
+    "rust": frozenset({"function_item"}),
 }
 
 
@@ -520,6 +554,24 @@ def _parent_chain(name_node: Node, language: str) -> str:
         while ancestor is not None:
             if ancestor.type == "method_declaration":
                 return _go_method_receiver_type(ancestor)
+            ancestor = ancestor.parent
+        return ""
+
+    if language == "rust":
+        # Rust methods bind non-lexically: a `function_item` inside an
+        # `impl_item` belongs to the impl's `type:` field (e.g. `impl Greeter`),
+        # and `impl Trait for Greeter` still binds methods to `Greeter`. A
+        # `function_signature_item` inside a `trait_item` binds to the trait
+        # name. Walk up to the nearest such binder and read its type/name.
+        ancestor = name_node.parent
+        while ancestor is not None:
+            if ancestor.type == "impl_item":
+                type_node = ancestor.child_by_field_name("type")
+                return type_node.text.decode("utf-8", "replace") if type_node is not None else ""
+            if ancestor.type == "trait_item":
+                name_field = ancestor.child_by_field_name("name")
+                if name_field is not None and name_field.id != name_node.id:
+                    return name_field.text.decode("utf-8", "replace")
             ancestor = ancestor.parent
         return ""
 

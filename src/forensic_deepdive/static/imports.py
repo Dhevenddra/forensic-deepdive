@@ -87,6 +87,7 @@ _IMPORT_NODE_TYPES: dict[str, frozenset[str]] = {
     "dart": frozenset({"library_import", "library_export"}),
     "swift": frozenset({"import_declaration"}),
     "c": frozenset({"preproc_include"}),
+    "rust": frozenset({"use_declaration"}),  # DEC-040
 }
 
 
@@ -499,6 +500,52 @@ def _extract_c_include(rel_path: str, language: str, node: Node) -> list[Import]
 
 
 # ---------------------------------------------------------------------------
+# Rust (DEC-040)
+# ---------------------------------------------------------------------------
+
+
+def _extract_rust_import(rel_path: str, language: str, node: Node) -> list[Import]:
+    """Handle ``use a::b::C;`` / ``use crate::x::y;`` / ``use a as b;``.
+
+    ``module_path`` keeps the raw ``::`` path so the resolver's Rust branch can
+    tell ``crate::``/``self::``/``super::`` (intra-crate, suffix-matchable) from
+    ``std::``/external-crate paths. For a scoped path the leaf segment is the
+    imported symbol (so the bare-name import walk can resolve ``y()``)."""
+    line = _row(node)
+    arg = node.child_by_field_name("argument")
+    if arg is None:
+        return []
+    # `use a as b` — resolve against the underlying path; alias is how it's
+    # referenced (module_alias).
+    alias = ""
+    if arg.type == "use_as_clause":
+        path_node = arg.child_by_field_name("path")
+        alias_node = arg.child_by_field_name("alias")
+        alias = _text(alias_node) if alias_node is not None else ""
+        arg = path_node if path_node is not None else arg
+    module = _text(arg).replace("\n", "").replace(" ", "")
+    if not module:
+        return []
+    names: tuple[ImportedName, ...] = ()
+    if arg.type == "scoped_identifier":
+        name_node = arg.child_by_field_name("name")
+        if name_node is not None:
+            names = (ImportedName(name=_text(name_node)),)
+    elif arg.type == "identifier":
+        names = (ImportedName(name=module),)
+    return [
+        Import(
+            rel_path=rel_path,
+            module_path=module,
+            language=language,
+            line=line,
+            module_alias=alias,
+            imported_names=names,
+        )
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Public dispatch
 # ---------------------------------------------------------------------------
 
@@ -513,6 +560,7 @@ _EXTRACTORS: dict[str, Callable[[str, str, Node], list[Import]]] = {
     "dart": _extract_dart_import,
     "swift": _extract_swift_import,
     "c": _extract_c_include,
+    "rust": _extract_rust_import,
 }
 
 
