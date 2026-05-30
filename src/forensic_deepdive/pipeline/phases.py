@@ -57,6 +57,7 @@ from forensic_deepdive.pipeline.runner import Context, Phase
 from forensic_deepdive.static.graph import SymbolGraph, build_symbol_graph
 from forensic_deepdive.static.imports import Import
 from forensic_deepdive.static.inheritance import InheritanceRecord
+from forensic_deepdive.static.method_calls import MethodCall
 from forensic_deepdive.static.pagerank import RankedRepo, rank_files
 from forensic_deepdive.static.parse_cache import (
     PARALLEL_MIN_FILES,
@@ -100,6 +101,7 @@ class ParseOutput:
     tags: list[Tag]
     imports: list[Import]  # DEC-024 — one per import/include/require statement
     inheritance: list[InheritanceRecord]  # DEC-028 — class-hierarchy declarations
+    method_calls: list[MethodCall]  # DEC-037 — dotted method calls
     parsed_count: int  # files run through Tree-sitter this run
     cached_count: int  # files served from the parse cache
     diff: ManifestDiff | None  # manifest diff vs previous run; None if cache off
@@ -112,6 +114,7 @@ class StaticOutput:
     ranked: RankedRepo
     imports: list[Import]  # DEC-024 — one per import/include/require statement
     inheritance: list[InheritanceRecord]  # DEC-028 — class-hierarchy declarations
+    method_calls: list[MethodCall]  # DEC-037 — dotted method calls
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,11 +243,13 @@ class ParsePhase(Phase):
         tags: list[Tag] = []
         imports: list[Import] = []
         inheritance: list[InheritanceRecord] = []
+        method_calls: list[MethodCall] = []
         for rel_path in sorted(results):
             r = results[rel_path]
             tags.extend(r.tags)
             imports.extend(r.imports)
             inheritance.extend(r.inheritance)
+            method_calls.extend(r.method_calls)
 
         diff: ManifestDiff | None = None
         if use_cache:
@@ -255,6 +260,7 @@ class ParsePhase(Phase):
             tags=tags,
             imports=imports,
             inheritance=inheritance,
+            method_calls=method_calls,
             parsed_count=len(tasks),
             cached_count=len(results) - len(tasks),
             diff=diff,
@@ -282,6 +288,7 @@ class StaticPhase(Phase):
             ranked=ranked,
             imports=parsed.imports,
             inheritance=parsed.inheritance,
+            method_calls=parsed.method_calls,
         )
 
 

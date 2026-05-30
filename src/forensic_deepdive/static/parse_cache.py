@@ -53,6 +53,7 @@ from pathlib import Path
 from forensic_deepdive.cache import CACHE_DIRNAME
 from forensic_deepdive.static.imports import Import, ImportedName, extract_imports
 from forensic_deepdive.static.inheritance import InheritanceRecord, extract_inheritance
+from forensic_deepdive.static.method_calls import MethodCall, extract_method_calls
 from forensic_deepdive.static.parse import ParsedFile, parse_source
 from forensic_deepdive.static.tags import TAGS_SCM, Tag, extract_tags
 
@@ -61,7 +62,8 @@ from forensic_deepdive.static.tags import TAGS_SCM, Tag, extract_tags
 # import-walk heuristic). A bump invalidates every cached entry across all
 # languages. The per-language tags.scm hash (``_scm_version``) covers query
 # edits automatically, so query-only changes do NOT need a bump here.
-PARSER_VERSION = 1
+#   v2 (DEC-037): ParseResult gained ``method_calls``.
+PARSER_VERSION = 2
 
 # Subdirectory layout under the repo's gitignored cache dir:
 #   .forensic-deepdive/cache/parse/<entry_key>.json   — one per (content, lang)
@@ -124,6 +126,7 @@ class ParseResult:
     tags: tuple[Tag, ...]
     imports: tuple[Import, ...]
     inheritance: tuple[InheritanceRecord, ...]
+    method_calls: tuple[MethodCall, ...] = ()  # DEC-037 — dotted method calls
 
 
 def parse_and_extract(abs_path: Path, rel_path: str, language: str, source: bytes) -> ParseResult:
@@ -145,6 +148,7 @@ def parse_and_extract(abs_path: Path, rel_path: str, language: str, source: byte
         tags=tuple(extract_tags(parsed)),
         imports=tuple(extract_imports(parsed)),
         inheritance=tuple(extract_inheritance(parsed)),
+        method_calls=tuple(extract_method_calls(parsed)),
     )
 
 
@@ -306,6 +310,27 @@ def _inheritance_from_dict(d: dict, rel_path: str) -> InheritanceRecord:
     )
 
 
+def _method_call_to_dict(m: MethodCall) -> dict:
+    return {
+        "receiver": m.receiver,
+        "method": m.method,
+        "enclosing_scope": m.enclosing_scope,
+        "line": m.line,
+        "language": m.language,
+    }
+
+
+def _method_call_from_dict(d: dict, rel_path: str) -> MethodCall:
+    return MethodCall(
+        rel_path=rel_path,
+        receiver=d["receiver"],
+        method=d["method"],
+        enclosing_scope=d.get("enclosing_scope", ""),
+        line=d["line"],
+        language=d["language"],
+    )
+
+
 # ---------------------------------------------------------------------------
 # The cache
 # ---------------------------------------------------------------------------
@@ -348,6 +373,9 @@ class ParseCache:
                 inheritance=tuple(
                     _inheritance_from_dict(h, rel_path) for h in payload["inheritance"]
                 ),
+                method_calls=tuple(
+                    _method_call_from_dict(m, rel_path) for m in payload.get("method_calls", ())
+                ),
             )
         except (KeyError, TypeError):
             return None
@@ -366,6 +394,7 @@ class ParseCache:
             "tags": [_tag_to_dict(t) for t in result.tags],
             "imports": [_import_to_dict(i) for i in result.imports],
             "inheritance": [_inheritance_to_dict(h) for h in result.inheritance],
+            "method_calls": [_method_call_to_dict(m) for m in result.method_calls],
         }
         text = json.dumps(payload, separators=(",", ":")) + "\n"
         dest = self._entry_path(content_sha, language)
