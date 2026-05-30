@@ -74,6 +74,11 @@ class ExtractConfig:
     # cold parse). Pass ``False`` to force a full parse (used by the
     # cold-vs-warm golden test and available as an escape hatch).
     use_parse_cache: bool = True
+    # DEC-035 (v0.3 Item B): parse-phase worker count. ``None`` ⇒
+    # ``min(cpu-1, 16)``. ``1`` forces the serial path (used by the
+    # cross-worker-count golden parity test). Parallelism kicks in only above
+    # ``PARALLEL_MIN_FILES`` miss-files — small repos always run serial.
+    workers: int | None = None
 
 
 # ---------------------------------------------------------------------------

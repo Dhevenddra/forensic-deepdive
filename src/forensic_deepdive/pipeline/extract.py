@@ -47,6 +47,7 @@ def run_extract(
     write_editor_shims: bool = True,
     fetch_github: bool = False,
     github_token: str | None = None,
+    workers: int | None = None,
 ) -> ExtractResult:
     """Run the full extract pipeline against *repo_path*.
 
@@ -64,6 +65,8 @@ def run_extract(
         write_editor_shims: Drop CLAUDE.md / AGENTS.md / editor-rule shims.
         fetch_github: Fetch GitHub metadata for the `origin` remote.
         github_token: Optional GitHub API token.
+        workers: DEC-035 — parse-phase worker count. ``None`` ⇒ ``min(cpu-1,
+            16)``; ``1`` forces the serial path.
     """
     repo_path = Path(repo_path).resolve()
     if not repo_path.is_dir():
@@ -80,6 +83,7 @@ def run_extract(
         write_editor_shims=write_editor_shims,
         fetch_github=fetch_github,
         github_token=github_token,
+        workers=workers,
     )
 
     runner = PipelineRunner(default_phases())

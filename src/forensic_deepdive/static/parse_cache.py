@@ -45,6 +45,7 @@ import hashlib
 import json
 import os
 import tempfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
@@ -145,6 +146,87 @@ def parse_and_extract(abs_path: Path, rel_path: str, language: str, source: byte
         imports=tuple(extract_imports(parsed)),
         inheritance=tuple(extract_inheritance(parsed)),
     )
+
+
+# ---------------------------------------------------------------------------
+# Parallel parse (v0.3 Item B, DEC-035)
+# ---------------------------------------------------------------------------
+#
+# Parsing is GIL-bound Python AST-walking, so threads don't help — we use
+# processes. The parent computes the manifest + consults the cache (the cheap,
+# I/O-bound half) and hands the *misses* — the expensive parse work — to a
+# ProcessPoolExecutor. Workers re-read the file and run the pure
+# ``parse_and_extract`` (re-read is page-cache-warm; this keeps IPC to plain
+# strings instead of pickling every file's bytes). Cache hits never touch the
+# pool. Determinism is the parent's job: it reassembles results in sorted
+# ``rel_path`` order (see ``ParsePhase``), which reproduces the serial order
+# exactly and preserves each file's intra-file record order — byte-identical to
+# the Item A serial path regardless of worker count or completion order.
+
+# Below this many files-to-parse, the serial path wins: process spawn + IPC
+# overhead dominates the parse on small repos and fixtures. Module-level so a
+# test can lower it to exercise the pool on a small fixture.
+PARALLEL_MIN_FILES = 200
+
+# One unit of parse work shipped to a worker: (abs_path, rel_path, language,
+# content_sha). All plain strings — trivially picklable for the spawn start
+# method (Windows / macOS).
+ParseTask = tuple[str, str, str, str]
+
+# What a worker hands back: (rel_path, language, content_sha, ParseResult). The
+# sha + language ride along so the parent can write the cache entry in one place
+# (single cache writer — simpler than concurrent worker writes, and the atomic
+# ``ParseCache.put`` would tolerate concurrency anyway).
+ParseOutcome = tuple[str, str, str, ParseResult]
+
+
+def resolve_worker_count(configured: int | None) -> int:
+    """Effective worker count. ``None`` ⇒ ``min(cpu-1, 16)`` (GitNexus's cap),
+    clamped to ≥ 1; an explicit value is honored (clamped to ≥ 1)."""
+    if configured is not None:
+        return max(1, configured)
+    return max(1, min((os.cpu_count() or 1) - 1, 16))
+
+
+def _parse_one(task: ParseTask) -> ParseOutcome:
+    """Worker entry point: re-read the file and parse it. Module-level so the
+    ProcessPoolExecutor can pickle it under the spawn start method."""
+    abs_path, rel_path, language, sha = task
+    data = Path(abs_path).read_bytes()
+    return (rel_path, language, sha, parse_and_extract(Path(abs_path), rel_path, language, data))
+
+
+class WorkerParseError(RuntimeError):
+    """A worker failed to parse a specific file. Carries the offending path so
+    the failure is never a silent drop (PRD §4.2)."""
+
+    def __init__(self, rel_path: str) -> None:
+        super().__init__(f"parse worker failed for {rel_path!r}")
+        self.rel_path = rel_path
+
+
+def parse_tasks(tasks: list[ParseTask], *, workers: int, parallel: bool) -> list[ParseOutcome]:
+    """Run *tasks* serially or across a process pool, returning outcomes in
+    completion order (the caller sorts for determinism).
+
+    ``parallel`` is decided by the caller (it knows the file count + worker
+    count). When parallel, a worker exception is re-raised as
+    :class:`WorkerParseError` naming the file rather than swallowed."""
+    if not tasks:
+        return []
+    if not parallel or workers <= 1:
+        return [_parse_one(t) for t in tasks]
+
+    outcomes: list[ParseOutcome] = []
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        future_to_rel = {pool.submit(_parse_one, t): t[1] for t in tasks}
+        for future in as_completed(future_to_rel):
+            rel = future_to_rel[future]
+            try:
+                outcomes.append(future.result())
+            except Exception as exc:  # noqa: BLE001 — re-raised with file context
+                raise WorkerParseError(rel) from exc
+    return outcomes
 
 
 # ---------------------------------------------------------------------------

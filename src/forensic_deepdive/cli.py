@@ -69,6 +69,12 @@ def extract(
         typer.Option(help="Where to write artifacts (default: <repo>/docs/codebase)."),
     ] = None,
     force: Annotated[bool, typer.Option(help="Ignore cache, regenerate.")] = False,
+    workers: Annotated[
+        int | None,
+        typer.Option(
+            help="DEC-035: parse worker count (default min(cpu-1,16); 1 = serial).",
+        ),
+    ] = None,
     legacy_repomix: Annotated[
         bool,
         typer.Option(
@@ -94,7 +100,7 @@ def extract(
         console.print("[yellow]--stage is not implemented in v0.1; running all stages.[/yellow]")
 
     try:
-        result = run_extract(path, output, force=force, flatten=legacy_repomix)
+        result = run_extract(path, output, force=force, flatten=legacy_repomix, workers=workers)
     except (NotADirectoryError, FileNotFoundError) as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
@@ -107,6 +113,10 @@ def update(
     since: Annotated[
         str, typer.Option(help="Refresh since this commit or 'last-extract'.")
     ] = "last-extract",
+    workers: Annotated[
+        int | None,
+        typer.Option(help="DEC-035: parse worker count (default min(cpu-1,16); 1 = serial)."),
+    ] = None,
 ) -> None:
     """Incrementally refresh artifacts. v0.1: re-runs extract with --force."""
     from forensic_deepdive.pipeline import run_extract
@@ -116,7 +126,7 @@ def update(
         "incremental refresh arrives in v0.2.[/dim]"
     )
     try:
-        result = run_extract(path, None, force=True)
+        result = run_extract(path, None, force=True, workers=workers)
     except (NotADirectoryError, FileNotFoundError) as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=1) from exc

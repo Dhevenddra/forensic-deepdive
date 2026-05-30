@@ -59,13 +59,17 @@ from forensic_deepdive.static.imports import Import
 from forensic_deepdive.static.inheritance import InheritanceRecord
 from forensic_deepdive.static.pagerank import RankedRepo, rank_files
 from forensic_deepdive.static.parse_cache import (
+    PARALLEL_MIN_FILES,
     ManifestDiff,
     ParseCache,
+    ParseResult,
+    ParseTask,
     content_hash,
     diff_manifest,
-    parse_and_extract,
     parse_cache_dir,
+    parse_tasks,
     read_manifest,
+    resolve_worker_count,
     write_manifest,
 )
 from forensic_deepdive.static.resolver import MODULE_SCOPE, resolve_calls
@@ -175,9 +179,15 @@ class ParsePhase(Phase):
 
     Split out of the v0.1 ``StaticPhase`` (PRD §4.1, foreshadowed by DEC-014):
     this is the only phase that touches Tree-sitter, which makes it the unit
-    Item B (DEC-035) parallelizes. It iterates ``inv.source_files`` — already
-    sorted by ``rel_path`` (inventory.py) — and accumulates per-file records in
-    that order, so the cached path is byte-identical to a cold parse.
+    Item B (DEC-035) parallelizes.
+
+    Two-pass shape (DEC-035): pass 1 hashes every source file, builds the
+    manifest, and consults the parse cache — the cheap, I/O-bound half. Cache
+    *misses* become parse tasks dispatched to a ``ProcessPoolExecutor`` (or run
+    serially below the small-repo threshold / with ``--workers 1``). Pass 2
+    reassembles all records in **sorted ``rel_path`` order**, which reproduces
+    the serial order exactly and preserves each file's intra-file record order
+    — byte-identical artifacts regardless of worker count or completion order.
     """
 
     name = "parse"
@@ -192,13 +202,12 @@ class ParsePhase(Phase):
         root = parse_cache_dir(cfg.repo_path)
         cache = ParseCache(root) if use_cache else None
 
-        tags: list[Tag] = []
-        imports: list[Import] = []
-        inheritance: list[InheritanceRecord] = []
+        # Pass 1: hash + manifest + cache lookup. Hits resolve here; misses
+        # become parse tasks for the pool.
+        results: dict[str, ParseResult] = {}
         manifest: dict[str, str] = {}
-        parsed_count = 0
-        cached_count = 0
-
+        tasks: list[ParseTask] = []
+        languages: dict[str, str] = {}  # rel_path -> language (for cache.put)
         for source in inv.source_files:
             try:
                 data = source.path.read_bytes()
@@ -207,21 +216,35 @@ class ParsePhase(Phase):
                 continue
             sha = content_hash(data)
             manifest[source.rel_path] = sha
+            languages[source.rel_path] = source.language
 
-            result = None
-            if cache is not None:
-                result = cache.get(source.rel_path, sha, source.language)
-            if result is None:
-                result = parse_and_extract(source.path, source.rel_path, source.language, data)
-                parsed_count += 1
-                if cache is not None:
-                    cache.put(sha, source.language, result)
+            hit = cache.get(source.rel_path, sha, source.language) if cache is not None else None
+            if hit is not None:
+                results[source.rel_path] = hit
             else:
-                cached_count += 1
+                tasks.append((str(source.path), source.rel_path, source.language, sha))
 
-            tags.extend(result.tags)
-            imports.extend(result.imports)
-            inheritance.extend(result.inheritance)
+        # Dispatch the misses. Serial below the threshold or with one worker;
+        # parallel otherwise. Workers re-read + parse; the parent writes cache.
+        workers = resolve_worker_count(cfg.workers)
+        parallel = workers > 1 and len(tasks) >= PARALLEL_MIN_FILES
+        for rel_path, _language, sha, result in parse_tasks(
+            tasks, workers=workers, parallel=parallel
+        ):
+            results[rel_path] = result
+            if cache is not None:
+                cache.put(sha, _language, result)
+
+        # Pass 2: deterministic reassembly. ``sorted(results)`` is the sorted
+        # rel_path order == the serial source_files order.
+        tags: list[Tag] = []
+        imports: list[Import] = []
+        inheritance: list[InheritanceRecord] = []
+        for rel_path in sorted(results):
+            r = results[rel_path]
+            tags.extend(r.tags)
+            imports.extend(r.imports)
+            inheritance.extend(r.inheritance)
 
         diff: ManifestDiff | None = None
         if use_cache:
@@ -232,8 +255,8 @@ class ParsePhase(Phase):
             tags=tags,
             imports=imports,
             inheritance=inheritance,
-            parsed_count=parsed_count,
-            cached_count=cached_count,
+            parsed_count=len(tasks),
+            cached_count=len(results) - len(tasks),
             diff=diff,
         )
 
