@@ -4,6 +4,92 @@ All notable changes to `forensic-deepdive`. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 follow [SemVer](https://semver.org/).
 
+## [0.3.0] — 2026-05-31
+
+> v0.3 **"Precision & Speed"** is the foundation pass before the v0.4
+> cross-stack wedge (the DEC-034 re-sequence: a trustworthy `ROUTES_TO`
+> edge needs method-call resolution first). Seven items A–G, all
+> tests-green, accepted on six real repos. The graph, the MCP surface,
+> and the 5-artifact contract are unchanged in shape — everything here
+> is additive.
+
+### Added
+
+#### Speed — incremental + parallel parse (Items A+B, DEC-036/035)
+- **Content-addressed parse cache** keyed on `(content_sha256, language,
+  PARSER_VERSION, tags.scm hash)`, stored path-independently so identical
+  files share one entry. `ParsePhase` split out of `StaticPhase`;
+  incremental *parse* (graph still full-rebuild). `--no`-cache escape hatch.
+- **Parallel parse** via `ProcessPoolExecutor` inside `ParsePhase`
+  (`--workers N`, default `min(cpu-1,16)`, serial guard < 200 files).
+  Determinism preserved by reassembling records in sorted `rel_path` order
+  — byte-identical artifacts across `--workers 1` vs N and cold vs warm.
+- **Result:** Omi cold extract **930 s → 406.6 s (−56 %)**; warm re-extract
+  ≤ 1.9 s on every test repo.
+
+#### Precision — receiver-type method resolution (Item C, DEC-037)
+- Dotted/method calls (`self.m()`, `this.m()`, `Foo.m()`, `mod.m()`),
+  previously dropped, are now resolved by **receiver-type inference** — all
+  tagged `INFERRED` (never silently upgraded to `EXTRACTED`). CALLS edges
+  gain a `via` property (`self|this|static|module|bare`). Unresolved dotted
+  calls are **dropped, not flooded as AMBIGUOUS** (the deliberate choice
+  that keeps the AMBIGUOUS ratio flat while recovering method edges).
+- **Result:** method edges recovered that v0.2 dropped — Omi 1,736,
+  Superset 1,919, ripgrep 1,528 — overwhelmingly precise INFERRED.
+
+#### Rust — the 9th language (Item D, DEC-040)
+- `tree-sitter` Rust grammar; `impl` methods bind non-lexically to their
+  type (`impl Greeter { fn render }` ⇒ `render` MEMBER_OF `Greeter`);
+  `impl Trait for Type` ⇒ IMPLEMENTS; `use` imports with
+  crate/self/super intra-crate suffix-match; `self.`/`Type::` method calls
+  feed Item C. (`mod`/`macro_rules!` and Cargo-aware resolution deferred.)
+
+#### Hybrid NL query (Item E, DEC-038/041/042)
+- The MCP `query` tool's natural-language branch is now a **three-retriever
+  hybrid** fused by **Reciprocal Rank Fusion (k=60)** then output-shaped
+  (boost implementation, demote test/vendored/generated):
+  - **Lexical** — always-on SQLite **FTS5/BM25** sidecar (no new dep),
+    exact-identifier-first then BM25 prefix, camelCase tokenization.
+  - **Structural** — always-on graph proximity to query-named symbols +
+    CALLS in-degree centrality.
+  - **Semantic** — opt-in offline ONNX embeddings behind a new
+    `[semantic]` extra; numpy memmap + brute-force cosine; **no network,
+    bring-your-own local model**. Absent ⇒ two-retriever, said so.
+- Results carry **per-hit provenance** `{symbol, file, line, score,
+  retrievers, confidence}` plus `retrievers_active` + `degraded`
+  (honest degraded mode). The pure-static floor (DEC-009) holds.
+
+#### Mermaid visual export + 8th MCP tool (Item F, DEC-039)
+- New `forensic graph <target> --format mermaid` CLI and **`visualize`
+  MCP tool** (the 8th). Bounded subgraph (BFS to depth, node cap 40 with
+  a summarize-and-truncate node, never a silent drop). **Edge style
+  encodes confidence** in flowchart mode (solid=EXTRACTED, dashed=INFERRED,
+  dotted=AMBIGUOUS) — making the taxonomy *visible*. flowchart vs
+  classDiagram auto-picked by target kind.
+
+### Acceptance (Item G)
+
+- Six real repos, all 8 gate checks pass (`docs/findings/v0.3/`): **Apache
+  Superset** (primary polyglot stress — Python+TS+React), **ripgrep**
+  (Rust), re-runs of **Omi** + **spring-petclinic**, and the **fastapi** +
+  **gitnexus** carryover (the v0.2 §5.4 debt). `examples/` committed for all
+  six. The hybrid query on Superset returns the Python SQLAlchemy models +
+  the TS frontend `Dashboard` from one phrase — staging the v0.4 wedge.
+
+### Performance
+
+- See the Items A+B note above. Cold extract is now materially below the
+  v0.2 measurement on the same repo; the agent-facing budgets (cache-hit,
+  MCP `context`/`impact`) were already met and are unchanged.
+
+### Notes
+
+- New optional dependency: `[semantic]` (`onnxruntime`, `tokenizers`,
+  `numpy`) — opt-in only; the base install stays LLM-, network-, and
+  numpy-free. FTS5 is stdlib `sqlite3` (no dep).
+- DECs DEC-034 → DEC-042 written this arc (the v0.3 re-sequence + per-item
+  decisions). 471 tests (1 skipped without the `[semantic]` extra).
+
 ## [0.2.0] — 2026-05-25
 
 > v0.2 is a **product pivot**, not a v0.1 increment. v0.1 was a

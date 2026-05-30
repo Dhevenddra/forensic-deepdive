@@ -17,7 +17,7 @@
 
 ## Status
 
-**v0.2.0** — the persistent graph + MCP product. Tagged locally; tested on Omi (BasedHardware/omi: 2,103 src files across 8 languages, ~18 k commits) and spring-petclinic.
+**v0.3.0 "Precision & Speed"** — incremental + parallel parse (Omi cold extract 930 s → 407 s), receiver-type method resolution, Rust (the 9th language), hybrid NL query (FTS5/BM25 + structural + opt-in offline ONNX, RRF-fused), and Mermaid export (the 8th MCP tool). Tagged locally; accepted on six real repos — Apache Superset, ripgrep, Omi, spring-petclinic, fastapi, GitNexus (see [`docs/findings/v0.3/`](docs/findings/v0.3/)).
 
 ## Quick start
 
@@ -96,7 +96,7 @@ git clone https://github.com/dhevenddra/forensic-deepdive
 cd forensic-deepdive
 uv sync
 uv run forensic --version
-uv run pytest -x          # 394 tests at v0.2.0
+uv run pytest -x          # 471 tests at v0.3.0
 uv run ruff check src/ tests/
 uv run forensic extract tests/fixtures/tiny_fixture
 ```
