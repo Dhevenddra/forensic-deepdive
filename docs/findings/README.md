@@ -24,6 +24,10 @@ it wasn't tuned for.
 
 - [`v0.1/`](v0.1/) — v0.1.0 findings (Omi: 9 findings → fed v0.2 scope)
 - `v0.2/` — created during the v0.2.0 acceptance session (item 14a)
-- `v0.3/` — Apache Superset / Backstage / Odoo + re-runs of v0.2's
-  set (Omi, spring-petclinic, GitNexus, fastapi) under the v0.3
-  framework resolvers + parse threading.
+- [`v0.3/`](v0.3/) — v0.3 "Precision & Speed" acceptance (Item G). Repo set
+  (PRD §4.7, after the DEC-034 re-sequence): **Apache Superset** (primary
+  polyglot stress) + **a Rust repo** (ripgrep, Item D) + re-runs of **Omi**
+  and **spring-petclinic** (regression + before/after AMBIGUOUS metric) +
+  the **fastapi** and **gitnexus** carryover (the §5.4 v0.2 debt). Backstage
+  and Odoo were **deferred** — cross-stack is v0.4, Odoo is a v1.0 scale test
+  ([[stress-test-repos]] / DEC-034). See [`v0.3/README.md`](v0.3/README.md).
