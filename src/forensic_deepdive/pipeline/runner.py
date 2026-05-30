@@ -79,6 +79,11 @@ class ExtractConfig:
     # cross-worker-count golden parity test). Parallelism kicks in only above
     # ``PARALLEL_MIN_FILES`` miss-files — small repos always run serial.
     workers: int | None = None
+    # DEC-038 / DEC-042 (v0.3 Item E): build the opt-in offline ONNX semantic
+    # vector index alongside the lexical one. Default off — needs the
+    # ``[semantic]`` extra + a local model; absent ⇒ NL query runs two-retriever
+    # and says so. The always-on lexical + structural tiers are unaffected.
+    semantic: bool = False
 
 
 # ---------------------------------------------------------------------------

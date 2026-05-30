@@ -54,6 +54,11 @@ from forensic_deepdive.graph.schema import FileRole, module_pk
 from forensic_deepdive.history.git_archaeology import GitHistory, analyze_history
 from forensic_deepdive.inventory import Inventory, SourceFile, take_inventory
 from forensic_deepdive.pipeline.runner import Context, Phase
+from forensic_deepdive.query.lexical import (
+    build_lexical_index_from_store,
+    lexical_index_path_for_db,
+    records_from_store,
+)
 from forensic_deepdive.static.graph import SymbolGraph, build_symbol_graph
 from forensic_deepdive.static.imports import Import
 from forensic_deepdive.static.inheritance import InheritanceRecord
@@ -782,6 +787,16 @@ class BuildGraphPhase(Phase):
             store.add_many_touched_by_commit(edges_touched_by_commit)
             store.add_many_co_changes_with(edges_co_changes)
 
+            # DEC-038 (Item E): build the sidecar lexical FTS5 index from the
+            # graph so the hybrid NL query has its always-on floor ready. The
+            # opt-in semantic vector index is built only with --semantic and
+            # when the [semantic] extra + a local model are present (DEC-042);
+            # absent ⇒ silently skipped (the NL query degrades and says so).
+            index_path = lexical_index_path_for_db(db_path)
+            build_lexical_index_from_store(store, index_path)
+            if cfg.semantic:
+                _build_semantic_index(store, index_path)
+
         file_count = len(files_to_write)
         module_count = len(modules_to_write)
         symbol_count = len(symbols_to_write)
@@ -870,6 +885,17 @@ def _source_to_file(sf: SourceFile, repo_path: Path) -> File:
         loc=loc,
         last_modified=last_modified,
     )
+
+
+def _build_semantic_index(store: LadybugStore, index_path: Path) -> None:
+    """DEC-042: build the opt-in ONNX vector index next to the lexical one.
+
+    No-op (silently) when the ``[semantic]`` extra or a local model is absent —
+    the NL query then runs two-retriever and says so. Importing inside the
+    function keeps the ``[semantic]`` deps off the core import path."""
+    from forensic_deepdive.query.semantic import build_semantic_index
+
+    build_semantic_index(index_path.parent, records_from_store(store))
 
 
 def default_phases() -> list[Phase]:

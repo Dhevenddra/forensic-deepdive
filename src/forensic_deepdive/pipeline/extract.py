@@ -48,6 +48,7 @@ def run_extract(
     fetch_github: bool = False,
     github_token: str | None = None,
     workers: int | None = None,
+    semantic: bool = False,
 ) -> ExtractResult:
     """Run the full extract pipeline against *repo_path*.
 
@@ -67,6 +68,9 @@ def run_extract(
         github_token: Optional GitHub API token.
         workers: DEC-035 — parse-phase worker count. ``None`` ⇒ ``min(cpu-1,
             16)``; ``1`` forces the serial path.
+        semantic: DEC-038/042 — also build the opt-in offline ONNX semantic
+            vector index for hybrid NL query. Needs the ``[semantic]`` extra +
+            a local model; absent ⇒ silently skipped (lexical+structural floor).
     """
     repo_path = Path(repo_path).resolve()
     if not repo_path.is_dir():
@@ -84,6 +88,7 @@ def run_extract(
         fetch_github=fetch_github,
         github_token=github_token,
         workers=workers,
+        semantic=semantic,
     )
 
     runner = PipelineRunner(default_phases())

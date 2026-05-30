@@ -250,12 +250,33 @@ def test_flow_unresolved(populated_db: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_query_natural_language_substring(populated_db: Path) -> None:
+def test_query_natural_language_hybrid(populated_db: Path) -> None:
+    # DEC-038: NL branch is now hybrid (lexical + structural), RRF-fused,
+    # shaped, with provenance + degraded-mode honesty.
     out = srv.query(populated_db, natural_language="greet")
     qns = {r["qualified_name"] for r in out["results"]}
     # Both class Greeter and method Greeter.greet should match.
     assert any(qn.endswith("::Greeter") for qn in qns)
     assert any(qn.endswith("::Greeter.greet") for qn in qns)
+    # Degraded-mode honesty: lexical + structural ran, semantic did not.
+    assert out["retrievers_active"] == ["lexical", "structural"]
+    assert out["degraded"] is True
+    # Per-hit provenance + confidence.
+    hit = out["results"][0]
+    assert set(hit) >= {"symbol", "file", "line", "score", "retrievers", "confidence"}
+    assert hit["confidence"] in {"EXTRACTED", "INFERRED", "AMBIGUOUS"}
+    assert "lexical" in hit["retrievers"]
+    # The exact-identifier match (Greeter.greet) is tagged EXTRACTED.
+    by_qn = {r["qualified_name"]: r for r in out["results"]}
+    greet = next(r for qn, r in by_qn.items() if qn.endswith("::Greeter.greet"))
+    assert greet["confidence"] == "EXTRACTED"
+
+
+def test_query_natural_language_lexical_index_built(populated_db: Path) -> None:
+    # Extract pre-builds the sidecar FTS5 index (DEC-038 / BuildGraphPhase).
+    from forensic_deepdive.query.lexical import lexical_index_path_for_db
+
+    assert lexical_index_path_for_db(populated_db).is_file()
 
 
 def test_query_raw_cypher(populated_db: Path) -> None:

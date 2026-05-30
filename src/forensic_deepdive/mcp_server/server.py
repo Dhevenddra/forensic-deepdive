@@ -547,39 +547,34 @@ def query(
     *,
     cypher: str | None = None,
     natural_language: str | None = None,
+    semantic: bool = False,
 ) -> dict[str, Any]:
-    """Either run a Cypher query directly OR do a substring search over
-    Symbol qualified names. PRD §4.5 tool 2 (DEC-016).
+    """Run a raw Cypher query, OR a hybrid NL search. PRD §4.5 tool 2 / Item E
+    (DEC-016 / DEC-038).
 
-    The natural-language path is intentionally simple in v0.2 — substring
-    over qualified_name. PRD §4.5 specifies BM25 + semantic + RRF fusion
-    as the v0.3 ambition; today's version is enough for "find anything
-    named like 'auth'" style discovery.
+    The natural-language path fuses three retrievers — always-on lexical
+    (SQLite FTS5/BM25) + always-on structural (graph proximity + CALLS
+    in-degree) + opt-in offline semantic (ONNX, ``semantic=True`` and the
+    ``[semantic]`` extra) — by RRF (k=60), then shapes the output (boost
+    implementation, demote test/vendored/generated). Results are
+    confidence-tagged with per-hit provenance; ``retrievers_active`` +
+    ``degraded`` say which tiers actually ran (honest degraded mode).
     """
     if cypher is None and natural_language is None:
         return {"error": "pass cypher= or natural_language="}
     if cypher is not None and natural_language is not None:
         return {"error": "pass one of cypher= or natural_language=, not both"}
-    with LadybugStore(db_path) as store:
-        if cypher is not None:
+    if cypher is not None:
+        with LadybugStore(db_path) as store:
             try:
                 rows = list(store.query(cypher))
             except Exception as exc:
                 return {"error": str(exc), "cypher": cypher}
             return {"cypher": cypher, "rows": rows, "row_count": len(rows)}
-        # natural_language path — substring search.
-        hits = list(
-            store.query(
-                "MATCH (s:Symbol) WHERE s.qualified_name CONTAINS $q "
-                "RETURN s.qualified_name, s.kind, s.file_path "
-                "ORDER BY s.qualified_name LIMIT 25",
-                {"q": natural_language},
-            )
-        )
-        return {
-            "natural_language": natural_language,
-            "results": [{"qualified_name": qn, "kind": k, "file_path": fp} for qn, k, fp in hits],
-        }
+    # natural_language path — hybrid retrieval (DEC-038).
+    from forensic_deepdive.query import hybrid_query
+
+    return hybrid_query(db_path, natural_language, semantic=semantic)
 
 
 # ---------------------------------------------------------------------------
@@ -709,12 +704,22 @@ def make_server(graph_db_path: Path) -> FastMCP:
     def query_tool(
         cypher: str | None = None,
         natural_language: str | None = None,
+        semantic: bool = False,
     ) -> dict[str, Any]:
         """Run a raw Cypher query against the LadybugDB graph, OR pass
-        ``natural_language`` for a substring search over symbol
-        qualified names. Use Cypher for precise queries the agent
-        knows how to write; use natural_language for discovery."""
-        return query(graph_db_path, cypher=cypher, natural_language=natural_language)
+        ``natural_language`` for a hybrid search (lexical BM25 + structural
+        graph signal + opt-in offline semantic, fused by RRF and shaped to
+        rank implementations above tests). Results carry provenance +
+        confidence; ``retrievers_active``/``degraded`` report which tiers ran.
+        Set ``semantic=True`` to add the ONNX tier (needs the ``[semantic]``
+        extra). Use Cypher for precise queries; natural_language for
+        discovery."""
+        return query(
+            graph_db_path,
+            cypher=cypher,
+            natural_language=natural_language,
+            semantic=semantic,
+        )
 
     @server.tool()
     def record_insight_tool(

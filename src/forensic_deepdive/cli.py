@@ -82,6 +82,14 @@ def extract(
             help="DEC-017: also run Repomix flatten (demoted to opt-in in v0.2).",
         ),
     ] = False,
+    semantic: Annotated[
+        bool,
+        typer.Option(
+            "--semantic",
+            help="DEC-042: build offline ONNX embeddings for hybrid NL query "
+            "(needs the [semantic] extra + a local model).",
+        ),
+    ] = False,
     local: Annotated[bool, typer.Option(help="Use Ollama/LM Studio (v0.2).")] = False,
     with_graphiti: Annotated[bool, typer.Option(help="Enable temporal KG (v0.2).")] = False,
     fast: Annotated[bool, typer.Option(help="Use yek instead of Repomix (v0.2).")] = False,
@@ -100,7 +108,14 @@ def extract(
         console.print("[yellow]--stage is not implemented in v0.1; running all stages.[/yellow]")
 
     try:
-        result = run_extract(path, output, force=force, flatten=legacy_repomix, workers=workers)
+        result = run_extract(
+            path,
+            output,
+            force=force,
+            flatten=legacy_repomix,
+            workers=workers,
+            semantic=semantic,
+        )
     except (NotADirectoryError, FileNotFoundError) as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=1) from exc

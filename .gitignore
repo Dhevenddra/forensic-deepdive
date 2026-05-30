@@ -16,8 +16,9 @@ build/
 .coverage
 htmlcov/
 
-# forensic-deepdive's own cache (NEVER commit)
+# forensic-deepdive's own cache + sidecar query index (NEVER commit)
 .forensic-deepdive/cache/
+.forensic-deepdive/index/
 .forensic-deepdive/last_run.json
 
 # Graphify cache (if used)
