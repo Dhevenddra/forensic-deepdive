@@ -30,7 +30,15 @@ FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 def test_default_phases_includes_build_graph():
     names = [p.name for p in default_phases()]
-    assert names == ["inventory", "static", "flatten", "history", "build_graph", "emit"]
+    assert names == [
+        "inventory",
+        "parse",
+        "static",
+        "flatten",
+        "history",
+        "build_graph",
+        "emit",
+    ]
 
 
 def test_build_graph_runs_before_emit():
@@ -1131,11 +1139,13 @@ def _seeded_ctx(cfg: ExtractConfig, tmp_path: Path):
     """Build a minimal Context with inventory + static outputs pre-seeded
     via the actual phases — keeps the BuildGraphPhase under test without
     depending on the full pipeline."""
-    from forensic_deepdive.pipeline import Context
+    from forensic_deepdive.pipeline import Context, ParsePhase
 
     ctx = Context(config=cfg)
     inv = InventoryPhase().run(ctx)
     ctx.put(InventoryPhase.name, inv)
+    # DEC-036: StaticPhase now reads ParsePhase output, so seed it too.
+    ctx.put(ParsePhase.name, ParsePhase().run(ctx))
     static = StaticPhase().run(ctx)
     ctx.put(StaticPhase.name, static)
     return ctx

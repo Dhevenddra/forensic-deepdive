@@ -55,12 +55,21 @@ from forensic_deepdive.history.git_archaeology import GitHistory, analyze_histor
 from forensic_deepdive.inventory import Inventory, SourceFile, take_inventory
 from forensic_deepdive.pipeline.runner import Context, Phase
 from forensic_deepdive.static.graph import SymbolGraph, build_symbol_graph
-from forensic_deepdive.static.imports import Import, extract_imports
-from forensic_deepdive.static.inheritance import InheritanceRecord, extract_inheritance
+from forensic_deepdive.static.imports import Import
+from forensic_deepdive.static.inheritance import InheritanceRecord
 from forensic_deepdive.static.pagerank import RankedRepo, rank_files
-from forensic_deepdive.static.parse import parse_file
+from forensic_deepdive.static.parse_cache import (
+    ManifestDiff,
+    ParseCache,
+    content_hash,
+    diff_manifest,
+    parse_and_extract,
+    parse_cache_dir,
+    read_manifest,
+    write_manifest,
+)
 from forensic_deepdive.static.resolver import MODULE_SCOPE, resolve_calls
-from forensic_deepdive.static.tags import Tag, extract_tags
+from forensic_deepdive.static.tags import Tag
 
 # DEC-013 default DB location, mirroring v0.1's cache convention.
 _DEFAULT_GRAPH_DB_SUBDIR = (".deepdive", "graph.lbug")
@@ -73,6 +82,23 @@ _DEFAULT_GRAPH_DB_SUBDIR = (".deepdive", "graph.lbug")
 @dataclass(frozen=True, slots=True)
 class InventoryOutput:
     inventory: Inventory
+
+
+@dataclass(frozen=True, slots=True)
+class ParseOutput:
+    """Per-repo aggregate of the parse layer (DEC-036). ``ParsePhase`` produces
+    the Tag / Import / InheritanceRecord records — from the content-addressed
+    cache where possible, by parsing the rest — and reports how many files it
+    actually had to run through Tree-sitter (``parsed_count``) vs served from
+    cache (``cached_count``). ``diff`` is the Merkle-manifest diff vs the
+    previous run, or ``None`` when the cache is disabled."""
+
+    tags: list[Tag]
+    imports: list[Import]  # DEC-024 — one per import/include/require statement
+    inheritance: list[InheritanceRecord]  # DEC-028 — class-hierarchy declarations
+    parsed_count: int  # files run through Tree-sitter this run
+    cached_count: int  # files served from the parse cache
+    diff: ManifestDiff | None  # manifest diff vs previous run; None if cache off
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,37 +168,97 @@ class InventoryPhase(Phase):
         return InventoryOutput(inventory=take_inventory(ctx.config.repo_path))
 
 
-class StaticPhase(Phase):
-    """Parses source files, builds the symbol graph, ranks files via
-    PageRank. v0.1 keeps parse + graph + rank fused; PRD §10 item 8 will
-    split parse / resolve / build_graph / persist into separate phases."""
+class ParsePhase(Phase):
+    """Parse source files into Tag / Import / InheritanceRecord records, using
+    the content-addressed parse cache (DEC-036) to skip re-parsing unchanged
+    files.
 
-    name = "static"
+    Split out of the v0.1 ``StaticPhase`` (PRD §4.1, foreshadowed by DEC-014):
+    this is the only phase that touches Tree-sitter, which makes it the unit
+    Item B (DEC-035) parallelizes. It iterates ``inv.source_files`` — already
+    sorted by ``rel_path`` (inventory.py) — and accumulates per-file records in
+    that order, so the cached path is byte-identical to a cold parse.
+    """
+
+    name = "parse"
     depends_on = ("inventory",)
-    output_type = StaticOutput
+    output_type = ParseOutput
 
-    def run(self, ctx: Context) -> StaticOutput:
+    def run(self, ctx: Context) -> ParseOutput:
+        cfg = ctx.config
         inv = ctx.get(InventoryPhase).inventory
+
+        use_cache = cfg.use_parse_cache
+        root = parse_cache_dir(cfg.repo_path)
+        cache = ParseCache(root) if use_cache else None
+
         tags: list[Tag] = []
         imports: list[Import] = []
         inheritance: list[InheritanceRecord] = []
+        manifest: dict[str, str] = {}
+        parsed_count = 0
+        cached_count = 0
+
         for source in inv.source_files:
-            parsed = parse_file(source.path, rel_path=source.rel_path)
-            if parsed is not None:
-                tags.extend(extract_tags(parsed))
-                # DEC-024 — extract imports in the same parse pass to
-                # avoid re-parsing every file in BuildGraphPhase.
-                imports.extend(extract_imports(parsed))
-                # DEC-028 — extract inheritance the same way.
-                inheritance.extend(extract_inheritance(parsed))
-        symbol_graph = build_symbol_graph(tags)
-        ranked = rank_files(symbol_graph)
-        return StaticOutput(
+            try:
+                data = source.path.read_bytes()
+            except OSError:
+                # Matches v0.1: an unreadable source file is silently skipped.
+                continue
+            sha = content_hash(data)
+            manifest[source.rel_path] = sha
+
+            result = None
+            if cache is not None:
+                result = cache.get(source.rel_path, sha, source.language)
+            if result is None:
+                result = parse_and_extract(source.path, source.rel_path, source.language, data)
+                parsed_count += 1
+                if cache is not None:
+                    cache.put(sha, source.language, result)
+            else:
+                cached_count += 1
+
+            tags.extend(result.tags)
+            imports.extend(result.imports)
+            inheritance.extend(result.inheritance)
+
+        diff: ManifestDiff | None = None
+        if use_cache:
+            diff = diff_manifest(read_manifest(root), manifest)
+            write_manifest(root, manifest)
+
+        return ParseOutput(
             tags=tags,
-            symbol_graph=symbol_graph,
-            ranked=ranked,
             imports=imports,
             inheritance=inheritance,
+            parsed_count=parsed_count,
+            cached_count=cached_count,
+            diff=diff,
+        )
+
+
+class StaticPhase(Phase):
+    """Builds the symbol graph and ranks files via PageRank from the parsed
+    records. DEC-036 split the Tree-sitter parse half into :class:`ParsePhase`;
+    this phase is now pure graph construction + ranking and re-exposes the
+    parse records so downstream phases (Build/Emit) read an unchanged
+    ``StaticOutput``."""
+
+    name = "static"
+    depends_on = ("inventory", "parse")
+    output_type = StaticOutput
+
+    def run(self, ctx: Context) -> StaticOutput:
+        parsed = ctx.get(ParsePhase)
+        symbol_graph = build_symbol_graph(parsed.tags)
+        ranked = rank_files(symbol_graph)
+        return StaticOutput(
+            tags=parsed.tags,
+            symbol_graph=symbol_graph,
+            ranked=ranked,
+            imports=parsed.imports,
+            inheritance=parsed.inheritance,
         )
 
 
@@ -751,6 +837,7 @@ def default_phases() -> list[Phase]:
     unless ``ExtractConfig.build_graph_db=True`` (DEC-013)."""
     return [
         InventoryPhase(),
+        ParsePhase(),
         StaticPhase(),
         FlattenPhase(),
         HistoryPhase(),

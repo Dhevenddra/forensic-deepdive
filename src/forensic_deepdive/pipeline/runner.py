@@ -68,6 +68,12 @@ class ExtractConfig:
     # least twice are a signal even on small repos. Bumping to 3+ filters
     # coincidence on huge histories.
     co_changes_threshold: int = 2
+    # DEC-036 (v0.3 Item A): use the content-addressed parse cache so
+    # unchanged files skip Tree-sitter on re-extract. Default on — it is
+    # transparent and deterministic (cached output is byte-identical to a
+    # cold parse). Pass ``False`` to force a full parse (used by the
+    # cold-vs-warm golden test and available as an escape hatch).
+    use_parse_cache: bool = True
 
 
 # ---------------------------------------------------------------------------
