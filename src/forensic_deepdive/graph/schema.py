@@ -146,6 +146,13 @@ class Edge:
 class CallsEdge(Edge):
     caller: str = ""  # Symbol.qualified_name
     callee: str = ""  # Symbol.qualified_name
+    # DEC-037 (v0.3 Item C): how the callee was resolved — the rationale
+    # behind ``confidence``. ``bare`` = a bare-name call (DEC-025's resolver);
+    # ``self``/``this`` = receiver is the enclosing instance; ``ctor`` = receiver
+    # bound to a local constructor; ``static`` = class-qualified ``Foo.bar()``;
+    # ``module`` = import-alias-qualified ``mod.bar()``. Debuggability +
+    # confidence rationale; never silently upgrades the confidence tag.
+    via: str = "bare"
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,7 +269,7 @@ NODE_TABLES: list[str] = [
 REL_TABLES: list[str] = [
     (
         "CREATE REL TABLE IF NOT EXISTS CALLS("
-        "FROM Symbol TO Symbol, confidence STRING, evidence STRING)"
+        "FROM Symbol TO Symbol, confidence STRING, evidence STRING, via STRING)"
     ),
     (
         "CREATE REL TABLE IF NOT EXISTS IMPORTS("

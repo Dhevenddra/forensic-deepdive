@@ -169,12 +169,13 @@ class LadybugStore(GraphStore):
         self._conn.execute(
             "MATCH (caller:Symbol {qualified_name: $cq}), "
             "(callee:Symbol {qualified_name: $eq}) "
-            "CREATE (caller)-[:CALLS {confidence: $conf, evidence: $ev}]->(callee)",
+            "CREATE (caller)-[:CALLS {confidence: $conf, evidence: $ev, via: $via}]->(callee)",
             {
                 "cq": edge.caller,
                 "eq": edge.callee,
                 "conf": str(edge.confidence),
                 "ev": edge.evidence,
+                "via": edge.via,
             },
         )
 
@@ -665,6 +666,7 @@ class LadybugStore(GraphStore):
                 "eq": e.callee,
                 "conf": str(e.confidence),
                 "ev": e.evidence,
+                "via": e.via,
             }
             for e in edges
         ]
@@ -672,7 +674,8 @@ class LadybugStore(GraphStore):
             "UNWIND $rows AS row "
             "MATCH (caller:Symbol {qualified_name: row.cq}), "
             "(callee:Symbol {qualified_name: row.eq}) "
-            "CREATE (caller)-[:CALLS {confidence: row.conf, evidence: row.ev}]->(callee)",
+            "CREATE (caller)-[:CALLS "
+            "{confidence: row.conf, evidence: row.ev, via: row.via}]->(callee)",
             rows,
         )
 

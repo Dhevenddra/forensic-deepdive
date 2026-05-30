@@ -74,6 +74,7 @@ class ResolvedCall:
     confidence: Confidence
     evidence: str  # "same-file" | "import" | "name-fallback" | ...
     ref_line: int  # source line of the originating ref tag
+    via: str = "bare"  # DEC-037 resolution channel (self|this|ctor|static|module|bare)
 
 
 # ---------------------------------------------------------------------------

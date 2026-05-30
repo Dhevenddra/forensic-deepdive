@@ -707,6 +707,7 @@ class BuildGraphPhase(Phase):
                 callee=call.callee_qn,
                 confidence=call.confidence,
                 evidence=call.evidence,
+                via=call.via,
             )
             for call in resolved_calls
             if call.caller_qn in valid_symbol_qns and call.callee_qn in valid_symbol_qns
