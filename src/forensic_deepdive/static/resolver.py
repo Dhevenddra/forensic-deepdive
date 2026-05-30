@@ -57,6 +57,7 @@ from pathlib import PurePosixPath
 
 from forensic_deepdive.graph.schema import Confidence
 from forensic_deepdive.static.imports import Import
+from forensic_deepdive.static.method_calls import MethodCall
 from forensic_deepdive.static.tags import Tag
 
 MODULE_SCOPE = "<module>"
@@ -193,6 +194,144 @@ def resolve_calls(
 
     resolved.sort(key=lambda r: (r.caller_qn, r.callee_qn, r.ref_line))
     return resolved
+
+
+# ---------------------------------------------------------------------------
+# Receiver-type method-call resolver (DEC-037, v0.3 Item C)
+# ---------------------------------------------------------------------------
+
+
+def resolve_method_calls(
+    method_calls: Iterable[MethodCall],
+    tags: Iterable[Tag],
+    imports: Iterable[Import],
+    source_files_by_path: dict[str, str],
+) -> list[ResolvedCall]:
+    """Resolve dotted ``receiver.method()`` calls by inferring the receiver's
+    type (DEC-037). Every edge is tagged **INFERRED** (the receiver type is
+    inferred, not proven) or **AMBIGUOUS** (a cross-file static call with
+    multiple candidate owners). Rules, in priority order:
+
+    1. ``self.m()`` / ``this.m()`` → resolve ``m`` against the **enclosing
+       class's** members (the class is the prefix of the caller's scope).
+       ``via="self"`` / ``via="this"``.
+    2. ``Foo.m()`` where ``Foo`` is a known intra-repo **type** → resolve ``m``
+       against ``Foo``'s members (same file first, then same-language repo-wide;
+       multiple owners ⇒ AMBIGUOUS). ``via="static"``.
+    3. ``mod.m()`` where ``mod`` matches an **import alias** → resolve ``m``
+       against the imported file's top-level symbols. ``via="module"``.
+
+    Anything else — a complex receiver (``a.b.c()``, ``foo().bar()``), an
+    unknown local variable (no constructor-binding inference in v0.3 — that is
+    the deferred rule 2, a documented DEC-037 follow-on), or a name that matches
+    nothing — is **dropped**, NOT emitted as AMBIGUOUS-to-every-homonym.
+    Flooding the graph with one AMBIGUOUS edge per same-named method is exactly
+    the noise Item C exists to remove (a deliberate divergence from PRD §4.3's
+    "default keep AMBIGUOUS"; see DEC-037). A dropped call is honestly "type
+    unknown" — the same outcome as v0.2, but now the resolvable majority become
+    precise INFERRED edges.
+    """
+    method_calls_list = list(method_calls)
+
+    # Member-existence index: file -> set of qn_local (defs). And a same-language
+    # member index: language -> qn_local -> sorted list of files defining it.
+    defs_by_file: dict[str, set[str]] = defaultdict(set)
+    member_by_lang: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    for tag in tags:
+        if tag.kind != "def" or tag.rel_path not in source_files_by_path:
+            continue
+        qn_local = f"{tag.parent}.{tag.name}" if tag.parent else tag.name
+        if qn_local in defs_by_file[tag.rel_path]:
+            continue  # first def wins (PK dedup, mirrors resolve_calls)
+        defs_by_file[tag.rel_path].add(qn_local)
+        member_by_lang[tag.language][qn_local].append(tag.rel_path)
+
+    imports_by_file: dict[str, list[Import]] = defaultdict(list)
+    for imp in imports:
+        if imp.rel_path in source_files_by_path:
+            imports_by_file[imp.rel_path].append(imp)
+
+    resolved: list[ResolvedCall] = []
+    for mc in method_calls_list:
+        if mc.rel_path not in source_files_by_path:
+            continue
+        caller_qn = f"{mc.rel_path}::{mc.enclosing_scope or MODULE_SCOPE}"
+        for callee_qn, conf, via in _resolve_one_method(
+            mc, defs_by_file, member_by_lang, imports_by_file, source_files_by_path
+        ):
+            resolved.append(
+                ResolvedCall(
+                    caller_qn=caller_qn,
+                    callee_qn=callee_qn,
+                    confidence=conf,
+                    evidence=f"receiver-{via}",
+                    ref_line=mc.line,
+                    via=via,
+                )
+            )
+
+    resolved.sort(key=lambda r: (r.caller_qn, r.callee_qn, r.via, r.ref_line))
+    return resolved
+
+
+def _resolve_one_method(
+    mc: MethodCall,
+    defs_by_file: dict[str, set[str]],
+    member_by_lang: dict[str, dict[str, list[str]]],
+    imports_by_file: dict[str, list[Import]],
+    source_files_by_path: dict[str, str],
+) -> list[tuple[str, Confidence, str]]:
+    """Return ``(callee_qn, confidence, via)`` tuples for one method call, or
+    an empty list when the receiver type can't be inferred."""
+    receiver, method, file, language = mc.receiver, mc.method, mc.rel_path, mc.language
+
+    # Rule 1: self / this → enclosing class's member.
+    if receiver in ("self", "this"):
+        scope = mc.enclosing_scope
+        enclosing_class = scope.rsplit(".", 1)[0] if "." in scope else ""
+        if enclosing_class:
+            member_qn = f"{enclosing_class}.{method}"
+            if member_qn in defs_by_file.get(file, set()):
+                return [(_qualify(file, member_qn), Confidence.INFERRED, receiver)]
+        return []  # self/this outside a resolvable class member → drop
+
+    # Only simple single-identifier receivers can be inferred. Complex receivers
+    # (a.b.c(), foo().bar(), x[i].m()) need dataflow we don't do in v0.3.
+    if not receiver.isidentifier():
+        return []
+
+    # Rule 2: static / class-qualified — receiver is a known type; resolve the
+    # method against that type's members.
+    member_qn = f"{receiver}.{method}"
+    if member_qn in defs_by_file.get(file, set()):
+        return [(_qualify(file, member_qn), Confidence.INFERRED, "static")]
+    cross = [f for f in member_by_lang.get(language, {}).get(member_qn, []) if f != file]
+    if cross:
+        conf = Confidence.INFERRED if len(cross) == 1 else Confidence.AMBIGUOUS
+        return [(_qualify(f, member_qn), conf, "static") for f in sorted(cross)]
+
+    # Rule 3: module / import-alias-qualified — resolve the import to a file and
+    # look up the method as a top-level symbol there.
+    for imp in imports_by_file.get(file, []):
+        if not _import_alias_matches(imp, receiver):
+            continue
+        target = _resolve_import_to_file(imp, source_files_by_path)
+        if target is not None and method in defs_by_file.get(target, set()):
+            return [(_qualify(target, method), Confidence.INFERRED, "module")]
+
+    return []
+
+
+def _import_alias_matches(imp: Import, receiver: str) -> bool:
+    """True when *receiver* is the name an import is bound to: an explicit
+    ``import x as R`` / ``import * as R`` alias, or — for plain ``import os`` —
+    the last segment of the module path."""
+    if imp.module_alias and imp.module_alias == receiver:
+        return True
+    if not imp.module_alias and imp.module_path:
+        last = imp.module_path.replace("/", ".").rstrip(".").split(".")[-1]
+        return last == receiver
+    return False
 
 
 # ---------------------------------------------------------------------------

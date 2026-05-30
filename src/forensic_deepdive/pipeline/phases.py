@@ -73,7 +73,7 @@ from forensic_deepdive.static.parse_cache import (
     resolve_worker_count,
     write_manifest,
 )
-from forensic_deepdive.static.resolver import MODULE_SCOPE, resolve_calls
+from forensic_deepdive.static.resolver import MODULE_SCOPE, resolve_calls, resolve_method_calls
 from forensic_deepdive.static.tags import Tag
 
 # DEC-013 default DB location, mirroring v0.1's cache convention.
@@ -488,7 +488,13 @@ class BuildGraphPhase(Phase):
         # write further down — including the synthetic per-file
         # ``<module>`` Symbols that carry module-level refs.
         source_files_by_path = {sf.rel_path: sf.language for sf in inv.source_files}
+        # DEC-025 bare-name calls + DEC-037 receiver-type method calls. Both
+        # produce ResolvedCall records; the method-call edges carry via != bare
+        # and are INFERRED/AMBIGUOUS (the receiver type is inferred).
         resolved_calls = resolve_calls(static.tags, static.imports, source_files_by_path)
+        resolved_calls += resolve_method_calls(
+            static.method_calls, static.tags, static.imports, source_files_by_path
+        )
 
         # DEC-026: history data into the graph. Authors aggregated from
         # commit records (mailmap-canonical post-DEC-022), commits keyed
@@ -719,6 +725,9 @@ class BuildGraphPhase(Phase):
             for call in resolved_calls
             if call.caller_qn in valid_symbol_qns and call.callee_qn in valid_symbol_qns
         ]
+        # Bare-name + method-call edges are concatenated from two resolvers;
+        # sort the union for a deterministic write order (DEC-035 invariant).
+        edges_calls.sort(key=lambda e: (e.caller, e.callee, e.via, e.evidence, str(e.confidence)))
 
         # DEC-026 history-into-graph: Authors first, then Commits, then
         # the two edges.
