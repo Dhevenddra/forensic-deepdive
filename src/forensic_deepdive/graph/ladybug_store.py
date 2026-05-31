@@ -79,10 +79,11 @@ class LadybugStore(GraphStore):
         self._require_conn()
         self._conn.execute(
             "CREATE (n:Symbol {"
-            "qualified_name: $qualified_name, kind: $kind, "
+            "node_id: $node_id, qualified_name: $qualified_name, kind: $kind, "
             "file_path: $file_path, line_start: $line_start, "
             "line_end: $line_end, signature: $signature})",
             {
+                "node_id": node.node_id,
                 "qualified_name": node.qualified_name,
                 "kind": str(node.kind),
                 "file_path": node.file_path,
@@ -558,6 +559,7 @@ class LadybugStore(GraphStore):
     def add_many_symbols(self, nodes: Iterable[Symbol]) -> None:
         rows = [
             {
+                "node_id": n.node_id,
                 "qualified_name": n.qualified_name,
                 "kind": str(n.kind),
                 "file_path": n.file_path,
@@ -569,7 +571,7 @@ class LadybugStore(GraphStore):
         ]
         self._batch_execute(
             "UNWIND $rows AS row CREATE (n:Symbol {"
-            "qualified_name: row.qualified_name, kind: row.kind, "
+            "node_id: row.node_id, qualified_name: row.qualified_name, kind: row.kind, "
             "file_path: row.file_path, line_start: row.line_start, "
             "line_end: row.line_end, signature: row.signature})",
             rows,

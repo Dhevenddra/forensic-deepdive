@@ -60,6 +60,7 @@ from forensic_deepdive.query.lexical import (
     records_from_store,
 )
 from forensic_deepdive.static.graph import SymbolGraph, build_symbol_graph
+from forensic_deepdive.static.ids import SymbolDescriptor, assign_disambiguators
 from forensic_deepdive.static.imports import Import
 from forensic_deepdive.static.inheritance import InheritanceRecord
 from forensic_deepdive.static.method_calls import MethodCall
@@ -653,7 +654,27 @@ class BuildGraphPhase(Phase):
         symbols_to_write: list[Symbol] = []
         edges_defines: list[DefinesEdge] = []
         edges_member_of: list[MemberOfEdge] = []
-        for sf in inv.source_files:
+
+        # DEC-051: mint a stable ``node_id`` for every Symbol via the
+        # ``static.ids`` authority. Descriptors are assembled in the exact order
+        # the Symbols are appended below (synthetic ``<module>`` symbols first,
+        # then ``def_groups`` in sorted order); ``assign_disambiguators`` runs
+        # over the whole set so the overload-disambiguation logic is live in the
+        # build path (current mint granularity produces no collisions, so ids
+        # are the clean ``<kind>:<rel_path>:<qn_local>`` form).
+        sorted_def_items = sorted(def_groups.items())
+        symbol_descriptors: list[SymbolDescriptor] = [
+            SymbolDescriptor(str(SymbolKind.MODULE), sf.rel_path, MODULE_SCOPE)
+            for sf in inv.source_files
+        ]
+        symbol_descriptors += [
+            SymbolDescriptor(str(_category_to_kind(tags_[0].category)), rel_path, qn_local)
+            for (rel_path, qn_local), tags_ in sorted_def_items
+        ]
+        symbol_ids = assign_disambiguators(symbol_descriptors)
+        module_id_count = len(inv.source_files)
+
+        for idx, sf in enumerate(inv.source_files):
             module_qn = _qualified_name(sf.rel_path, MODULE_SCOPE)
             symbols_to_write.append(
                 Symbol(
@@ -663,6 +684,7 @@ class BuildGraphPhase(Phase):
                     line_start=0,
                     line_end=0,
                     signature="",
+                    node_id=symbol_ids[idx],
                 )
             )
             edges_defines.append(
@@ -678,7 +700,7 @@ class BuildGraphPhase(Phase):
         # a single batch is fine, but the MATCH for MEMBER_OF needs both
         # endpoint Symbols to already exist — so we write Symbols (incl.
         # synthetics + real) in one batch, then DEFINES, then MEMBER_OF.
-        for (rel_path, qn_local), tag_list in sorted(def_groups.items()):
+        for jdx, ((rel_path, qn_local), tag_list) in enumerate(sorted_def_items):
             first = tag_list[0]
             qn = _qualified_name(rel_path, qn_local)
             symbols_to_write.append(
@@ -689,6 +711,7 @@ class BuildGraphPhase(Phase):
                     line_start=first.line,
                     line_end=max(t.line for t in tag_list),
                     signature="",
+                    node_id=symbol_ids[module_id_count + jdx],
                 )
             )
             edges_defines.append(

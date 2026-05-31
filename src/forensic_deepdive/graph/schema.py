@@ -71,12 +71,23 @@ class File(Node):
 
 @dataclass(frozen=True, slots=True)
 class Symbol(Node):
-    qualified_name: str  # e.g. "src/foo/bar.py::Baz.qux" (PRIMARY KEY)
+    qualified_name: str  # e.g. "src/foo/bar.py::Baz.qux" (display / human-facing key)
     kind: SymbolKind
     file_path: str  # FK to File.path
     line_start: int
     line_end: int
     signature: str = ""  # rendered declaration, optional
+    # DEC-051 (v0.4 Item A): the stable node ID — the LadybugDB PRIMARY KEY.
+    # Minted by ``static.ids.make_symbol_id`` (``<kind>:<rel_path>:<qn_local>``
+    # + overload disambiguator), it is line-number-free so it survives an
+    # unrelated same-file edit (the v1.0 incremental/rename seam). Falls back to
+    # ``qualified_name`` when unset, so read-side reconstructions and ad-hoc
+    # construction need not supply it.
+    node_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.node_id:
+            object.__setattr__(self, "node_id", self.qualified_name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,12 +246,14 @@ NODE_TABLES: list[str] = [
         "loc INT64, last_modified STRING, "
         "PRIMARY KEY(path))"
     ),
-    # Symbol
+    # Symbol — DEC-051: PK is the stable ``node_id``; ``qualified_name`` stays
+    # as the display property (no longer the PK, so overloaded symbols can be
+    # distinct nodes sharing a qualified_name).
     (
         "CREATE NODE TABLE IF NOT EXISTS Symbol("
-        "qualified_name STRING, kind STRING, file_path STRING, "
+        "node_id STRING, qualified_name STRING, kind STRING, file_path STRING, "
         "line_start INT64, line_end INT64, signature STRING, "
-        "PRIMARY KEY(qualified_name))"
+        "PRIMARY KEY(node_id))"
     ),
     # Module
     ("CREATE NODE TABLE IF NOT EXISTS Module(path STRING, language STRING, PRIMARY KEY(path))"),
