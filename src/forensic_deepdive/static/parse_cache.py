@@ -63,7 +63,9 @@ from forensic_deepdive.static.tags import TAGS_SCM, Tag, extract_tags
 # languages. The per-language tags.scm hash (``_scm_version``) covers query
 # edits automatically, so query-only changes do NOT need a bump here.
 #   v2 (DEC-037): ParseResult gained ``method_calls``.
-PARSER_VERSION = 2
+#   v3 (DEC-050): TS/TSX heritage extraction widened (abstract classes,
+#       interface→interface extends, generic_type / member_expression targets).
+PARSER_VERSION = 3
 
 # Subdirectory layout under the repo's gitignored cache dir:
 #   .forensic-deepdive/cache/parse/<entry_key>.json   — one per (content, lang)

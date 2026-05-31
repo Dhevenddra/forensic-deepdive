@@ -121,75 +121,112 @@ def _extract_python(parsed: ParsedFile) -> list[InheritanceRecord]:
     return records
 
 
+def _ts_type_name(node: Node) -> str | None:
+    """The declared name of a class/interface declaration: the ``name`` field,
+    falling back to the first ``type_identifier`` child."""
+    name_node = node.child_by_field_name("name")
+    if name_node is not None:
+        return _text(name_node)
+    for c in node.children:
+        if c.type == "type_identifier":
+            return _text(c)
+    return None
+
+
+def _ts_base_name(node: Node) -> str | None:
+    """Resolve a heritage *target* node to the resolvable parent name (DEC-050).
+
+    Handles the four TS shapes a clause member can take:
+      * ``identifier`` / ``type_identifier`` → its text (the simple case);
+      * ``generic_type`` (``Comparable<Widget>``) → the inner base type's name,
+        dropping the ``type_arguments``;
+      * ``member_expression`` (``React.Component``) → the **rightmost**
+        ``property_identifier`` (mirrors the Python ``attribute`` convention).
+    ``type_arguments`` and other nodes yield ``None`` (skipped by the caller),
+    so ``extends Foo<T>`` produces one record for ``Foo``, not a stray ``T``."""
+    t = node.type
+    if t in ("identifier", "type_identifier"):
+        return _text(node)
+    if t == "generic_type":
+        for c in node.children:
+            if c.type in ("identifier", "type_identifier"):
+                return _text(c)
+            if c.type == "member_expression":
+                return _ts_member_expr_name(c)
+        return None
+    if t == "member_expression":
+        return _ts_member_expr_name(node)
+    return None
+
+
+def _ts_member_expr_name(node: Node) -> str | None:
+    """``a.b.c`` → the rightmost named segment (``c``). Mirrors how the Python
+    extractor keeps only the rightmost identifier of a dotted base type."""
+    name: str | None = None
+    for c in node.children:
+        if c.type in ("property_identifier", "identifier", "type_identifier"):
+            name = _text(c)
+    return name
+
+
 def _ts_js_extract(parsed: ParsedFile) -> list[InheritanceRecord]:
-    """TypeScript / TSX / JavaScript share ``class_declaration >
-    class_heritage``. TS wraps each clause in ``extends_clause`` /
-    ``implements_clause``; JS puts the extends keyword and identifier
-    directly under ``class_heritage`` with no wrapper."""
+    """TypeScript / TSX / JavaScript heritage (DEC-028 + DEC-050).
+
+    Classes (``class_declaration`` **and** ``abstract_class_declaration``) carry
+    a ``class_heritage`` with TS-wrapped ``extends_clause`` / ``implements_clause``
+    or a JS bare-identifier shape. Interfaces (``interface_declaration``) carry an
+    ``extends_type_clause`` (interface→interface, modeled as EXTENDS). Heritage
+    targets may be plain identifiers, ``generic_type``, or ``member_expression`` —
+    all unwrapped by :func:`_ts_base_name`."""
     records: list[InheritanceRecord] = []
+
+    def emit(child_name: str, base: str | None, kind: InheritanceKind, line: int) -> None:
+        if base:
+            records.append(
+                InheritanceRecord(
+                    rel_path=parsed.rel_path,
+                    child_qn_local=child_name,
+                    parent_name=base,
+                    kind=kind,
+                    language=parsed.language,
+                    line=line,
+                )
+            )
+
     stack: list[Node] = [parsed.tree.root_node]
     while stack:
         node = stack.pop()
-        if node.type == "class_declaration":
-            name_node = node.child_by_field_name("name")
-            if name_node is None:
-                stack.extend(node.children)
-                continue
-            child_name = _text(name_node)
-            for child in node.children:
-                if child.type != "class_heritage":
-                    continue
-                # Two grammar shapes to handle:
-                #   TS:  class_heritage > extends_clause > identifier
-                #        class_heritage > implements_clause > type_identifier
-                #   JS:  class_heritage > extends + identifier (no wrapper)
-                # Walk children; an `extends` / `implements` keyword
-                # flips mode for subsequent identifiers.
-                mode: str = "extends"  # JS heritage starts in extends
-                for hc in child.children:
-                    if hc.type == "extends":
-                        mode = "extends"
-                    elif hc.type == "implements":
-                        mode = "implements"
-                    elif hc.type == "extends_clause":
-                        # TS shape — recurse into the clause.
-                        for ec in hc.children:
-                            if ec.type in ("identifier", "type_identifier"):
-                                records.append(
-                                    InheritanceRecord(
-                                        rel_path=parsed.rel_path,
-                                        child_qn_local=child_name,
-                                        parent_name=_text(ec),
-                                        kind="extends",
-                                        language=parsed.language,
-                                        line=_row(node),
-                                    )
-                                )
-                    elif hc.type == "implements_clause":
-                        for ic in hc.children:
-                            if ic.type in ("identifier", "type_identifier"):
-                                records.append(
-                                    InheritanceRecord(
-                                        rel_path=parsed.rel_path,
-                                        child_qn_local=child_name,
-                                        parent_name=_text(ic),
-                                        kind="implements",
-                                        language=parsed.language,
-                                        line=_row(node),
-                                    )
-                                )
-                    elif hc.type in ("identifier", "type_identifier"):
-                        # JS shape — bare identifier under class_heritage.
-                        records.append(
-                            InheritanceRecord(
-                                rel_path=parsed.rel_path,
-                                child_qn_local=child_name,
-                                parent_name=_text(hc),
-                                kind=mode,  # "extends" or "implements"
-                                language=parsed.language,
-                                line=_row(node),
-                            )
-                        )
+        if node.type in ("class_declaration", "abstract_class_declaration"):
+            child_name = _ts_type_name(node)
+            if child_name is not None:
+                for child in node.children:
+                    if child.type != "class_heritage":
+                        continue
+                    # Walk class_heritage children. TS wraps each clause; JS puts
+                    # bare identifiers directly under class_heritage, with an
+                    # `extends` / `implements` keyword flipping the mode.
+                    mode: InheritanceKind = "extends"  # JS heritage starts in extends
+                    for hc in child.children:
+                        if hc.type == "extends":
+                            mode = "extends"
+                        elif hc.type == "implements":
+                            mode = "implements"
+                        elif hc.type == "extends_clause":
+                            for ec in hc.children:
+                                emit(child_name, _ts_base_name(ec), "extends", _row(node))
+                        elif hc.type == "implements_clause":
+                            for ic in hc.children:
+                                emit(child_name, _ts_base_name(ic), "implements", _row(node))
+                        else:
+                            # JS shape — bare target under class_heritage.
+                            emit(child_name, _ts_base_name(hc), mode, _row(node))
+        elif node.type == "interface_declaration":
+            child_name = _ts_type_name(node)
+            if child_name is not None:
+                for child in node.children:
+                    if child.type == "extends_type_clause":
+                        for ec in child.children:
+                            emit(child_name, _ts_base_name(ec), "extends", _row(node))
         stack.extend(node.children)
     return records
 
