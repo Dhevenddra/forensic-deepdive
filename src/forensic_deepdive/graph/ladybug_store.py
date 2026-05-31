@@ -24,16 +24,20 @@ from forensic_deepdive.graph.schema import (
     Author,
     AuthoredByEdge,
     CallsEdge,
+    CallsEndpointEdge,
     CoChangesWithEdge,
     Commit,
     DefinesEdge,
+    Endpoint,
     ExtendsEdge,
     File,
+    HandlesEdge,
     ImplementsEdge,
     ImportsEdge,
     MemberOfEdge,
     Module,
     Process,
+    RoutesToEdge,
     Symbol,
     SymbolKind,
     TouchedByCommitEdge,
@@ -153,6 +157,26 @@ class LadybugStore(GraphStore):
 
     def add_process(self, node: Process) -> None:
         raise NotImplementedError("PRD §10 future — Process nodes")
+
+    def add_endpoint(self, node: Endpoint) -> None:
+        """DEC-043. One Endpoint node per cross-boundary contract. ``contract_id``
+        is the PK; callers dedup before writing."""
+        self._require_conn()
+        self._conn.execute(
+            "CREATE (n:Endpoint {"
+            "contract_id: $cid, protocol: $proto, method: $method, "
+            "normalized_path: $npath, raw_path_samples: $samples, "
+            "framework: $fw, spec_backed: $spec})",
+            {
+                "cid": node.contract_id,
+                "proto": node.protocol,
+                "method": node.method,
+                "npath": node.normalized_path,
+                "samples": node.raw_path_samples,
+                "fw": node.framework,
+                "spec": node.spec_backed,
+            },
+        )
 
     # --- writes (edges) -----------------------------------------------------
 
@@ -310,6 +334,52 @@ class LadybugStore(GraphStore):
                 "conf": str(edge.confidence),
                 "ev": edge.evidence,
                 "freq": edge.frequency,
+            },
+        )
+
+    def add_handles(self, edge: HandlesEdge) -> None:
+        """DEC-043. Provider Symbol → Endpoint. Both endpoints must exist."""
+        self._require_conn()
+        self._conn.execute(
+            "MATCH (s:Symbol {qualified_name: $sq}), (e:Endpoint {contract_id: $cid}) "
+            "CREATE (s)-[:HANDLES {confidence: $conf, evidence: $ev}]->(e)",
+            {
+                "sq": edge.symbol,
+                "cid": edge.contract_id,
+                "conf": str(edge.confidence),
+                "ev": edge.evidence,
+            },
+        )
+
+    def add_calls_endpoint(self, edge: CallsEndpointEdge) -> None:
+        """DEC-043. Consumer Symbol → Endpoint. Both endpoints must exist."""
+        self._require_conn()
+        self._conn.execute(
+            "MATCH (s:Symbol {qualified_name: $sq}), (e:Endpoint {contract_id: $cid}) "
+            "CREATE (s)-[:CALLS_ENDPOINT {confidence: $conf, evidence: $ev}]->(e)",
+            {
+                "sq": edge.symbol,
+                "cid": edge.contract_id,
+                "conf": str(edge.confidence),
+                "ev": edge.evidence,
+            },
+        )
+
+    def add_routes_to(self, edge: RoutesToEdge) -> None:
+        """DEC-043. The materialized cross-stack edge: consumer Symbol →
+        provider Symbol. Both endpoints must exist."""
+        self._require_conn()
+        self._conn.execute(
+            "MATCH (c:Symbol {qualified_name: $cq}), (p:Symbol {qualified_name: $pq}) "
+            "CREATE (c)-[:ROUTES_TO "
+            "{confidence: $conf, evidence: $ev, via: $via, endpoint: $ep}]->(p)",
+            {
+                "cq": edge.consumer,
+                "pq": edge.provider,
+                "conf": str(edge.confidence),
+                "ev": edge.evidence,
+                "via": edge.via,
+                "ep": edge.endpoint,
             },
         )
 
@@ -767,6 +837,73 @@ class LadybugStore(GraphStore):
             "MATCH (a:File {path: row.a}), (b:File {path: row.b}) "
             "CREATE (a)-[:CO_CHANGES_WITH "
             "{confidence: row.conf, evidence: row.ev, frequency: row.freq}]->(b)",
+            rows,
+        )
+
+    # --- cross-boundary batch writes (DEC-043) ------------------------------
+
+    def add_many_endpoints(self, nodes: Iterable[Endpoint]) -> None:
+        rows = [
+            {
+                "cid": n.contract_id,
+                "proto": n.protocol,
+                "method": n.method,
+                "npath": n.normalized_path,
+                "samples": n.raw_path_samples,
+                "fw": n.framework,
+                "spec": n.spec_backed,
+            }
+            for n in nodes
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row CREATE (n:Endpoint {"
+            "contract_id: row.cid, protocol: row.proto, method: row.method, "
+            "normalized_path: row.npath, raw_path_samples: row.samples, "
+            "framework: row.fw, spec_backed: row.spec})",
+            rows,
+        )
+
+    def add_many_handles(self, edges: Iterable[HandlesEdge]) -> None:
+        rows = [
+            {"sq": e.symbol, "cid": e.contract_id, "conf": str(e.confidence), "ev": e.evidence}
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (s:Symbol {qualified_name: row.sq}), (e:Endpoint {contract_id: row.cid}) "
+            "CREATE (s)-[:HANDLES {confidence: row.conf, evidence: row.ev}]->(e)",
+            rows,
+        )
+
+    def add_many_calls_endpoint(self, edges: Iterable[CallsEndpointEdge]) -> None:
+        rows = [
+            {"sq": e.symbol, "cid": e.contract_id, "conf": str(e.confidence), "ev": e.evidence}
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (s:Symbol {qualified_name: row.sq}), (e:Endpoint {contract_id: row.cid}) "
+            "CREATE (s)-[:CALLS_ENDPOINT {confidence: row.conf, evidence: row.ev}]->(e)",
+            rows,
+        )
+
+    def add_many_routes_to(self, edges: Iterable[RoutesToEdge]) -> None:
+        rows = [
+            {
+                "cq": e.consumer,
+                "pq": e.provider,
+                "conf": str(e.confidence),
+                "ev": e.evidence,
+                "via": e.via,
+                "ep": e.endpoint,
+            }
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (c:Symbol {qualified_name: row.cq}), (p:Symbol {qualified_name: row.pq}) "
+            "CREATE (c)-[:ROUTES_TO "
+            "{confidence: row.conf, evidence: row.ev, via: row.via, endpoint: row.ep}]->(p)",
             rows,
         )
 

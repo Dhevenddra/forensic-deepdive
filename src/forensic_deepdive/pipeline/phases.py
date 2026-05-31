@@ -23,6 +23,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from forensic_deepdive.cache import cache_dir
+from forensic_deepdive.contracts import Contract, ContractContext, ContractRole, CrossLink, join
+from forensic_deepdive.contracts.registry import REGISTRY
 from forensic_deepdive.emit import RepoFacts, render_all
 from forensic_deepdive.emit.shims import ShimResult, write_shims
 from forensic_deepdive.flatten.repomix_backend import (
@@ -35,17 +37,21 @@ from forensic_deepdive.graph import (
     Author,
     AuthoredByEdge,
     CallsEdge,
+    CallsEndpointEdge,
     CoChangesWithEdge,
     Commit,
     Confidence,
     DefinesEdge,
+    Endpoint,
     ExtendsEdge,
     File,
+    HandlesEdge,
     ImplementsEdge,
     ImportsEdge,
     LadybugStore,
     MemberOfEdge,
     Module,
+    RoutesToEdge,
     Symbol,
     SymbolKind,
     TouchedByCommitEdge,
@@ -129,6 +135,19 @@ class StaticOutput:
 
 
 @dataclass(frozen=True, slots=True)
+class ContractOutput:
+    """DEC-043 (v0.4 Item D). The cross-boundary contract layer: providers +
+    consumers extracted per protocol, the materialized cross-links (ROUTES_TO),
+    and the deduped Endpoint join nodes. Empty until Items F/G register HTTP
+    extractors — the abstraction/schema/persistence are wired now."""
+
+    providers: list[Contract]
+    consumers: list[Contract]
+    cross_links: list[CrossLink]
+    endpoints: list[Endpoint]
+
+
+@dataclass(frozen=True, slots=True)
 class FlattenOutput:
     """The flatten result is optional — missing or failing Repomix degrades
     to ``result=None`` rather than aborting the run (v0.1 behavior, DEC-004)."""
@@ -168,6 +187,10 @@ class BuildGraphOutput:
     co_changes_count: int = 0  # CO_CHANGES_WITH edges written (DEC-027)
     extends_count: int = 0  # EXTENDS edges written (DEC-028)
     implements_count: int = 0  # IMPLEMENTS edges written (DEC-028)
+    endpoint_count: int = 0  # Endpoint nodes written (DEC-043)
+    handles_count: int = 0  # HANDLES edges written (DEC-043)
+    calls_endpoint_count: int = 0  # CALLS_ENDPOINT edges written (DEC-043)
+    routes_to_count: int = 0  # ROUTES_TO edges written (DEC-043)
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +339,51 @@ class StaticPhase(Phase):
         )
 
 
+class ContractPhase(Phase):
+    """Cross-boundary contract extraction + join (DEC-043, v0.4 Item D).
+
+    Runs each protocol's registered provider/consumer extractors over the parsed
+    repo, joins by ``contract_id``, and emits providers/consumers/cross-links +
+    the deduped Endpoint nodes. In Item D the HTTP extractor lists are empty
+    (Items F/G fill them), so output is empty — the abstraction, schema, and
+    persistence path are wired and tested ahead of the extractors.
+    """
+
+    name = "contracts"
+    depends_on = ("parse", "static")
+    output_type = ContractOutput
+
+    def run(self, ctx: Context) -> ContractOutput:
+        cfg = ctx.config
+        # inventory ran before static (which depends on it), so it's in ctx.
+        inv = ctx.get(InventoryPhase).inventory
+        static = ctx.get(StaticPhase)
+        context = ContractContext(
+            tags=static.tags,
+            imports=static.imports,
+            method_calls=static.method_calls,
+            source_files_by_path={sf.rel_path: sf.language for sf in inv.graph_files},
+            repo_path=cfg.repo_path,
+        )
+
+        providers: list[Contract] = []
+        consumers: list[Contract] = []
+        for entry in REGISTRY.values():
+            for extractor in entry.provider_extractors:
+                providers.extend(extractor(context))
+            for extractor in entry.consumer_extractors:
+                consumers.extend(extractor(context))
+
+        cross_links = join(providers, consumers)
+        endpoints = _build_endpoints(providers, consumers)
+        return ContractOutput(
+            providers=providers,
+            consumers=consumers,
+            cross_links=cross_links,
+            endpoints=endpoints,
+        )
+
+
 class FlattenPhase(Phase):
     """Runs Repomix when available. Best-effort — never fatal (DEC-004 /
     DEC-017-soon: this whole phase moves to ``--legacy-repomix`` in PRD §10
@@ -439,7 +507,7 @@ class BuildGraphPhase(Phase):
     """
 
     name = "build_graph"
-    depends_on = ("inventory", "static", "history")
+    depends_on = ("inventory", "static", "contracts", "history")
     output_type = BuildGraphOutput
 
     def run(self, ctx: Context) -> BuildGraphOutput:
@@ -815,12 +883,63 @@ class BuildGraphPhase(Phase):
             if e.implementation in valid_symbol_qns and e.interface in valid_symbol_qns
         ]
 
+        # DEC-043: cross-boundary contracts → Endpoint nodes + HANDLES /
+        # CALLS_ENDPOINT / ROUTES_TO edges. Endpoint nodes are already deduped +
+        # sorted; the edges filter their Symbol endpoints against the valid set
+        # (a handler/caller that isn't a real symbol is dropped) and sort for
+        # determinism. Empty in Item D until the HTTP extractors land (F/G).
+        contracts_out = ctx.get(ContractPhase)
+        endpoints_to_write = contracts_out.endpoints
+        edges_handles = sorted(
+            (
+                HandlesEdge(
+                    symbol=p.symbol_id,
+                    contract_id=p.contract_id,
+                    confidence=p.confidence,
+                    evidence=p.evidence or "route-decl",
+                )
+                for p in contracts_out.providers
+                if p.symbol_id in valid_symbol_qns
+            ),
+            key=lambda e: (e.symbol, e.contract_id),
+        )
+        edges_calls_endpoint = sorted(
+            (
+                CallsEndpointEdge(
+                    symbol=c.symbol_id,
+                    contract_id=c.contract_id,
+                    confidence=c.confidence,
+                    evidence=c.evidence or "call-site",
+                )
+                for c in contracts_out.consumers
+                if c.symbol_id in valid_symbol_qns
+            ),
+            key=lambda e: (e.symbol, e.contract_id),
+        )
+        edges_routes_to = sorted(
+            (
+                RoutesToEdge(
+                    consumer=cl.consumer_symbol_id,
+                    provider=cl.provider_symbol_id,
+                    via=cl.via,
+                    endpoint=cl.contract_id,
+                    confidence=cl.confidence,
+                    evidence=cl.evidence,
+                )
+                for cl in contracts_out.cross_links
+                if cl.consumer_symbol_id in valid_symbol_qns
+                and cl.provider_symbol_id in valid_symbol_qns
+            ),
+            key=lambda e: (e.consumer, e.provider, e.endpoint),
+        )
+
         with LadybugStore(db_path) as store:
             # Order matters: nodes before edges; for edges, both endpoints
             # must already exist.
             store.add_many_files(files_to_write)
             store.add_many_modules(modules_to_write)
             store.add_many_symbols(symbols_to_write)
+            store.add_many_endpoints(endpoints_to_write)
             store.add_many_authors(authors_to_write)
             store.add_many_commits(commit_records_to_write)
             store.add_many_defines(edges_defines)
@@ -832,6 +951,11 @@ class BuildGraphPhase(Phase):
             store.add_many_authored_by(edges_authored_by)
             store.add_many_touched_by_commit(edges_touched_by_commit)
             store.add_many_co_changes_with(edges_co_changes)
+            # DEC-043: cross-boundary edges — Endpoint nodes exist now, so the
+            # Symbol↔Endpoint and Symbol→Symbol edges can attach.
+            store.add_many_handles(edges_handles)
+            store.add_many_calls_endpoint(edges_calls_endpoint)
+            store.add_many_routes_to(edges_routes_to)
 
             # DEC-038 (Item E): build the sidecar lexical FTS5 index from the
             # graph so the hybrid NL query has its always-on floor ready. The
@@ -859,6 +983,10 @@ class BuildGraphPhase(Phase):
         implements_count = len(edges_implements_to_write)
 
         return BuildGraphOutput(
+            endpoint_count=len(endpoints_to_write),
+            handles_count=len(edges_handles),
+            calls_endpoint_count=len(edges_calls_endpoint),
+            routes_to_count=len(edges_routes_to),
             enabled=True,
             db_path=db_path,
             file_count=file_count,
@@ -902,6 +1030,33 @@ def _category_to_kind(category: str) -> SymbolKind:
 def _qualified_name(rel_path: str, name: str) -> str:
     """Schema convention: ``<rel_path>::<name>`` (see schema.Symbol)."""
     return f"{rel_path}::{name}"
+
+
+def _build_endpoints(providers: list[Contract], consumers: list[Contract]) -> list[Endpoint]:
+    """DEC-043. Dedup providers+consumers by ``contract_id`` into Endpoint join
+    nodes. Provider metadata is canonical (the route *defines* the contract);
+    ``raw_path_samples`` keeps a few originals for display. Sorted by
+    contract_id for determinism."""
+    by_id: dict[str, list[Contract]] = {}
+    for c in (*providers, *consumers):
+        by_id.setdefault(c.contract_id, []).append(c)
+    endpoints: list[Endpoint] = []
+    for contract_id in sorted(by_id):
+        members = by_id[contract_id]
+        canonical = next((m for m in members if m.role == ContractRole.PROVIDER), members[0])
+        samples = sorted({m.raw_path for m in members if m.raw_path})[:3]
+        endpoints.append(
+            Endpoint(
+                contract_id=contract_id,
+                protocol=canonical.protocol,
+                method=canonical.method,
+                normalized_path=canonical.normalized_path,
+                raw_path_samples=", ".join(samples),
+                framework=next((m.framework for m in members if m.framework), ""),
+                spec_backed=any(m.spec_backed for m in members),
+            )
+        )
+    return endpoints
 
 
 def _source_to_file(sf: SourceFile, repo_path: Path) -> File:
@@ -951,6 +1106,7 @@ def default_phases() -> list[Phase]:
         InventoryPhase(),
         ParsePhase(),
         StaticPhase(),
+        ContractPhase(),
         FlattenPhase(),
         HistoryPhase(),
         BuildGraphPhase(),

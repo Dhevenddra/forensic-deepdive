@@ -18,6 +18,8 @@ from forensic_deepdive.pipeline.extract import ExtractResult, run_extract
 from forensic_deepdive.pipeline.phases import (
     BuildGraphOutput,
     BuildGraphPhase,
+    ContractOutput,
+    ContractPhase,
     EmitOutput,
     EmitPhase,
     FlattenOutput,
@@ -46,6 +48,8 @@ from forensic_deepdive.pipeline.runner import (
 __all__ = [
     "BuildGraphOutput",
     "BuildGraphPhase",
+    "ContractOutput",
+    "ContractPhase",
     "Context",
     "DAGCycleError",
     "DuplicatePhaseError",

@@ -34,6 +34,7 @@ def test_default_phases_includes_build_graph():
         "inventory",
         "parse",
         "static",
+        "contracts",
         "flatten",
         "history",
         "build_graph",
@@ -1141,7 +1142,7 @@ def _seeded_ctx(cfg: ExtractConfig, tmp_path: Path):
     """Build a minimal Context with inventory + static outputs pre-seeded
     via the actual phases — keeps the BuildGraphPhase under test without
     depending on the full pipeline."""
-    from forensic_deepdive.pipeline import Context, ParsePhase
+    from forensic_deepdive.pipeline import Context, ContractPhase, ParsePhase
 
     ctx = Context(config=cfg)
     inv = InventoryPhase().run(ctx)
@@ -1150,4 +1151,6 @@ def _seeded_ctx(cfg: ExtractConfig, tmp_path: Path):
     ctx.put(ParsePhase.name, ParsePhase().run(ctx))
     static = StaticPhase().run(ctx)
     ctx.put(StaticPhase.name, static)
+    # DEC-043: BuildGraphPhase reads ContractPhase output (empty in v0.4 D).
+    ctx.put(ContractPhase.name, ContractPhase().run(ctx))
     return ctx

@@ -140,6 +140,24 @@ class Process(Node):
     terminal_symbol: str = ""  # FK to Symbol.qualified_name, may be empty
 
 
+@dataclass(frozen=True, slots=True)
+class Endpoint(Node):
+    """DEC-043 (v0.4). The canonical cross-boundary contract — the join *node*.
+
+    PK is ``contract_id`` (e.g. ``http::GET::/users/{param}``), built by a
+    per-protocol key-builder. A consumer with no resolvable provider still gets
+    an Endpoint (CALLS_ENDPOINT with no HANDLES — the honest "calls an endpoint
+    we can't locate"), which is also the v0.5 cross-repo federation seam."""
+
+    contract_id: str  # PRIMARY KEY
+    protocol: str  # "http" (v0.4); "grpc" / "topic" are v0.5
+    method: str = ""  # HTTP verb, or "" for method-agnostic / non-HTTP
+    normalized_path: str = ""  # the canonical path/key portion
+    raw_path_samples: str = ""  # a few originals for display (joined)
+    framework: str = ""  # fastapi | flask | spring | express | ...
+    spec_backed: bool = False  # DEC-048 — backed by an OpenAPI/proto/etc. spec
+
+
 # ---------------------------------------------------------------------------
 # Edges
 # ---------------------------------------------------------------------------
@@ -232,6 +250,42 @@ class CoChangesWithEdge(Edge):
     confidence: Confidence = Confidence.INFERRED
 
 
+# --- cross-boundary edges (DEC-043, v0.4) ----------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class HandlesEdge(Edge):
+    """A provider Symbol (route handler) exposes an Endpoint contract. The
+    audit trail behind a ROUTES_TO. ``symbol`` is the handler's qualified_name."""
+
+    symbol: str = ""  # provider Symbol.qualified_name
+    contract_id: str = ""  # Endpoint PK
+    confidence: Confidence = Confidence.EXTRACTED
+
+
+@dataclass(frozen=True, slots=True)
+class CallsEndpointEdge(Edge):
+    """A consumer Symbol (frontend call site) hits an Endpoint contract. Exists
+    even when no provider resolves (the honest "endpoint we can't locate").
+    ``symbol`` is the caller's qualified_name."""
+
+    symbol: str = ""  # consumer Symbol.qualified_name
+    contract_id: str = ""  # Endpoint PK
+    confidence: Confidence = Confidence.EXTRACTED
+
+
+@dataclass(frozen=True, slots=True)
+class RoutesToEdge(Edge):
+    """The materialized cross-stack edge: consumer Symbol → provider Symbol.
+    This is what agents and the visualizer traverse; HANDLES / CALLS_ENDPOINT
+    are the audit trail. Confidence is the join confidence (DEC-047)."""
+
+    consumer: str = ""  # consumer Symbol.qualified_name
+    provider: str = ""  # provider Symbol.qualified_name
+    via: str = "http"  # protocol: http | grpc | topic
+    endpoint: str = ""  # the Endpoint contract_id this join is on
+
+
 # ---------------------------------------------------------------------------
 # LadybugDB DDL
 # ---------------------------------------------------------------------------
@@ -278,6 +332,14 @@ NODE_TABLES: list[str] = [
         "name STRING, entry_point_symbol STRING, terminal_symbol STRING, "
         "PRIMARY KEY(name))"
     ),
+    # Endpoint (DEC-043) — the cross-boundary contract join node.
+    (
+        "CREATE NODE TABLE IF NOT EXISTS Endpoint("
+        "contract_id STRING, protocol STRING, method STRING, "
+        "normalized_path STRING, raw_path_samples STRING, framework STRING, "
+        "spec_backed BOOLEAN, "
+        "PRIMARY KEY(contract_id))"
+    ),
 ]
 
 
@@ -318,5 +380,19 @@ REL_TABLES: list[str] = [
         "CREATE REL TABLE IF NOT EXISTS CO_CHANGES_WITH("
         "FROM File TO File, confidence STRING, evidence STRING, "
         "frequency DOUBLE)"
+    ),
+    # Cross-boundary edges (DEC-043, v0.4).
+    (
+        "CREATE REL TABLE IF NOT EXISTS HANDLES("
+        "FROM Symbol TO Endpoint, confidence STRING, evidence STRING)"
+    ),
+    (
+        "CREATE REL TABLE IF NOT EXISTS CALLS_ENDPOINT("
+        "FROM Symbol TO Endpoint, confidence STRING, evidence STRING)"
+    ),
+    (
+        "CREATE REL TABLE IF NOT EXISTS ROUTES_TO("
+        "FROM Symbol TO Symbol, confidence STRING, evidence STRING, "
+        "via STRING, endpoint STRING)"
     ),
 ]

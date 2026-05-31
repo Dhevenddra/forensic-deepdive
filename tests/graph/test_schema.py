@@ -89,7 +89,7 @@ def test_all_node_dataclasses_constructable():
 def test_ddl_covers_every_node_dataclass():
     # If a Node type is added to schema.py, NODE_TABLES must grow too.
     declared_tables = {_node_name(stmt) for stmt in NODE_TABLES}
-    expected = {"File", "Symbol", "Module", "Commit", "Author", "Process"}
+    expected = {"File", "Symbol", "Module", "Commit", "Author", "Process", "Endpoint"}
     assert declared_tables == expected
 
 
@@ -105,6 +105,9 @@ def test_ddl_covers_every_edge_dataclass():
         "TOUCHED_BY_COMMIT",
         "AUTHORED_BY",
         "CO_CHANGES_WITH",
+        "HANDLES",  # DEC-043
+        "CALLS_ENDPOINT",  # DEC-043
+        "ROUTES_TO",  # DEC-043
     }
     assert declared_rels == expected
 

@@ -18,16 +18,20 @@ from forensic_deepdive.graph.schema import (
     Author,
     AuthoredByEdge,
     CallsEdge,
+    CallsEndpointEdge,
     CoChangesWithEdge,
     Commit,
     DefinesEdge,
+    Endpoint,
     ExtendsEdge,
     File,
+    HandlesEdge,
     ImplementsEdge,
     ImportsEdge,
     MemberOfEdge,
     Module,
     Process,
+    RoutesToEdge,
     Symbol,
     TouchedByCommitEdge,
 )
@@ -82,6 +86,9 @@ class GraphStore(ABC):
     @abstractmethod
     def add_process(self, node: Process) -> None: ...
 
+    @abstractmethod
+    def add_endpoint(self, node: Endpoint) -> None: ...  # DEC-043
+
     # --- writes (edges) -----------------------------------------------------
 
     @abstractmethod
@@ -110,6 +117,15 @@ class GraphStore(ABC):
 
     @abstractmethod
     def add_co_changes_with(self, edge: CoChangesWithEdge) -> None: ...
+
+    @abstractmethod
+    def add_handles(self, edge: HandlesEdge) -> None: ...  # DEC-043
+
+    @abstractmethod
+    def add_calls_endpoint(self, edge: CallsEndpointEdge) -> None: ...  # DEC-043
+
+    @abstractmethod
+    def add_routes_to(self, edge: RoutesToEdge) -> None: ...  # DEC-043
 
     # --- writes (batch, DEC-032) -------------------------------------------
     # Default implementations loop over the single-row equivalents — backends
@@ -171,6 +187,22 @@ class GraphStore(ABC):
     def add_many_co_changes_with(self, edges: Iterable[CoChangesWithEdge]) -> None:
         for e in edges:
             self.add_co_changes_with(e)
+
+    def add_many_endpoints(self, nodes: Iterable[Endpoint]) -> None:
+        for n in nodes:
+            self.add_endpoint(n)
+
+    def add_many_handles(self, edges: Iterable[HandlesEdge]) -> None:
+        for e in edges:
+            self.add_handles(e)
+
+    def add_many_calls_endpoint(self, edges: Iterable[CallsEndpointEdge]) -> None:
+        for e in edges:
+            self.add_calls_endpoint(e)
+
+    def add_many_routes_to(self, edges: Iterable[RoutesToEdge]) -> None:
+        for e in edges:
+            self.add_routes_to(e)
 
     # --- reads --------------------------------------------------------------
 
