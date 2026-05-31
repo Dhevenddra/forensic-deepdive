@@ -67,6 +67,19 @@ def test_shaping_demotes_test_below_equal_rank_impl() -> None:
     assert shaped[0]["shaped_score"] > shaped[1]["shaped_score"]
 
 
+def test_shaping_demotes_example_below_equal_rank_impl() -> None:
+    """DEC-049: an example/tutorial hit sorts below an equal-base impl hit."""
+    base = 1.0 / 61
+    hits = [
+        {"symbol": "docs_src/tut.py::Query", "role": "example", "kind": "class", "score": base},
+        {"symbol": "src/q.py::Query", "role": "source", "kind": "class", "score": base},
+    ]
+    shaped = shape(hits)
+    assert shaped[0]["symbol"] == "src/q.py::Query"
+    assert shaped[1]["symbol"] == "docs_src/tut.py::Query"
+    assert shape_factor("example", "class") < shape_factor("source", "class")
+
+
 def test_shaping_is_deterministic_on_equal_shaped_score() -> None:
     base = 1.0 / 61
     hits = [

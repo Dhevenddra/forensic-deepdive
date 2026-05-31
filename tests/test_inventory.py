@@ -86,6 +86,25 @@ def test_classify_role_precedence() -> None:
     assert classify_role("tests/snapshot_pb.py") == "test"
 
 
+def test_classify_role_example() -> None:
+    """DEC-049. Example/tutorial trees get their own role (kept in the graph,
+    demoted later)."""
+    assert classify_role("examples/quickstart.py") == "example"
+    assert classify_role("docs_src/tutorial/body/tutorial001.py") == "example"
+    assert classify_role("samples/demo_app.ts") == "example"
+    assert classify_role("tutorials/intro.py") == "example"
+    assert classify_role("demo/main.go") == "example"
+
+
+def test_classify_role_example_precedence() -> None:
+    """DEC-049. example sits BELOW the excluded roles: a test/generated file
+    inside an examples/ tree keeps its stronger role."""
+    assert classify_role("examples/test_quickstart.py") == "test"
+    assert classify_role("examples/model.g.dart") == "generated"
+    assert classify_role("examples/fixtures/data.py") == "fixture"
+    assert classify_role("third_party/examples/lib.py") == "vendored"
+
+
 def test_inventory_assigns_vendored_and_generated(tmp_path: Path) -> None:
     """End-to-end: vendored + generated land in their own buckets and are
     NOT counted in language_breakdown (which is production-source only)."""
@@ -105,6 +124,25 @@ def test_inventory_assigns_vendored_and_generated(tmp_path: Path) -> None:
     assert inv.language_breakdown == {"python": 1}
     assert len(inv.vendored_files) == 1
     assert len(inv.generated_files) == 1
+
+
+def test_inventory_example_role_in_graph_files_not_source(tmp_path: Path) -> None:
+    """DEC-049: example files are in graph_files (fed to the graph) but NOT in
+    source_files / language_breakdown (production count stays source-only)."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "examples").mkdir()
+    (tmp_path / "examples" / "demo.py").write_text("y = 2\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_main.py").write_text("z = 3\n", encoding="utf-8")
+    inv = take_inventory(tmp_path)
+
+    assert len(inv.example_files) == 1
+    assert len(inv.source_files) == 1  # production source only
+    assert inv.language_breakdown == {"python": 1}  # example not counted
+    # graph_files = source ∪ example (test excluded).
+    graph_paths = {item.rel_path for item in inv.graph_files}
+    assert graph_paths == {"src/main.py", "examples/demo.py"}
 
 
 def test_inventory_detects_generated_by_marker(tmp_path: Path) -> None:

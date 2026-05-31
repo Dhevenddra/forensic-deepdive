@@ -68,6 +68,7 @@ class RepoFacts:
     fixture_file_count: int = 0  # fixture files — inventoried, excluded
     vendored_file_count: int = 0  # DEC-021 — inventoried, excluded
     generated_file_count: int = 0  # DEC-021 — inventoried, excluded
+    example_file_count: int = 0  # DEC-049 — in the graph, demoted in ranking + query
     # DEC-029: when the BuildGraphPhase ran, the LadybugDB graph lives
     # here and emitters can query it for symbol-level / call-graph /
     # co-change content. ``None`` when graph mode is off — emitters fall

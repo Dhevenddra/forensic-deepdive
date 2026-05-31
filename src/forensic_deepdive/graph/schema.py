@@ -39,14 +39,16 @@ class SymbolKind(StrEnum):
 
 
 class FileRole(StrEnum):
-    """DEC-012 + DEC-021 (planned). v0.1 has source/test/fixture; v0.2 adds
-    vendored/generated. Carried here so the schema is the source of truth."""
+    """DEC-012 + DEC-021 + DEC-049. v0.1 has source/test/fixture; v0.2 adds
+    vendored/generated; v0.4 adds example (in the graph, but demoted in ranking
+    + query). Carried here so the schema is the source of truth."""
 
     SOURCE = "source"
     TEST = "test"
     FIXTURE = "fixture"
     VENDORED = "vendored"
     GENERATED = "generated"
+    EXAMPLE = "example"  # DEC-049
 
 
 # ---------------------------------------------------------------------------

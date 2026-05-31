@@ -48,6 +48,7 @@ _ROLE_FACTOR: dict[str, float] = {
     "fixture": 0.5,
     "vendored": 0.4,
     "generated": 0.4,
+    "example": 0.4,  # DEC-049 — tutorial/example code: retrievable but demoted
 }
 
 # Kind multipliers: a slight nudge toward the symbols an agent usually wants

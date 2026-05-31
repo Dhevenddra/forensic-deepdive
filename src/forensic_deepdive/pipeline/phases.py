@@ -85,6 +85,11 @@ from forensic_deepdive.static.tags import Tag
 # DEC-013 default DB location, mirroring v0.1's cache convention.
 _DEFAULT_GRAPH_DB_SUBDIR = (".deepdive", "graph.lbug")
 
+# DEC-049: PageRank teleport weight for example/tutorial files — down-weighted
+# vs the 1.0 baseline so tutorials don't rank as "central". Only applied when
+# example files exist (otherwise the walk stays uniform == byte-identical).
+_EXAMPLE_PR_WEIGHT = 0.1
+
 # ---------------------------------------------------------------------------
 # Phase outputs (typed dataclasses)
 # ---------------------------------------------------------------------------
@@ -217,7 +222,9 @@ class ParsePhase(Phase):
         manifest: dict[str, str] = {}
         tasks: list[ParseTask] = []
         languages: dict[str, str] = {}  # rel_path -> language (for cache.put)
-        for source in inv.source_files:
+        # DEC-049: parse production source *and* example/tutorial files — both
+        # feed the graph (example demoted later, not excluded).
+        for source in inv.graph_files:
             try:
                 data = source.path.read_bytes()
             except OSError:
@@ -285,9 +292,20 @@ class StaticPhase(Phase):
     output_type = StaticOutput
 
     def run(self, ctx: Context) -> StaticOutput:
+        inv = ctx.get(InventoryPhase).inventory
         parsed = ctx.get(ParsePhase)
         symbol_graph = build_symbol_graph(parsed.tags)
-        ranked = rank_files(symbol_graph)
+        # DEC-049: bias PageRank away from example/tutorial files. The teleport
+        # vector is built ONLY when example files exist; otherwise None keeps the
+        # exact uniform-teleport path (byte-identical on no-example repos).
+        example_paths = {sf.rel_path for sf in inv.example_files}
+        personalization: dict[str, float] | None = None
+        if example_paths:
+            personalization = {
+                node: (_EXAMPLE_PR_WEIGHT if node in example_paths else 1.0)
+                for node in symbol_graph.graph.nodes
+            }
+        ranked = rank_files(symbol_graph, personalization)
         return StaticOutput(
             tags=parsed.tags,
             symbol_graph=symbol_graph,
@@ -383,6 +401,7 @@ class EmitPhase(Phase):
             fixture_file_count=len(inv.fixture_files),
             vendored_file_count=len(inv.vendored_files),
             generated_file_count=len(inv.generated_files),
+            example_file_count=len(inv.example_files),
             graph_db_path=graph_db_path,
         )
 
@@ -453,6 +472,10 @@ class BuildGraphPhase(Phase):
                 wal_path.unlink()
         inv = ctx.get(InventoryPhase).inventory
         static = ctx.get(StaticPhase)
+        # DEC-049: the graph corpus is production source *and* example files
+        # (example demoted in ranking/query, not excluded). The four excluded
+        # roles (test/fixture/vendored/generated) are not here.
+        graph_files = inv.graph_files
 
         # DEC-023: group def Tags by their FULLY-QUALIFIED local name
         # (``<parent>.<name>`` for methods, ``<name>`` for top-level). This
@@ -470,7 +493,7 @@ class BuildGraphPhase(Phase):
         # Two imports of "os" from Python files share one Module; Python's
         # "os" and Go's "os" do NOT share — see ``module_pk``.
         module_pks: dict[str, Module] = {}  # pk -> Module dataclass
-        source_file_paths = {sf.rel_path for sf in inv.source_files}
+        source_file_paths = {sf.rel_path for sf in graph_files}
         edges_imports: list[ImportsEdge] = []
         for imp in static.imports:
             if imp.rel_path not in source_file_paths:
@@ -493,7 +516,7 @@ class BuildGraphPhase(Phase):
         # writing. The CALLS edges below MATCH on the Symbol qns we
         # write further down — including the synthetic per-file
         # ``<module>`` Symbols that carry module-level refs.
-        source_files_by_path = {sf.rel_path: sf.language for sf in inv.source_files}
+        source_files_by_path = {sf.rel_path: sf.language for sf in graph_files}
         # DEC-025 bare-name calls + DEC-037 receiver-type method calls. Both
         # produce ResolvedCall records; the method-call edges carry via != bare
         # and are INFERRED/AMBIGUOUS (the receiver type is inferred).
@@ -643,7 +666,7 @@ class BuildGraphPhase(Phase):
         # so byte-identical graph hashes survive the batch path.
 
         # Files.
-        files_to_write = [_source_to_file(sf, cfg.repo_path) for sf in inv.source_files]
+        files_to_write = [_source_to_file(sf, cfg.repo_path) for sf in graph_files]
 
         # Modules (already deduped in module_pks).
         modules_to_write = [module_pks[pk] for pk in sorted(module_pks)]
@@ -665,16 +688,16 @@ class BuildGraphPhase(Phase):
         sorted_def_items = sorted(def_groups.items())
         symbol_descriptors: list[SymbolDescriptor] = [
             SymbolDescriptor(str(SymbolKind.MODULE), sf.rel_path, MODULE_SCOPE)
-            for sf in inv.source_files
+            for sf in graph_files
         ]
         symbol_descriptors += [
             SymbolDescriptor(str(_category_to_kind(tags_[0].category)), rel_path, qn_local)
             for (rel_path, qn_local), tags_ in sorted_def_items
         ]
         symbol_ids = assign_disambiguators(symbol_descriptors)
-        module_id_count = len(inv.source_files)
+        module_id_count = len(graph_files)
 
-        for idx, sf in enumerate(inv.source_files):
+        for idx, sf in enumerate(graph_files):
             module_qn = _qualified_name(sf.rel_path, MODULE_SCOPE)
             symbols_to_write.append(
                 Symbol(
@@ -739,9 +762,9 @@ class BuildGraphPhase(Phase):
 
         # CALLS — defensive endpoint filter (resolver's index aligns with
         # def_groups, so this is belt-and-suspenders).
-        valid_symbol_qns = {
-            _qualified_name(sf.rel_path, MODULE_SCOPE) for sf in inv.source_files
-        } | {_qualified_name(rel_path, qn_local) for (rel_path, qn_local) in def_groups}
+        valid_symbol_qns = {_qualified_name(sf.rel_path, MODULE_SCOPE) for sf in graph_files} | {
+            _qualified_name(rel_path, qn_local) for (rel_path, qn_local) in def_groups
+        }
         edges_calls = [
             CallsEdge(
                 caller=call.caller_qn,

@@ -70,6 +70,11 @@ def _overview(facts: RepoFacts) -> list[str]:
             f"{humanize_int(facts.generated_file_count)} generated "
             "(inventoried, excluded from the dependency graph per DEC-021)"
         )
+    if facts.example_file_count:
+        out.append(
+            f"- **Example/tutorial:** {humanize_int(facts.example_file_count)} file(s) "
+            "(in the dependency graph but demoted in ranking + query per DEC-049)"
+        )
     if facts.flatten is not None:
         flat = facts.flatten
         tokens = (

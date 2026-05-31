@@ -40,12 +40,29 @@ DEFAULT_MAX_FILE_BYTES = 1_048_576
 # build_runner, openapi-generator, swagger-codegen, prost, ts-proto, ...).
 _GENERATED_SNIFF_BYTES = 512
 
-# File roles (DEC-012, widened by DEC-021).
+# File roles (DEC-012, widened by DEC-021, DEC-049).
 ROLE_SOURCE = "source"
 ROLE_TEST = "test"
 ROLE_FIXTURE = "fixture"
 ROLE_VENDORED = "vendored"  # DEC-021
 ROLE_GENERATED = "generated"  # DEC-021
+ROLE_EXAMPLE = "example"  # DEC-049 — in the graph, but demoted in ranking + query
+
+# DEC-049 example/tutorial path-segment markers. Unlike the excluded roles,
+# example files stay in the graph (demoted), so they're matched conservatively.
+_EXAMPLE_SEGMENTS = frozenset(
+    {
+        "examples",
+        "example",
+        "docs_src",
+        "samples",
+        "sample",
+        "tutorials",
+        "tutorial",
+        "demo",
+        "demos",
+    }
+)
 
 _FIXTURE_SEGMENTS = frozenset(
     {"fixtures", "fixture", "testdata", "test-data", "__fixtures__", "snapshots", "golden"}
@@ -132,6 +149,18 @@ class Inventory:
         return [item for item in self.files if item.role == ROLE_GENERATED]
 
     @property
+    def example_files(self) -> list[SourceFile]:
+        return [item for item in self.files if item.role == ROLE_EXAMPLE]
+
+    @property
+    def graph_files(self) -> list[SourceFile]:
+        """DEC-049: the files that feed the symbol graph — production source
+        *and* example/tutorial code (the latter demoted in ranking + query, not
+        excluded). The four excluded roles (test/fixture/vendored/generated)
+        are not here."""
+        return [item for item in self.files if item.role in (ROLE_SOURCE, ROLE_EXAMPLE)]
+
+    @property
     def file_count(self) -> int:
         """Total language-detected files, all roles."""
         return len(self.files)
@@ -145,7 +174,9 @@ def classify_role(rel_path: str) -> str:
     into the role-assignment in :func:`take_inventory` for files that look
     like source by path alone.
 
-    Precedence: vendored > fixture > test > generated (by filename) > source.
+    Precedence: vendored > fixture > test > generated (by filename) >
+    example > source (DEC-049 — example sits below the excluded roles so
+    `examples/test_foo.py` is TEST and `examples/foo.g.dart` is GENERATED).
     """
     pure = PurePosixPath(rel_path)
     segments_lower = [part.lower() for part in pure.parts]
@@ -161,6 +192,8 @@ def classify_role(rel_path: str) -> str:
         return ROLE_TEST
     if _GENERATED_NAME_RE.search(pure.name.lower()):
         return ROLE_GENERATED
+    if segments_set & _EXAMPLE_SEGMENTS:
+        return ROLE_EXAMPLE
     return ROLE_SOURCE
 
 
