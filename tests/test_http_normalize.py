@@ -43,6 +43,8 @@ def test_equivalence_class_all_collapse_to_one_contract_id():
     [
         ("/Users/{ID}", "/users/{param}"),  # lowercase + brace
         ("/users/:id", "/users/{param}"),  # express colon
+        ("/users/<int:user_id>", "/users/{param}"),  # flask typed angle
+        ("/users/<user_id>", "/users/{param}"),  # flask plain angle
         ("/posts/[slug]", "/posts/{param}"),  # nextjs bracket
         ("/users/{id}/posts/{postId}", "/users/{param}/posts/{param}"),  # multi
         ("/users/", "/users"),  # trailing slash dropped

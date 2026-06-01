@@ -26,6 +26,7 @@ import re
 # Express ``:id`` (greedy to the next slash), FastAPI/Spring ``{id}``,
 # Next.js ``[id]``, and the consumer-only template literal ``${id}``.
 _RE_TEMPLATE = re.compile(r"\$\{[^}]+\}")  # ${id}  (consumer only — must run first)
+_RE_ANGLE = re.compile(r"<[^>]+>")  # <id> / <int:id>  (Flask — must run before colon)
 _RE_COLON = re.compile(r":[^/]+")  # :id    (Express)
 _RE_BRACE = re.compile(r"\{[^}]+\}")  # {id}   (FastAPI/Spring)
 _RE_BRACKET = re.compile(r"\[[^\]]+\]")  # [id]   (Next.js)
@@ -89,6 +90,7 @@ def _collapse_params(path: str, *, consumer: bool) -> str:
     degrades to ``${param}``); numerics collapse last and only for consumers."""
     if consumer:
         path = _RE_TEMPLATE.sub("{param}", path)
+    path = _RE_ANGLE.sub("{param}", path)  # Flask <int:id> — before colon (it contains ':')
     path = _RE_COLON.sub("{param}", path)
     path = _RE_BRACE.sub("{param}", path)
     path = _RE_BRACKET.sub("{param}", path)
@@ -101,8 +103,8 @@ def normalize_provider_path(path: str) -> str:
     """Normalize a *route-declaration* path (GitNexus ``normalizeHttpPath``).
 
     strip query → lowercase → leading-slash → drop trailing slash → collapse
-    ``:id`` / ``{id}`` / ``[id]`` → ``{param}``. Literal numeric segments are
-    **kept** (a declared ``/orders/42`` route is distinct)."""
+    ``:id`` / ``{id}`` / ``[id]`` / ``<id>`` / ``<int:id>`` → ``{param}``. Literal
+    numeric segments are **kept** (a declared ``/orders/42`` route is distinct)."""
     return _collapse_params(_base_normalize(path), consumer=False)
 
 

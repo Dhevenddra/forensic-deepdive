@@ -87,9 +87,9 @@ def rightmost_name(node: Node, src: bytes) -> str | None:
     return None
 
 
-def keyword_arg_value(call_args: Node, name: str, src: bytes) -> str | None:
-    """The static string value of keyword arg *name* in an ``argument_list``
-    (``prefix="/api"`` → ``/api``), or ``None`` if absent/computed."""
+def keyword_arg_node(call_args: Node, name: str, src: bytes) -> Node | None:
+    """The *value node* of keyword arg *name* in an ``argument_list`` (the value
+    may be a string, a list, or anything — the caller decides how to read it)."""
     for child in call_args.children:
         if child.type != "keyword_argument":
             continue
@@ -98,8 +98,29 @@ def keyword_arg_value(call_args: Node, name: str, src: bytes) -> str | None:
         if key is None or val is None:
             continue
         if src[key.start_byte : key.end_byte].decode("utf-8", "replace") == name:
-            return py_string_literal(val, src)
+            return val
     return None
+
+
+def keyword_arg_value(call_args: Node, name: str, src: bytes) -> str | None:
+    """The static string value of keyword arg *name* in an ``argument_list``
+    (``prefix="/api"`` → ``/api``), or ``None`` if absent/computed/non-string."""
+    node = keyword_arg_node(call_args, name, src)
+    return py_string_literal(node, src) if node is not None else None
+
+
+def string_list_values(node: Node, src: bytes) -> list[str]:
+    """Static string members of a Python ``list`` node (``["GET", "POST"]`` →
+    ``["GET", "POST"]``), skipping computed members."""
+    if node.type != "list":
+        return []
+    out: list[str] = []
+    for child in node.children:
+        if child.type == "string":
+            value = py_string_literal(child, src)
+            if value is not None:
+                out.append(value)
+    return out
 
 
 def first_positional_string(call_args: Node, src: bytes) -> str | None:

@@ -7,7 +7,8 @@ Express/Spring/Flask join this list as they land.
 """
 
 from forensic_deepdive.contracts.http.providers.fastapi import extract_fastapi_providers
+from forensic_deepdive.contracts.http.providers.flask import extract_flask_providers
 
-PROVIDER_EXTRACTORS = [extract_fastapi_providers]
+PROVIDER_EXTRACTORS = [extract_fastapi_providers, extract_flask_providers]
 
-__all__ = ["PROVIDER_EXTRACTORS", "extract_fastapi_providers"]
+__all__ = ["PROVIDER_EXTRACTORS", "extract_fastapi_providers", "extract_flask_providers"]
