@@ -7,7 +7,12 @@ registration wires in. fetch/axios is the first instance; RTK Query / React Quer
 """
 
 from forensic_deepdive.contracts.http.consumers.fetch_axios import extract_fetch_axios_consumers
+from forensic_deepdive.contracts.http.consumers.rtk_query import extract_rtk_query_consumers
 
-CONSUMER_EXTRACTORS = [extract_fetch_axios_consumers]
+CONSUMER_EXTRACTORS = [extract_fetch_axios_consumers, extract_rtk_query_consumers]
 
-__all__ = ["CONSUMER_EXTRACTORS", "extract_fetch_axios_consumers"]
+__all__ = [
+    "CONSUMER_EXTRACTORS",
+    "extract_fetch_axios_consumers",
+    "extract_rtk_query_consumers",
+]
