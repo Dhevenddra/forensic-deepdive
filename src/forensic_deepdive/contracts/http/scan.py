@@ -110,6 +110,42 @@ def java_string_literal(node: Node, src: bytes) -> str | None:
     )
 
 
+def js_url_text(node: Node, src: bytes) -> str | None:
+    """A consumer URL argument as text for ``normalize_consumer_path``: a plain
+    ``string`` → its fragment; a ``template_string`` → its inner text **with
+    ``${…}`` kept** (the normalizer collapses those); anything else (a bare
+    variable — fully dynamic) → ``None`` (can't form a contract_id)."""
+    if node.type == "string":
+        return js_string_literal(node, src)
+    if node.type == "template_string":
+        text = src[node.start_byte : node.end_byte].decode("utf-8", "replace")
+        return text[1:-1] if text.startswith("`") and text.endswith("`") else text
+    return None
+
+
+def js_object_string_prop(obj: Node, name: str, src: bytes) -> str | None:
+    """The string/URL value of property *name* in a JS ``object`` literal —
+    ``{ method: "POST" }`` yields ``POST``; a ``url`` whose value is a template
+    literal yields its inner text (with ``${id}`` kept for the normalizer)."""
+    if obj.type != "object":
+        return None
+    for pair in obj.children:
+        if pair.type != "pair":
+            continue
+        key = pair.child_by_field_name("key")
+        value = pair.child_by_field_name("value")
+        if key is None or value is None:
+            continue
+        key_text = (
+            js_string_literal(key, src)
+            if key.type == "string"
+            else src[key.start_byte : key.end_byte].decode("utf-8", "replace")
+        )
+        if key_text == name:
+            return js_url_text(value, src)
+    return None
+
+
 def rightmost_name(node: Node, src: bytes) -> str | None:
     """The trailing identifier of an ``identifier`` or ``attribute`` node:
     ``router`` → ``router``; ``items.router`` → ``router``. Used to match an
