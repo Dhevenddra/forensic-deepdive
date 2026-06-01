@@ -146,6 +146,29 @@ def js_object_string_prop(obj: Node, name: str, src: bytes) -> str | None:
     return None
 
 
+def js_object_value(obj: Node, name: str, src: bytes) -> Node | None:
+    """The raw *value node* of property *name* in a JS ``object`` literal (the
+    caller decides how to read it — e.g. an arrow ``queryFn`` or a nested
+    object). ``None`` if absent. Keys may be ``property_identifier`` or string."""
+    if obj.type != "object":
+        return None
+    for pair in obj.children:
+        if pair.type != "pair":
+            continue
+        key = pair.child_by_field_name("key")
+        value = pair.child_by_field_name("value")
+        if key is None or value is None:
+            continue
+        key_text = (
+            js_string_literal(key, src)
+            if key.type == "string"
+            else src[key.start_byte : key.end_byte].decode("utf-8", "replace")
+        )
+        if key_text == name:
+            return value
+    return None
+
+
 def rightmost_name(node: Node, src: bytes) -> str | None:
     """The trailing identifier of an ``identifier`` or ``attribute`` node:
     ``router`` → ``router``; ``items.router`` → ``router``. Used to match an
