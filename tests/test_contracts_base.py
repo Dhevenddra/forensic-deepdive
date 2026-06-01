@@ -15,7 +15,9 @@ def _provider(contract_id: str, symbol_id: str, **kw) -> Contract:
         role=ContractRole.PROVIDER,
         contract_id=contract_id,
         symbol_id=symbol_id,
-        confidence=Confidence.EXTRACTED,
+        confidence=kw.get("confidence", Confidence.EXTRACTED),
+        spec_backed=kw.get("spec_backed", False),
+        normalized_path=kw.get("normalized_path", ""),
         rel_path=kw.get("rel_path", "back/api.py"),
         line=kw.get("line", 0),
     )
@@ -26,24 +28,55 @@ def _consumer(contract_id: str, symbol_id: str, **kw) -> Contract:
         role=ContractRole.CONSUMER,
         contract_id=contract_id,
         symbol_id=symbol_id,
-        confidence=Confidence.EXTRACTED,
+        confidence=kw.get("confidence", Confidence.EXTRACTED),
+        normalized_path=kw.get("normalized_path", ""),
         rel_path=kw.get("rel_path", "front/app.ts"),
         line=kw.get("line", 0),
     )
 
 
-def test_join_groups_by_contract_id_single_pair() -> None:
+def test_unique_both_literal_is_extracted() -> None:
+    # DEC-047: a unique match where both sides are literal (EXTRACTED) → EXTRACTED.
     links = join(
-        providers=[_provider("http::GET::/u/{param}", "back/api.py::get_user")],
-        consumers=[_consumer("http::GET::/u/{param}", "front/app.ts::fetchUser")],
+        providers=[_provider("http::POST::/users", "back/api.py::create_user")],
+        consumers=[_consumer("http::POST::/users", "front/app.ts::addUser")],
     )
     assert len(links) == 1
     link = links[0]
-    assert link.consumer_symbol_id == "front/app.ts::fetchUser"
-    assert link.provider_symbol_id == "back/api.py::get_user"
-    assert link.contract_id == "http::GET::/u/{param}"
-    assert link.confidence == Confidence.INFERRED  # unique provider, Item D baseline
+    assert link.consumer_symbol_id == "front/app.ts::addUser"
+    assert link.provider_symbol_id == "back/api.py::create_user"
+    assert link.contract_id == "http::POST::/users"
+    assert link.confidence == Confidence.EXTRACTED
     assert link.via == "http"
+
+
+def test_unique_one_side_inferred_is_inferred() -> None:
+    # DEC-047: a param/template-generalized consumer (INFERRED) demotes the join,
+    # even with a literal (EXTRACTED) provider.
+    links = join(
+        providers=[_provider("http::GET::/u/{param}", "back/api.py::get_user")],
+        consumers=[
+            _consumer(
+                "http::GET::/u/{param}", "front/app.ts::fetchUser", confidence=Confidence.INFERRED
+            )
+        ],
+    )
+    assert len(links) == 1
+    assert links[0].confidence == Confidence.INFERRED
+
+
+def test_spec_backed_provider_is_extracted_even_if_consumer_inferred() -> None:
+    # DEC-047: a spec-backed provider (Item I) → EXTRACTED regardless of the
+    # consumer's per-edge confidence.
+    links = join(
+        providers=[_provider("http::GET::/u/{param}", "back/api.py::get_user", spec_backed=True)],
+        consumers=[
+            _consumer(
+                "http::GET::/u/{param}", "front/app.ts::fetchUser", confidence=Confidence.INFERRED
+            )
+        ],
+    )
+    assert links[0].confidence == Confidence.EXTRACTED
 
 
 def test_fan_in_many_consumers_one_provider() -> None:
@@ -61,7 +94,8 @@ def test_fan_in_many_consumers_one_provider() -> None:
         "front/b.ts::submitB",
     }
     assert all(link.provider_symbol_id == "back/api.py::create_order" for link in links)
-    assert all(link.confidence == Confidence.INFERRED for link in links)
+    # one provider per consumer, both sides literal → EXTRACTED (DEC-047)
+    assert all(link.confidence == Confidence.EXTRACTED for link in links)
 
 
 def test_multiple_providers_same_contract_are_ambiguous() -> None:
@@ -90,6 +124,50 @@ def test_consumer_with_no_provider_yields_no_link() -> None:
         consumers=[_consumer("http::GET::/unknown", "front/app.ts::callUnknown")],
     )
     assert links == []
+
+
+def _http_keys(consumer):
+    # Mirror ContractPhase's HTTP match_keys: exact, then method-wildcard.
+    from forensic_deepdive.contracts.http.normalize import http_wildcard_id
+
+    return (consumer.contract_id, http_wildcard_id(consumer.normalized_path))
+
+
+def test_method_wildcard_fallback_is_inferred() -> None:
+    # DEC-047: a GET consumer with no exact provider matches a `*` (bare
+    # @RequestMapping) provider on the same path — INFERRED (verb undeclared).
+    links = join(
+        providers=[
+            _provider("http::*::/items", "back/api.py::handle_items", normalized_path="/items")
+        ],
+        consumers=[
+            _consumer("http::GET::/items", "front/app.ts::loadItems", normalized_path="/items")
+        ],
+        match_keys=_http_keys,
+    )
+    assert len(links) == 1
+    link = links[0]
+    assert link.provider_symbol_id == "back/api.py::handle_items"
+    assert link.contract_id == "http::GET::/items"  # consumer's concrete id is kept
+    assert link.confidence == Confidence.INFERRED
+    assert link.evidence == "contract-join-wildcard"
+
+
+def test_exact_match_preferred_over_wildcard() -> None:
+    # An exact provider wins over a co-present wildcard provider (no double link).
+    links = join(
+        providers=[
+            _provider("http::GET::/items", "back/api.py::list_items", normalized_path="/items"),
+            _provider("http::*::/items", "back/api.py::any_items", normalized_path="/items"),
+        ],
+        consumers=[
+            _consumer("http::GET::/items", "front/app.ts::loadItems", normalized_path="/items")
+        ],
+        match_keys=_http_keys,
+    )
+    assert len(links) == 1
+    assert links[0].provider_symbol_id == "back/api.py::list_items"
+    assert links[0].confidence == Confidence.EXTRACTED  # exact, both literal
 
 
 def test_join_is_deterministic_regardless_of_input_order() -> None:

@@ -24,6 +24,7 @@ from pathlib import Path
 
 from forensic_deepdive.cache import cache_dir
 from forensic_deepdive.contracts import Contract, ContractContext, ContractRole, CrossLink, join
+from forensic_deepdive.contracts.http.normalize import http_wildcard_id
 from forensic_deepdive.contracts.http.register import register_http_extractors
 from forensic_deepdive.contracts.registry import REGISTRY
 from forensic_deepdive.emit import RepoFacts, render_all
@@ -340,6 +341,16 @@ class StaticPhase(Phase):
         )
 
 
+def _http_match_keys(consumer: Contract) -> tuple[str, ...]:
+    """DEC-047 join candidate keys for an HTTP consumer: the exact
+    ``http::<VERB>::<path>`` first, then the method-agnostic ``http::*::<path>``
+    fallback (so a Spring bare ``@RequestMapping`` provider still joins). Other
+    protocols match exact-only — the HTTP wildcard is HTTP's concern."""
+    if consumer.protocol == "http" and consumer.normalized_path:
+        return (consumer.contract_id, http_wildcard_id(consumer.normalized_path))
+    return (consumer.contract_id,)
+
+
 class ContractPhase(Phase):
     """Cross-boundary contract extraction + join (DEC-043, v0.4 Item D).
 
@@ -378,7 +389,7 @@ class ContractPhase(Phase):
             for extractor in entry.consumer_extractors:
                 consumers.extend(extractor(context))
 
-        cross_links = join(providers, consumers)
+        cross_links = join(providers, consumers, match_keys=_http_match_keys)
         endpoints = _build_endpoints(providers, consumers)
         return ContractOutput(
             providers=providers,
