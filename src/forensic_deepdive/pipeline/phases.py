@@ -24,6 +24,7 @@ from pathlib import Path
 
 from forensic_deepdive.cache import cache_dir
 from forensic_deepdive.contracts import Contract, ContractContext, ContractRole, CrossLink, join
+from forensic_deepdive.contracts.http.register import register_http_extractors
 from forensic_deepdive.contracts.registry import REGISTRY
 from forensic_deepdive.emit import RepoFacts, render_all
 from forensic_deepdive.emit.shims import ShimResult, write_shims
@@ -354,6 +355,9 @@ class ContractPhase(Phase):
     output_type = ContractOutput
 
     def run(self, ctx: Context) -> ContractOutput:
+        # DEC-045: wire the HTTP provider/consumer extractors into the registry
+        # (idempotent — a guarded no-op after the first call).
+        register_http_extractors()
         cfg = ctx.config
         # inventory ran before static (which depends on it), so it's in ctx.
         inv = ctx.get(InventoryPhase).inventory
