@@ -1,0 +1,20 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Items API", "version": "1.0.0" },
+  "paths": {
+    "/api/items/{item_id}": {
+      "get": {
+        "operationId": "getItem",
+        "summary": "Fetch one item",
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/api/orphan/{orphan_id}": {
+      "get": {
+        "operationId": "getOrphan",
+        "summary": "Documented but unimplemented",
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  }
+}

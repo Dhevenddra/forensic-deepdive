@@ -18,6 +18,7 @@ emitters cut over to read from the graph (PRD §10 item 9).
 from __future__ import annotations
 
 import hashlib
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,6 +28,7 @@ from forensic_deepdive.contracts import Contract, ContractContext, ContractRole,
 from forensic_deepdive.contracts.http.normalize import http_wildcard_id
 from forensic_deepdive.contracts.http.register import register_http_extractors
 from forensic_deepdive.contracts.registry import REGISTRY
+from forensic_deepdive.contracts.specs import collect_spec_operations, reconcile_with_specs
 from forensic_deepdive.emit import RepoFacts, render_all
 from forensic_deepdive.emit.shims import ShimResult, write_shims
 from forensic_deepdive.flatten.repomix_backend import (
@@ -89,6 +91,8 @@ from forensic_deepdive.static.parse_cache import (
 )
 from forensic_deepdive.static.resolver import MODULE_SCOPE, resolve_calls, resolve_method_calls
 from forensic_deepdive.static.tags import Tag
+
+logger = logging.getLogger(__name__)
 
 # DEC-013 default DB location, mirroring v0.1's cache convention.
 _DEFAULT_GRAPH_DB_SUBDIR = (".deepdive", "graph.lbug")
@@ -388,6 +392,20 @@ class ContractPhase(Phase):
                 providers.extend(extractor(context))
             for extractor in entry.consumer_extractors:
                 consumers.extend(extractor(context))
+
+        # DEC-048 (Item I — the codegen shortcut): fold in OpenAPI/Swagger specs.
+        # Spec-backed providers upgrade their unique join to EXTRACTED (DEC-047);
+        # spec ops with no in-code handler become spec-only Endpoints. A YAML spec
+        # found without the [openapi] extra is skipped LOUDLY (never silently).
+        spec_scan = collect_spec_operations(cfg.repo_path)
+        if spec_scan.skipped_yaml:
+            logger.warning(
+                "OpenAPI: %d YAML spec(s) skipped — install forensic-deepdive[openapi] "
+                "to parse them: %s",
+                len(spec_scan.skipped_yaml),
+                ", ".join(spec_scan.skipped_yaml),
+            )
+        providers = reconcile_with_specs(providers, spec_scan.operations)
 
         cross_links = join(providers, consumers, match_keys=_http_match_keys)
         endpoints = _build_endpoints(providers, consumers)
@@ -918,12 +936,18 @@ class BuildGraphPhase(Phase):
             ),
             key=lambda e: (e.symbol, e.contract_id),
         )
+        # DEC-048: a consumer hitting a spec-backed Endpoint (the spec is the
+        # provider truth) gets its CALLS_ENDPOINT upgraded to EXTRACTED even when
+        # no handler symbol is located — the join must not require a HANDLES edge.
+        spec_backed_ids = {e.contract_id for e in endpoints_to_write if e.spec_backed}
         edges_calls_endpoint = sorted(
             (
                 CallsEndpointEdge(
                     symbol=c.symbol_id,
                     contract_id=c.contract_id,
-                    confidence=c.confidence,
+                    confidence=(
+                        Confidence.EXTRACTED if c.contract_id in spec_backed_ids else c.confidence
+                    ),
                     evidence=c.evidence or "call-site",
                 )
                 for c in contracts_out.consumers

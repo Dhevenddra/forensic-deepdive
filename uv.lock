@@ -452,6 +452,7 @@ all = [
     { name = "mcp" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "pyyaml" },
     { name = "ruff" },
     { name = "ty" },
 ]
@@ -467,6 +468,9 @@ graphiti = [
 mcp = [
     { name = "mcp" },
 ]
+openapi = [
+    { name = "pyyaml" },
+]
 semantic = [
     { name = "numpy" },
     { name = "onnxruntime" },
@@ -475,7 +479,7 @@ semantic = [
 
 [package.metadata]
 requires-dist = [
-    { name = "forensic-deepdive", extras = ["graphiti", "mcp", "dev"], marker = "extra == 'all'" },
+    { name = "forensic-deepdive", extras = ["graphiti", "mcp", "openapi", "dev"], marker = "extra == 'all'" },
     { name = "graphiti-core", marker = "extra == 'graphiti'", specifier = ">=0.28" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "jinja2", specifier = ">=3.1" },
@@ -488,6 +492,7 @@ requires-dist = [
     { name = "pygithub", specifier = ">=2.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
+    { name = "pyyaml", marker = "extra == 'openapi'", specifier = ">=6.0" },
     { name = "real-ladybug", specifier = ">=0.15.3" },
     { name = "rich", specifier = ">=13.7" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
@@ -496,7 +501,7 @@ requires-dist = [
     { name = "ty", marker = "extra == 'dev'" },
     { name = "typer", specifier = ">=0.12" },
 ]
-provides-extras = ["graphiti", "mcp", "semantic", "dev", "all"]
+provides-extras = ["graphiti", "mcp", "semantic", "openapi", "dev", "all"]
 
 [[package]]
 name = "fsspec"
