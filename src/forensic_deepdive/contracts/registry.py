@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Protocol
 
 from forensic_deepdive.contracts.base import Contract
+from forensic_deepdive.contracts.http.normalize import http_contract_id
 from forensic_deepdive.static.imports import Import
 from forensic_deepdive.static.method_calls import MethodCall
 from forensic_deepdive.static.tags import Tag
@@ -46,13 +47,6 @@ class KeyBuilder(Protocol):
     def __call__(self, *args: object, **kwargs: object) -> str: ...
 
 
-def http_key_builder(method: str, normalized_path: str) -> str:
-    """``http::<METHOD>::<normalized-path>`` (DEC-043). The *normalization* of
-    the path is DEC-044's job (``contracts/http/normalize.http_contract_id``);
-    this is the bare key shape so the registry seam is complete in Item D."""
-    return f"http::{method.upper()}::{normalized_path}"
-
-
 def grpc_key_builder(*args: object, **kwargs: object) -> str:
     raise NotImplementedError(
         "gRPC contract keys (grpc::<pkg>.<Service>/<Method>) are a v0.5 seam (DEC-043)."
@@ -77,7 +71,8 @@ class ProtocolEntry:
 # The live registry. HTTP is real (extractors fill in Items F/G); gRPC/topic are
 # stubbed so the federation seam is explicit.
 REGISTRY: dict[str, ProtocolEntry] = {
-    "http": ProtocolEntry("http", http_key_builder),
+    # HTTP key_builder is now the real normalizer-backed contractId (DEC-044).
+    "http": ProtocolEntry("http", http_contract_id),
     "grpc": ProtocolEntry("grpc", grpc_key_builder),
     "topic": ProtocolEntry("topic", topic_key_builder),
 }

@@ -12,6 +12,13 @@ from forensic_deepdive.contracts.base import (
     CrossLink,
     join,
 )
+from forensic_deepdive.contracts.http.normalize import (
+    http_contract_id,
+    http_wildcard_id,
+    is_noise_path,
+    normalize_consumer_path,
+    normalize_provider_path,
+)
 from forensic_deepdive.contracts.registry import (
     REGISTRY,
     ContractContext,
@@ -27,7 +34,12 @@ __all__ = [
     "ContractRole",
     "CrossLink",
     "ProtocolEntry",
+    "http_contract_id",
+    "http_wildcard_id",
+    "is_noise_path",
     "join",
+    "normalize_consumer_path",
+    "normalize_provider_path",
     "register_consumer",
     "register_provider",
 ]
