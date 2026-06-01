@@ -74,6 +74,29 @@ def py_string_literal(node: Node, src: bytes) -> str | None:
     return "".join(parts)
 
 
+def js_string_literal(node: Node, src: bytes) -> str | None:
+    """A JavaScript/TypeScript ``string`` or ``template_string`` node's static
+    value, or ``None`` when computed. A plain ``"…"`` / ``'…'`` is its
+    ``string_fragment``; a template literal is static **only** if it has no
+    ``${…}`` substitution (a plain backtick literal yes, one with ``${id}`` no —
+    the latter is a *consumer* concern handled by ``normalize_consumer_path``)."""
+    if node.type == "string":
+        return "".join(
+            src[c.start_byte : c.end_byte].decode("utf-8", "replace")
+            for c in node.children
+            if c.type == "string_fragment"
+        )
+    if node.type == "template_string":
+        if any(c.type == "template_substitution" for c in node.children):
+            return None
+        return "".join(
+            src[c.start_byte : c.end_byte].decode("utf-8", "replace")
+            for c in node.children
+            if c.type == "string_fragment"
+        )
+    return None
+
+
 def rightmost_name(node: Node, src: bytes) -> str | None:
     """The trailing identifier of an ``identifier`` or ``attribute`` node:
     ``router`` → ``router``; ``items.router`` → ``router``. Used to match an

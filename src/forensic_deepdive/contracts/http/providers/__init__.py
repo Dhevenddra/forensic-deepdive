@@ -6,9 +6,19 @@ registry (see ``contracts.http.register``). FastAPI is the first instance;
 Express/Spring/Flask join this list as they land.
 """
 
+from forensic_deepdive.contracts.http.providers.express import extract_express_providers
 from forensic_deepdive.contracts.http.providers.fastapi import extract_fastapi_providers
 from forensic_deepdive.contracts.http.providers.flask import extract_flask_providers
 
-PROVIDER_EXTRACTORS = [extract_fastapi_providers, extract_flask_providers]
+PROVIDER_EXTRACTORS = [
+    extract_fastapi_providers,
+    extract_flask_providers,
+    extract_express_providers,
+]
 
-__all__ = ["PROVIDER_EXTRACTORS", "extract_fastapi_providers", "extract_flask_providers"]
+__all__ = [
+    "PROVIDER_EXTRACTORS",
+    "extract_express_providers",
+    "extract_fastapi_providers",
+    "extract_flask_providers",
+]
