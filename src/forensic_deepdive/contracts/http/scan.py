@@ -97,6 +97,19 @@ def js_string_literal(node: Node, src: bytes) -> str | None:
     return None
 
 
+def java_string_literal(node: Node, src: bytes) -> str | None:
+    """A Java ``string_literal`` node's value (its ``string_fragment``), or
+    ``None`` for any other node (a constant reference / concatenation isn't a
+    static literal — dropped, per the DEC-037 posture)."""
+    if node.type != "string_literal":
+        return None
+    return "".join(
+        src[c.start_byte : c.end_byte].decode("utf-8", "replace")
+        for c in node.children
+        if c.type == "string_fragment"
+    )
+
+
 def rightmost_name(node: Node, src: bytes) -> str | None:
     """The trailing identifier of an ``identifier`` or ``attribute`` node:
     ``router`` → ``router``; ``items.router`` → ``router``. Used to match an
