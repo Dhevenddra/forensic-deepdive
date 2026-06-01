@@ -110,6 +110,32 @@ def java_string_literal(node: Node, src: bytes) -> str | None:
     )
 
 
+def py_url_text(node: Node, src: bytes) -> str | None:
+    """A Python consumer URL argument as text for ``normalize_consumer_path``: a
+    plain ``"…"`` → its content; an f-string ``f"/users/{id}"`` → its inner text
+    **with ``{id}`` kept** (the normalizer's ``{param}`` rule collapses those, so
+    a consumer ``f"/users/{id}"`` joins a provider ``/users/{id}``). Anything that
+    isn't a ``string`` node (a concatenation / bare variable — computed) →
+    ``None`` (no stable id)."""
+    if node.type != "string":
+        return None
+    start = end = None
+    for child in node.children:
+        if child.type == "string_start":
+            start = child
+        elif child.type == "string_end":
+            end = child
+    if start is None or end is None:
+        return None
+    return src[start.end_byte : end.start_byte].decode("utf-8", "replace")
+
+
+def py_is_fstring(node: Node, src: bytes) -> bool:
+    """True when a Python ``string`` node carries an ``interpolation`` (an
+    f-string with a ``{…}`` substitution) — the consumer-side INFERRED gate."""
+    return node.type == "string" and any(c.type == "interpolation" for c in node.children)
+
+
 def js_url_text(node: Node, src: bytes) -> str | None:
     """A consumer URL argument as text for ``normalize_consumer_path``: a plain
     ``string`` → its fragment; a ``template_string`` → its inner text **with
