@@ -314,7 +314,7 @@ def test_query_requires_either_arg(populated_db: Path) -> None:
 
 def test_make_server_registers_all_tools(populated_db: Path) -> None:
     """DEC-016 (5 composite tools) + DEC-019 (2 insight tools) + DEC-039
-    (visualize). The server registers 8 tools total in v0.3."""
+    (visualize) + DEC-052 (trace). The server registers 9 tools total in v0.4."""
     import asyncio
 
     server = srv.make_server(populated_db)
@@ -333,6 +333,8 @@ def test_make_server_registers_all_tools(populated_db: Path) -> None:
         "recall_insights_tool",
         # DEC-039 visual export.
         "visualize_tool",
+        # DEC-052 cross-stack feature slice.
+        "trace_tool",
     }
 
 

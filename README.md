@@ -5,7 +5,7 @@
 `forensic-deepdive` analyzes any codebase (9 languages, polyglot) and produces:
 
 1. **A persistent embedded graph** at `<repo>/.deepdive/graph.lbug` — File, Symbol, Module, Commit, Author nodes plus DEFINES, MEMBER_OF, IMPORTS, CALLS, EXTENDS, IMPLEMENTS, TOUCHED_BY_COMMIT, AUTHORED_BY, CO_CHANGES_WITH edges. **Every edge carries a confidence tag** (`EXTRACTED` / `INFERRED` / `AMBIGUOUS`) — no hidden heuristics.
-2. **An MCP server** (`forensic serve`) exposing **8 composite tools** (`impact`, `context`, `archaeology`, `flow`, `query`, `record_insight`, `recall_insights`, `visualize`) consumable by Claude Code, Cursor, Codex, Continue, Cline, Windsurf — and any other MCP-aware agent.
+2. **An MCP server** (`forensic serve`) exposing **9 composite tools** (`impact`, `context`, `archaeology`, `flow`, `query`, `record_insight`, `recall_insights`, `visualize`, `trace`) consumable by Claude Code, Cursor, Codex, Continue, Cline, Windsurf — and any other MCP-aware agent.
 3. **Five durable markdown artifacts** under `<repo>/docs/codebase/`, regenerated from the graph on every extract:
    - **`MAP.md`** — what's where, ranked by centrality.
    - **`HOTPATHS.md`** — the dependency hot spots, with a per-row confidence-mix column so you see exactly how cleanly each symbol resolves.
@@ -44,7 +44,7 @@ forensic list
 
 Python, C, Dart, Swift, TypeScript, JavaScript, Java, Go, Rust.
 
-## The 8 MCP tools
+## The 9 MCP tools
 
 | Tool | What it does |
 |---|---|
@@ -56,8 +56,9 @@ Python, C, Dart, Swift, TypeScript, JavaScript, Java, Go, Rust.
 | `record_insight(symbol, claim, evidence, verified_by)` | Persist a verified learning. |
 | `recall_insights(symbol, since, limit)` | Newest-first substring match against stored insights. |
 | `visualize(target, format, depth, max_nodes, ...)` | Bounded Mermaid diagram of a symbol/file neighborhood (or `central`); edge dash style encodes confidence. |
+| `trace(symbol, direction, max_depth)` | Cross-stack feature slice across the `Endpoint` join node: `downstream` walks frontend call → `CALLS_ENDPOINT` → endpoint → `HANDLES` → handler → CALLS tail; `upstream` answers "who calls this endpoint". |
 
-Tool descriptions are individually ≤200 tokens so the 8-tool envelope stays comfortably inside Anthropic's per-turn skill metadata budget.
+Tool descriptions are individually ≤200 tokens so the 9-tool envelope stays comfortably inside Anthropic's per-turn skill metadata budget.
 
 ## The confidence taxonomy
 
@@ -79,7 +80,7 @@ HOTPATHS shows a per-row confidence-mix column so at a glance you can tell `Logg
 |---|---|---|---|---|---|
 | License | **Apache-2.0** | PolyForm Noncommercial | MIT | proprietary (open variant: MIT) | partial |
 | Persistent code knowledge graph | ✅ LadybugDB | ✅ LadybugDB | partial | ❌ | partial |
-| MCP server | ✅ 8 composite tools | ✅ 16 tools | partial | ❌ | ❌ |
+| MCP server | ✅ 9 composite tools | ✅ 16 tools | partial | ❌ | ❌ |
 | Per-edge confidence taxonomy | ✅ EXTRACTED / INFERRED / AMBIGUOUS | ❌ | ❌ | ❌ | ❌ |
 | Git archaeology as a first-class layer | ✅ | ❌ | ❌ | ❌ | partial |
 | Durable committed markdown artifacts | ✅ 5 files | partial | partial | ✅ (wiki) | ❌ |

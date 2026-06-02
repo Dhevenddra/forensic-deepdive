@@ -149,6 +149,7 @@ def _derive_rules(
 
     graph_call_rules = _graph_call_rules(facts)
     graph_co_change_rules = _graph_co_change_rules(facts)
+    graph_route_rules = _graph_route_rules(facts)
 
     if graph_call_rules:
         always.extend(graph_call_rules)
@@ -174,6 +175,7 @@ def _derive_rules(
                     INFERRED,
                 )
             )
+    always.extend(graph_route_rules)
     always.extend(graph_co_change_rules)
 
     if facts.history.is_git_repo and facts.history.churn:
@@ -264,6 +266,47 @@ def _graph_co_change_rules(facts: RepoFacts) -> list[tuple[str, str]]:
             f"When you touch `{a}`, also check `{b}` — they co-change in "
             f"{int(freq)} shared commit(s) per the DEC-027 join",
             INFERRED,
+        )
+    ]
+
+
+def _graph_route_rules(facts: RepoFacts) -> list[tuple[str, str]]:
+    """DEC-052 + DEC-015. The top cross-stack ROUTES_TO edge as a single rule —
+    the "this frontend calls that backend handler" headline. Only emitted when a
+    ROUTES_TO edge exists; cap-managed by the section-overflow mechanism (so the
+    ≤5 KB guarantee holds — a route rule never displaces the header). Tagged with
+    the edge's own confidence (EXTRACTED only when the join is spec-backed or
+    unique-literal; else INFERRED)."""
+    if facts.graph_db_path is None:
+        return []
+    from forensic_deepdive.graph import LadybugStore
+
+    try:
+        with LadybugStore(facts.graph_db_path) as store:
+            rows = list(
+                store.query(
+                    "MATCH (c:Symbol)-[r:ROUTES_TO]->(p:Symbol) "
+                    "RETURN c.qualified_name, p.qualified_name, r.endpoint, r.confidence"
+                )
+            )
+    except Exception:  # pragma: no cover
+        return []
+    if not rows:
+        return []
+    rank = {"EXTRACTED": 3, "INFERRED": 2, "AMBIGUOUS": 1}
+    rows.sort(key=lambda r: (-rank.get(r[3], 0), r[2], r[0], r[1]))
+    consumer, handler, endpoint, conf = rows[0]
+    cshort = consumer.rsplit("::", 1)[-1]
+    hshort = handler.rsplit("::", 1)[-1]
+    more = (
+        f" (+{len(rows) - 1} more — see HOTPATHS `## Cross-stack routes`)" if len(rows) > 1 else ""
+    )
+    level = EXTRACTED if conf == "EXTRACTED" else INFERRED
+    return [
+        (
+            f"This repo is cross-stack — `{cshort}` calls backend `{hshort}` over "
+            f"`{endpoint}`{more}",
+            level,
         )
     ]
 

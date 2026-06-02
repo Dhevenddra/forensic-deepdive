@@ -1,4 +1,4 @@
-"""MCP server with 8 composite tools (DEC-016 / DEC-019 / DEC-039).
+"""MCP server with 9 composite tools (DEC-016 / DEC-019 / DEC-039 / DEC-052).
 
 Built on FastMCP. The tools are deliberately *composite* — each one
 fires multiple Cypher queries internally and returns a synthesized
@@ -680,21 +680,182 @@ def visualize(
 
 
 # ---------------------------------------------------------------------------
+# Tool 9: trace(symbol, direction, max_depth) — cross-stack feature slice (DEC-052)
+# ---------------------------------------------------------------------------
+
+
+_TRACE_BOUNDARY = (
+    "v0.4 trace resolves consumer→endpoint→handler→CALLS tail; the "
+    "service→repository→table (DI/ORM) tail is v0.5."
+)
+
+
+def _calls_tail(store: LadybugStore, root_qn: str, max_depth: int) -> list[dict[str, Any]]:
+    """Bounded, cycle-safe BFS over outgoing CALLS from *root_qn* — the
+    service/repo tail behind a route handler. Flat list of
+    ``{symbol, file, depth, confidence}``, capped to keep the payload small."""
+    tail: list[dict[str, Any]] = []
+    visited = {root_qn}
+    frontier = [root_qn]
+    for depth in range(1, max_depth + 1):
+        if not frontier:
+            break
+        rows = list(
+            store.query(
+                "MATCH (caller:Symbol)-[r:CALLS]->(callee:Symbol) "
+                "WHERE caller.qualified_name IN $qns "
+                "RETURN callee.qualified_name, callee.file_path, r.confidence "
+                "ORDER BY callee.qualified_name",
+                {"qns": frontier},
+            )
+        )
+        next_frontier: list[str] = []
+        for cqn, cfp, conf in rows:
+            if cqn in visited:
+                continue
+            visited.add(cqn)
+            tail.append({"symbol": cqn, "file": cfp, "depth": depth, "confidence": conf})
+            next_frontier.append(cqn)
+        frontier = next_frontier
+        if len(tail) >= 50:  # bound the tail; a feature slice is not the whole graph
+            break
+    return tail
+
+
+def trace(
+    db_path: Path,
+    symbol: str,
+    *,
+    direction: str = "downstream",
+    max_depth: int = DEFAULT_MAX_DEPTH,
+) -> dict[str, Any]:
+    """Walk one cross-stack feature slice across the `Endpoint` join node
+    (DEC-043 / DEC-052) — the traversal the CALLS-only tools can't express.
+
+    * ``direction="downstream"`` (from a frontend/client symbol): follows
+      ``CALLS_ENDPOINT`` → ``Endpoint`` → ``HANDLES`` → handler ``Symbol`` →
+      then ``CALLS`` into the service/repo tail (bounded by ``max_depth``). An
+      endpoint with no located handler is surfaced honestly (``handler=None``,
+      ``unlocated=True``) — the "calls an endpoint we can't locate" posture.
+    * ``direction="upstream"`` (from a route handler symbol): answers "who calls
+      this endpoint" — ``HANDLES`` → ``Endpoint`` → incoming ``CALLS_ENDPOINT`` →
+      the consumer symbols.
+
+    Single-call, complete-answer. The DI/ORM tail (service→repo→table) is v0.5;
+    the ``boundary`` field marks where v0.4 resolution stops."""
+    if direction not in ("downstream", "upstream"):
+        return {"error": f"direction must be 'downstream' or 'upstream', got {direction!r}"}
+    with LadybugStore(db_path) as store:
+        matches = _resolve_symbol_query(store, symbol)
+        if not matches:
+            return {"matches": [], "chains": [], "unresolved": True}
+        chains: list[dict[str, Any]] = []
+        for match in matches:
+            qn = match["qualified_name"]
+            if direction == "downstream":
+                chains.extend(_trace_downstream(store, qn, max_depth))
+            else:
+                chains.extend(_trace_upstream(store, qn))
+        return {
+            "matches": matches,
+            "direction": direction,
+            "max_depth": max_depth,
+            "chains": chains,
+            "boundary": _TRACE_BOUNDARY,
+        }
+
+
+def _trace_downstream(store: LadybugStore, qn: str, max_depth: int) -> list[dict[str, Any]]:
+    chains: list[dict[str, Any]] = []
+    endpoints = list(
+        store.query(
+            "MATCH (:Symbol {qualified_name: $q})-[ce:CALLS_ENDPOINT]->(e:Endpoint) "
+            "RETURN e.contract_id, e.method, e.normalized_path, e.spec_backed, ce.confidence "
+            "ORDER BY e.contract_id",
+            {"q": qn},
+        )
+    )
+    for cid, method, npath, spec_backed, ce_conf in endpoints:
+        handlers = list(
+            store.query(
+                "MATCH (h:Symbol)-[hd:HANDLES]->(e:Endpoint {contract_id: $c}) "
+                "RETURN h.qualified_name, h.file_path, hd.confidence "
+                "ORDER BY h.qualified_name",
+                {"c": cid},
+            )
+        )
+        base = {
+            "consumer": qn,
+            "endpoint": cid,
+            "method": method,
+            "normalized_path": npath,
+            "spec_backed": bool(spec_backed),
+            "call_confidence": ce_conf,
+        }
+        if not handlers:
+            chains.append({**base, "handler": None, "unlocated": True, "downstream": []})
+            continue
+        for hqn, hfp, h_conf in handlers:
+            chains.append(
+                {
+                    **base,
+                    "handler": hqn,
+                    "handler_file": hfp,
+                    "handles_confidence": h_conf,
+                    "downstream": _calls_tail(store, hqn, max_depth),
+                }
+            )
+    return chains
+
+
+def _trace_upstream(store: LadybugStore, qn: str) -> list[dict[str, Any]]:
+    chains: list[dict[str, Any]] = []
+    endpoints = list(
+        store.query(
+            "MATCH (:Symbol {qualified_name: $q})-[hd:HANDLES]->(e:Endpoint) "
+            "RETURN e.contract_id, e.method, hd.confidence ORDER BY e.contract_id",
+            {"q": qn},
+        )
+    )
+    for cid, method, hd_conf in endpoints:
+        callers = [
+            {"consumer": cqn, "file": cfp, "confidence": cc}
+            for cqn, cfp, cc in store.query(
+                "MATCH (c:Symbol)-[ce:CALLS_ENDPOINT]->(e:Endpoint {contract_id: $c}) "
+                "RETURN c.qualified_name, c.file_path, ce.confidence "
+                "ORDER BY c.qualified_name",
+                {"c": cid},
+            )
+        ]
+        chains.append(
+            {
+                "handler": qn,
+                "endpoint": cid,
+                "method": method,
+                "handles_confidence": hd_conf,
+                "callers": callers,
+            }
+        )
+    return chains
+
+
+# ---------------------------------------------------------------------------
 # Server factory + stdio entry point
 # ---------------------------------------------------------------------------
 
 
 def make_server(graph_db_path: Path) -> FastMCP:
-    """Build a FastMCP server with the 8 composite tools registered."""
+    """Build a FastMCP server with the 9 composite tools registered."""
     server = FastMCP(
         "forensic-deepdive",
         instructions=(
             "Query a forensic-deepdive code knowledge graph for a "
-            "repository. Eight composite tools: impact (blast radius), "
+            "repository. Nine composite tools: impact (blast radius), "
             "context (one-call symbol overview), archaeology (git history), "
             "flow (execution trace), query (Cypher / hybrid NL search), "
             "record_insight + recall_insights (durable agent memory), "
-            "visualize (bounded Mermaid diagram, confidence-styled edges)."
+            "visualize (bounded Mermaid diagram, confidence-styled edges), "
+            "trace (cross-stack feature slice: frontend call → endpoint → handler)."
         ),
     )
 
@@ -820,6 +981,20 @@ def make_server(graph_db_path: Path) -> FastMCP:
             direction=direction,
             central=central,
         )
+
+    @server.tool()
+    def trace_tool(
+        symbol: str,
+        direction: str = "downstream",
+        max_depth: int = DEFAULT_MAX_DEPTH,
+    ) -> dict[str, Any]:
+        """Trace one cross-stack feature slice across the `Endpoint` join node
+        (DEC-043). ``downstream`` from a frontend/client symbol walks
+        CALLS_ENDPOINT → Endpoint → HANDLES → handler → CALLS tail; ``upstream``
+        from a route handler answers "who calls this endpoint". Endpoints with no
+        located handler are surfaced honestly (handler=null). Use to answer "what
+        backend does this component hit?" or "who calls this route?"."""
+        return trace(graph_db_path, symbol, direction=direction, max_depth=max_depth)
 
     return server
 

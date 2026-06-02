@@ -37,6 +37,7 @@ def render_hotpaths(facts: RepoFacts) -> str:
         "",
         *_dependency_hotspots(facts),
         *_cross_file_deps(facts),
+        *_cross_stack_routes(facts),  # DEC-052 — graph-only cross-stack section
         *_co_change_clusters(facts),  # DEC-029 — graph-only addition
         *_change_hotspots(facts),
         *_churn_x_centrality(facts),
@@ -228,6 +229,58 @@ def _graph_cross_file_deps(facts: RepoFacts, limit: int) -> list[list[str]] | No
     except Exception:  # pragma: no cover
         return None
     return body
+
+
+# ---------------------------------------------------------------------------
+# Cross-stack routes — graph-only (DEC-052, the v0.4 wedge surfaced)
+# ---------------------------------------------------------------------------
+
+
+_ROUTES_CONF_RANK = {"EXTRACTED": 3, "INFERRED": 2, "AMBIGUOUS": 1}
+
+
+def _cross_stack_routes(facts: RepoFacts, limit: int = 15) -> list[str]:
+    """Graph-driven section (DEC-052): consumer call sites joined to the backend
+    handler they hit, via a normalized HTTP contract (DEC-043 ``ROUTES_TO``). The
+    cross-stack headline. No NetworkX equivalent — the section disappears when
+    graph mode is off or the repo has no cross-stack edges (so golden fixtures,
+    which produce none, stay byte-identical)."""
+    if facts.graph_db_path is None:
+        return []
+    from forensic_deepdive.graph import LadybugStore
+
+    try:
+        with LadybugStore(facts.graph_db_path) as store:
+            rows = list(
+                store.query(
+                    "MATCH (c:Symbol)-[r:ROUTES_TO]->(p:Symbol) "
+                    "RETURN c.qualified_name, p.qualified_name, r.endpoint, r.confidence"
+                )
+            )
+    except Exception:  # pragma: no cover — degrade if the .lbug is malformed
+        return []
+    if not rows:
+        return []
+    # Confidence-rank ordering (EXTRACTED first), then a stable key — never a
+    # raw string sort (which would put AMBIGUOUS before EXTRACTED).
+    rows.sort(key=lambda r: (-_ROUTES_CONF_RANK.get(r[3], 0), r[2], r[0], r[1]))
+    body_rows = [
+        [f"`{consumer}`", f"`{handler}`", f"`{endpoint}`", f"`{conf}`"]
+        for consumer, handler, endpoint, conf in rows[:limit]
+    ]
+    return [
+        "## Cross-stack routes",
+        "",
+        confidence_note(INFERRED),
+        "",
+        "Frontend/client call sites joined to the backend handler they hit, via a "
+        "normalized HTTP contract (DEC-043 `ROUTES_TO`). `EXTRACTED` = spec-backed "
+        "or unique literal path+method; `INFERRED` = a templated/normalized match; "
+        "`AMBIGUOUS` = several candidate handlers (all surfaced, never one picked).",
+        "",
+        md_table(["Consumer", "Handler", "Endpoint", "Confidence"], body_rows),
+        "",
+    ]
 
 
 # ---------------------------------------------------------------------------

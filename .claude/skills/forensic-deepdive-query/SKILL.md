@@ -29,6 +29,7 @@ Answer from precomputed artifacts instead of re-reading the codebase.
 | "Explain X" / "what's the architecture" | `docs/codebase/MENTAL_MODEL.md` |
 | "What rules apply when editing X" | `docs/codebase/AGENT_BRIEF.md` |
 | "Show me a diagram of X" / "visualize how X connects" | `forensic graph X --format mermaid` (or the `visualize` MCP tool) — bounded Mermaid, confidence-styled edges |
+| "What backend does this frontend call" / "who calls this endpoint" / trace a feature across the stack | the `trace` MCP tool (`downstream` = component→endpoint→handler→callees; `upstream` = who-calls-endpoint) or `docs/codebase/HOTPATHS.md` `## Cross-stack routes` |
 
 3. Only if none answer, run:
    ```bash

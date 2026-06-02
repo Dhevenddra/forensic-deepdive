@@ -71,6 +71,29 @@ def test_hotpaths_dependency_hotspots_use_graph_in_graph_mode(tmp_path):
     assert "EXTRACTED" in hot
 
 
+def test_hotpaths_cross_stack_routes_section_in_graph_mode(tmp_path):
+    """DEC-052: in graph mode on a cross-stack repo, HOTPATHS grows a
+    ``## Cross-stack routes`` section listing ROUTES_TO joins with confidence."""
+    repo = _copy("openapi_codegen_sample", tmp_path)
+    artifacts = _run_with_graph(repo, tmp_path / "graph.lbug")
+    hot = artifacts["HOTPATHS.md"].read_text(encoding="utf-8")
+    assert "## Cross-stack routes" in hot
+    assert "client.js::loadItem" in hot
+    assert "backend.py::get_item" in hot
+    assert "http::GET::/api/items/{param}" in hot
+    assert "EXTRACTED" in hot
+
+
+def test_hotpaths_cross_stack_routes_absent_without_routes(tmp_path):
+    """DEC-052 byte-identical guard: a repo with no ROUTES_TO edges (python_sample)
+    renders no ``## Cross-stack routes`` section even in graph mode — the same
+    graph-only-disappears contract as ``## Co-change clusters``."""
+    repo = _copy("python_sample", tmp_path)
+    artifacts = _run_with_graph(repo, tmp_path / "graph.lbug")
+    hot = artifacts["HOTPATHS.md"].read_text(encoding="utf-8")
+    assert "## Cross-stack routes" not in hot
+
+
 def test_hotpaths_graph_only_sections_absent_without_graph(tmp_path):
     """DEC-029/030 invariant: when build_graph_db is off, "Co-change
     clusters" does not render and "Dependency hot spots" falls back to
