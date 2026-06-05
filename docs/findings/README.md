@@ -31,3 +31,11 @@ it wasn't tuned for.
   the **fastapi** and **gitnexus** carryover (the §5.4 v0.2 debt). Backstage
   and Odoo were **deferred** — cross-stack is v0.4, Odoo is a v1.0 scale test
   ([[stress-test-repos]] / DEC-034). See [`v0.3/README.md`](v0.3/README.md).
+- [`v0.4/`](v0.4/) — v0.4 "Cross-Stack & Visual" acceptance (Item L). Repo set
+  (PRD §4.9): **Apache Superset** (flagship — cross-stack + scale + the 348k
+  `serve --ui` LOD proof) + purpose-built **spring-react-demo** & **openapi-shop**
+  (clean cross-language ROUTES_TO + the committed-spec codegen shortcut) + re-runs
+  of **gitnexus** (TS-heritage 2→21) and **fastapi** (the `example` role). **8/9
+  gate items green**; the honest shortfall — 0 ROUTES_TO on Superset (its
+  `SupersetClient` + Flask-AppBuilder abstractions) — defines the v0.5 head-of-line.
+  See [`v0.4/README.md`](v0.4/README.md).
