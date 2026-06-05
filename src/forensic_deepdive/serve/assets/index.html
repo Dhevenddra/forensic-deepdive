@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>forensic-deepdive · graph explorer</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+    <!-- Vendored, pinned, offline (DEC-053 / DEC-009). MIT — see NOTICE. -->
+    <script src="/assets/vendor/graphology.umd.min.js"></script>
+    <script src="/assets/vendor/graphology-library.min.js"></script>
+    <script src="/assets/vendor/sigma.min.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <h1>forensic<span class="dim">-deepdive</span></h1>
+        <p class="repo" id="repo-name">…</p>
+
+        <section class="controls">
+          <h2>Edge types</h2>
+          <div id="edge-types"></div>
+
+          <h2>Min confidence</h2>
+          <select id="min-confidence">
+            <option value="AMBIGUOUS">AMBIGUOUS+ (all)</option>
+            <option value="INFERRED">INFERRED+</option>
+            <option value="EXTRACTED">EXTRACTED only</option>
+          </select>
+
+          <h2>Language</h2>
+          <select id="language"><option value="">(all)</option></select>
+
+          <h2>Directory</h2>
+          <select id="directory"><option value="">(all)</option></select>
+
+          <h2>Bounds (LOD)</h2>
+          <label>max nodes <input id="max-nodes" type="number" value="300" min="1" max="2000" /></label>
+          <label>max edges <input id="max-edges" type="number" value="1500" min="0" max="8000" /></label>
+
+          <button id="apply">Apply</button>
+          <button id="reset" class="secondary">Reset</button>
+        </section>
+
+        <section class="legend">
+          <h2>Legend</h2>
+          <ul>
+            <li><span class="swatch" style="background:#e8590c"></span> ROUTES_TO (cross-stack)</li>
+            <li><span class="swatch" style="background:#2f9e44"></span> EXTRACTED</li>
+            <li><span class="swatch" style="background:#f08c00"></span> INFERRED</li>
+            <li><span class="swatch" style="background:#e03131"></span> AMBIGUOUS</li>
+            <li><span class="swatch ring" style="background:#ae3ec9"></span> Endpoint node</li>
+          </ul>
+          <p class="note">Node colour = community (Louvain); size = call centrality.</p>
+        </section>
+
+        <p id="status" class="status">loading…</p>
+      </aside>
+
+      <main id="canvas-wrap">
+        <div id="canvas"></div>
+        <div id="panel" class="hidden"></div>
+      </main>
+    </div>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

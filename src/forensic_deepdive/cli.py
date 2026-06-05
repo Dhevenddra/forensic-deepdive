@@ -4,7 +4,7 @@ Subcommands:
   extract  — full pipeline; produces 5 artifacts.
   update   — incremental refresh (v0.1: stub calls extract --force).
   query    — query existing artifacts (v0.2: full MCP-style; v0.1: grep).
-  serve    — MCP server stdio mode (v0.2 only).
+  serve    — MCP server stdio mode (v0.2), or `--ui` Sigma.js graph explorer (v0.4).
   version  — print version.
 
 A top-level ``--version`` flag mirrors the ``version`` subcommand so that both
@@ -320,20 +320,68 @@ def serve(
         Path | None,
         typer.Option(help="Explicit .lbug path (overrides <repo>/.deepdive/graph.lbug)."),
     ] = None,
-    transport: Annotated[str, typer.Option(help="Currently only stdio.")] = "stdio",
+    transport: Annotated[str, typer.Option(help="MCP transport: stdio (default).")] = "stdio",
+    ui: Annotated[
+        bool,
+        typer.Option("--ui", help="Serve the Sigma.js graph explorer over local HTTP (DEC-053)."),
+    ] = False,
+    host: Annotated[
+        str,
+        typer.Option(help="Bind host for --ui. Loopback only (127.0.0.1); 0.0.0.0 is refused."),
+    ] = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="Bind port for --ui (0 = pick a free port).")] = 8765,
+    no_browser: Annotated[
+        bool, typer.Option("--no-browser", help="Don't auto-open a browser for --ui.")
+    ] = False,
 ) -> None:
-    """Start the MCP server exposing the LadybugDB graph (DEC-016).
+    """Serve the graph: MCP stdio (default), or the Sigma.js explorer via ``--ui``.
 
-    Five composite tools: impact / context / archaeology / flow / query.
-    Consumed by Claude Code, Cursor, Codex, Continue, Cline via stdio.
+    Default — the 9 composite MCP tools (impact / context / archaeology / flow /
+    query / record_insight / recall_insights / visualize / trace) over stdio,
+    consumed by Claude Code, Cursor, Codex, Continue, Cline.
+
+    ``--ui`` (DEC-053) — a read-only, 127.0.0.1-only HTTP server hosting a
+    vendored Sigma.js (WebGL) whole-graph explorer with mandatory level-of-detail
+    bounding + filtering (edge type / confidence / language / directory), the
+    cross-stack ROUTES_TO joins highlighted.
     """
-    if transport != "stdio":
-        console.print(f"[red]Only stdio is supported in v0.2; got {transport!r}.[/red]")
-        raise typer.Exit(code=1)
     db_path = graph or repo / ".deepdive" / "graph.lbug"
     if not db_path.exists():
         console.print(
             f"[red]No graph at {db_path}.[/red] Run `forensic extract` first to build it."
+        )
+        raise typer.Exit(code=1)
+
+    if ui:
+        from forensic_deepdive.serve import is_loopback_host, serve_ui
+
+        if not is_loopback_host(host):
+            console.print(
+                f"[red]Refusing to bind non-loopback host {host!r}.[/red] "
+                "`serve --ui` is 127.0.0.1-only (never 0.0.0.0)."
+            )
+            raise typer.Exit(code=1)
+        console.print(
+            f"[bold green]forensic serve --ui[/bold green] — graph explorer "
+            f"(read-only, {host})"
+        )
+        try:
+            serve_ui(
+                db_path,
+                host=host,
+                port=port,
+                open_browser=not no_browser,
+                on_ready=lambda url: console.print(
+                    f"  serving [cyan]{url}[/cyan]  (Ctrl-C to stop)"
+                ),
+            )
+        except KeyboardInterrupt:
+            console.print("\n[dim]stopped.[/dim]")
+        return
+
+    if transport != "stdio":
+        console.print(
+            f"[red]Only stdio is supported for the MCP transport; got {transport!r}.[/red]"
         )
         raise typer.Exit(code=1)
     import asyncio

@@ -58,6 +58,14 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/forensic_deepdive"]
+# Vendored Sigma.js/graphology UI client + HTML/CSS/JS (DEC-053). Non-Python
+# assets must be force-included so they ship in the wheel.
+artifacts = [
+    "src/forensic_deepdive/serve/assets/**/*.js",
+    "src/forensic_deepdive/serve/assets/**/*.css",
+    "src/forensic_deepdive/serve/assets/**/*.html",
+    "src/forensic_deepdive/serve/assets/**/*.md",
+]
 
 [tool.ruff]
 line-length = 100

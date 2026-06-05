@@ -1,0 +1,4 @@
+# Vendored third-party bundles (DEC-053) — keep byte-identical to upstream;
+# never normalize line endings (would diverge from the pinned npm artifact).
+*.min.js -text
+graphology.umd.min.js -text
