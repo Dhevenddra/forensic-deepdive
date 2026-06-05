@@ -105,6 +105,25 @@ def test_classify_role_example_precedence() -> None:
     assert classify_role("third_party/examples/lib.py") == "vendored"
 
 
+def test_classify_role_jvm_package_not_example() -> None:
+    """DEC-054. ``samples``/``example``/``demo`` as JVM *package* components under
+    a source root are NOT the example role — they're ubiquitous Java packages
+    (petclinic's ``org.springframework.samples.petclinic``; Spring Initializr's
+    default ``com.example.demo``). The regression that demoted the entire
+    canonical Spring app to ``example``."""
+    assert (
+        classify_role("src/main/java/org/springframework/samples/petclinic/Vet.java")
+        == "source"
+    )
+    assert classify_role("backend/src/main/java/com/example/demo/App.java") == "source"
+    assert classify_role("src/main/kotlin/com/acme/demo/Main.kt") == "source"
+    # but an actual example *app* (marker dir BEFORE the source root) still counts
+    assert classify_role("examples/petstore/src/main/java/com/x/Main.java") == "example"
+    # and non-JVM example dirs are unaffected (the fastapi docs_src case)
+    assert classify_role("docs_src/tutorial/body/tutorial001.py") == "example"
+    assert classify_role("samples/demo_app.ts") == "example"
+
+
 def test_inventory_assigns_vendored_and_generated(tmp_path: Path) -> None:
     """End-to-end: vendored + generated land in their own buckets and are
     NOT counted in language_breakdown (which is production-source only)."""

@@ -80,6 +80,13 @@ _VENDORED_SEGMENTS = frozenset(
 # optional pre-release tag.
 _EMBEDDED_VERSION_RE = re.compile(r"^[A-Za-z0-9_]+-\d+\.\d+(\.\d+)?([-+][\w.]+)?$")
 
+# DEC-054 finding. Inside a JVM source root the path segments after it are Java
+# *package* names, where ``samples`` / ``example`` / ``demo`` are ubiquitous
+# (``org.springframework.samples.petclinic``, ``com.example.demo`` — the default
+# Spring Initializr package) and must NOT trigger the ``example`` role. Only an
+# example *directory* before the source root counts (``examples/app/src/main/...``).
+_JVM_SOURCE_ROOT_RE = re.compile(r"(?:^|/)src/(?:main|test)/(?:java|kotlin|scala|groovy)/")
+
 # DEC-021 generated-file filename patterns. Augment as new generators surface.
 _GENERATED_NAME_RE = re.compile(
     r"""
@@ -192,7 +199,15 @@ def classify_role(rel_path: str) -> str:
         return ROLE_TEST
     if _GENERATED_NAME_RE.search(pure.name.lower()):
         return ROLE_GENERATED
-    if segments_set & _EXAMPLE_SEGMENTS:
+    # DEC-054: example-dir markers don't count as Java package components. Under a
+    # JVM source root, only segments *before* the root may mark an example app.
+    jvm = _JVM_SOURCE_ROOT_RE.search(rel_path.lower())
+    example_segments = (
+        {seg for seg in rel_path[: jvm.start()].lower().split("/") if seg}
+        if jvm
+        else segments_set
+    )
+    if example_segments & _EXAMPLE_SEGMENTS:
         return ROLE_EXAMPLE
     return ROLE_SOURCE
 
