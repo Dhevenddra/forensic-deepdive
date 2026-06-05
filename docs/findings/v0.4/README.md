@@ -20,6 +20,14 @@ embeddings — `degraded=True` on every NL query).
 The purpose-built repos are local (`C:/Dev/scratch/`), not committed. spring-petclinic
 (v0.3) remains the provider-only Spring check; spring-react-demo adds the React side.
 
+**Exploratory (not a gate repo):** [`hermes-agent`](hermes-agent-test.md) — a
+forward-looking v0.5 scouting run on a real AI-agent codebase (NousResearch). It
+confirms the tool captures an agent's static skeleton excellently (19,375 symbols,
+**1.7 % AMBIGUOUS**, 282 endpoints, 121 outbound API calls) but **not** its
+dynamic control flow (186 MCP `ClientSession` + 27 `FastMCP` + registry dispatch →
+1 internal `ROUTES_TO`). It defines the v0.5 thesis: **model MCP + tool-registry
+dispatch as the next `CrossBoundaryEdge` protocol.**
+
 ## Cross-repo summary
 
 | repo | files | symbols | EXTENDS | endpoints (spec-backed) | ROUTES_TO (split) | AGENT_BRIEF |
@@ -65,17 +73,23 @@ works; Superset reveals that real-world custom client/framework abstractions
 same honest-failure→next-version pattern as v0.3 (fastapi's AMBIGUOUS finding →
 v0.4's `example` role).
 
-## The headline v0.5 work (defined by this gate)
+## The headline v0.5 work (defined by this gate + the hermes scouting run)
 
+0. **MCP + tool-registry dispatch as a `CrossBoundaryEdge` protocol** (from
+   [`hermes-agent`](hermes-agent-test.md)) — the biggest new opening. Agents are
+   *defined* by dynamic tool dispatch (MCP `@mcp.tool()`/`FastMCP` providers +
+   `ClientSession.call_tool` consumers; registry dispatch), which static `CALLS`
+   can't see. Apply the v0.4 HTTP playbook to MCP: Tool nodes + `CALLS_TOOL`, and
+   `trace` walks agent → tool → handler.
 1. **`SupersetClient`-style configured-client consumer extractor** —
    `<Client>.get/post/put/delete({ endpoint|url: … })`, reusing the axios-object
    path. (Superset: 252 call sites.)
 2. **Flask-AppBuilder provider extractor** — `ModelRestApi` / `@expose`. (Superset:
    275 documented-but-unlocated.)
 3. The already-deferred **NestJS / Django `urls.py` / JAX-RS** providers (DEC-045 §7).
-4. **`example`-role precision** — don't fire on `demo`/`example` segments inside a
-   Java package path (`com.example.demo` is the default Spring Initializr package;
-   discovered in spring-react-demo).
+4. ~~`example`-role precision on Java packages~~ — **fixed in v0.4** (`7d78ef4`,
+   DEC-054): `samples`/`example`/`demo` under a `src/main/<lang>/` root no longer
+   demote (spring-petclinic 0→30 source files restored).
 5. **Keep spec-generated clients in the graph** (demoted like `example`) so the
    codegen shortcut fires even on `// AUTO-GENERATED … DO NOT EDIT` clients
    (discovered in openapi-shop).
