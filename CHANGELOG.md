@@ -4,13 +4,14 @@ All notable changes to `forensic-deepdive`. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 follow [SemVer](https://semver.org/).
 
-## [0.4.0] — Unreleased
+## [0.4.0] — 2026-06-05
 
 > v0.4 **"Cross-Stack & Visual"** — the cross-language wedge (a frontend call
 > joins to its backend handler through an `Endpoint` node) plus a served graph
-> explorer. Feature-complete (Items A–L); the version bump/tag is intentionally
-> held pending sign-off (see the acceptance verdict below). Pure-static floor
-> and the 5-artifact + ≤5kb-AGENT_BRIEF contracts are unchanged.
+> explorer. Accepted at **8/9 §4.9 gate items** (the one shortfall — 0 ROUTES_TO
+> on Superset's custom `SupersetClient`/Flask-AppBuilder stack — is framework
+> coverage, scoped to v0.5; the join machinery is proven on clean repos). Pure-
+> static floor and the 5-artifact + ≤5kb-AGENT_BRIEF contracts are unchanged.
 
 ### Added
 - **Cross-stack `ROUTES_TO`** — `Endpoint` join node + `HANDLES` / `CALLS_ENDPOINT`
