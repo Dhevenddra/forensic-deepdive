@@ -4,6 +4,64 @@ All notable changes to `forensic-deepdive`. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 follow [SemVer](https://semver.org/).
 
+## [0.4.0] — Unreleased
+
+> v0.4 **"Cross-Stack & Visual"** — the cross-language wedge (a frontend call
+> joins to its backend handler through an `Endpoint` node) plus a served graph
+> explorer. Feature-complete (Items A–L); the version bump/tag is intentionally
+> held pending sign-off (see the acceptance verdict below). Pure-static floor
+> and the 5-artifact + ≤5kb-AGENT_BRIEF contracts are unchanged.
+
+### Added
+- **Cross-stack `ROUTES_TO`** — `Endpoint` join node + `HANDLES` / `CALLS_ENDPOINT`
+  / materialized `ROUTES_TO` edges (DEC-043). Provider extractors: FastAPI, Flask,
+  Express, Spring MVC. Consumer extractors (7): fetch/axios, RTK Query, React
+  Query, Angular HttpClient, jQuery, Python requests/httpx, Java RestTemplate/
+  WebClient/OpenFeign. Three-tier join confidence — EXTRACTED only for spec-backed
+  or unique-literal-both-sides (DEC-044/045/046/047).
+- **OpenAPI codegen shortcut** (DEC-048) — a committed spec marks providers
+  `spec_backed`, upgrading even templated-client joins to EXTRACTED; spec-only
+  operations surface as documented-but-unlocated. JSON zero-dep; YAML behind the
+  `[openapi]` extra.
+- **`trace` (9th MCP tool)** + a HOTPATHS `## Cross-stack routes` section + an
+  AGENT_BRIEF cross-stack rule (DEC-052) — surfacing the wedge.
+- **`forensic serve --ui`** (DEC-053) — a read-only, 127.0.0.1-only stdlib HTTP
+  server hosting a vendored Sigma.js (WebGL) whole-graph explorer with **mandatory
+  level-of-detail** bounding + filtering (edge type / confidence / language /
+  directory); `ROUTES_TO` highlighted. Vendored MIT bundles (Sigma.js 2.4.0,
+  graphology 0.25.4 + library 0.8.0); no new Python runtime dep.
+- **TS/TSX heritage capture** (DEC-050) — abstract classes, interface-extends,
+  generic/member-expression supertypes (gitnexus EXTENDS 2→21; superset 1166→1320).
+- **`example` file-role** (DEC-049) — tutorial/sample dirs stay in the graph but
+  are demoted in PageRank + query shaping (fastapi shaped-query AMBIGUOUS 36 %→0 %).
+- **Stable, line-number-free node IDs** (DEC-051) — survive an unrelated same-file
+  edit (the v1.0 incremental/rename seam).
+
+### Fixed
+- **`example`-role false positive on JVM packages** (DEC-054 finding) — `samples`/
+  `example`/`demo` as Java *package* components under a `src/main/<lang>/` root no
+  longer trigger the `example` role. Previously the entire canonical Spring
+  reference app (`org.springframework.samples.petclinic`) and any
+  `com.example.demo` (Spring Initializr default) were demoted out of `source`.
+
+### Acceptance (§4.9, Item L) — 8 of 9 gate items green
+Findings: [`docs/findings/v0.4/`](docs/findings/v0.4/). Validated on Superset
+(flagship) + purpose-built Spring+React & OpenAPI repos + gitnexus + fastapi.
+- ✅ tests/ruff; codegen shortcut; TS-heritage; `example` role; `serve --ui` LOD
+  (Superset's 348k co-change edges → 114-node default view); determinism; stable
+  IDs; AGENT_BRIEF ≤5kb.
+- ⚠️ **Cross-stack `ROUTES_TO` is proven on clean repos but 0 on Superset** — its
+  custom `SupersetClient` frontend wrapper + Flask-AppBuilder backend are outside
+  v0.4's generic extractor coverage. The join machinery works; framework coverage
+  is the gap. **No fabricated joins.**
+
+### Deferred to v0.5 (defined by the acceptance, DEC-054)
+- A generic **configured-client consumer extractor** (`<Client>.get({endpoint})`)
+  and a **Flask-AppBuilder provider extractor** — unlock the Superset join.
+- The previously-deferred **NestJS / Django `urls.py` / JAX-RS** providers.
+- Keep spec-generated (`AUTO-GENERATED`) clients in the graph so the codegen
+  shortcut fires on them.
+
 ## [0.3.0] — 2026-05-31
 
 > v0.3 **"Precision & Speed"** is the foundation pass before the v0.4
