@@ -9,13 +9,13 @@
 Five artifacts: `MAP.md`, `HOTPATHS.md`, `ARCHAEOLOGY.md`, `MENTAL_MODEL.md`, `AGENT_BRIEF.md`. AGENT_BRIEF is headline — ≤5kb, assertive Never/Always rules.
 
 ## Stack
-- Python 3.11+ (uv-managed); `typer` CLI; `tree-sitter-language-pack` (305 grammars); `networkx`; `pygithub`; `httpx`; `pydantic` v2.
-- Optional extras: `graphiti-core` ≥0.28 (v0.2), `kuzu` ≥0.11 (v0.2 default backend), `mcp` (v0.2).
+- Python 3.11+ (uv-managed); `typer` CLI; `tree-sitter-language-pack`; `networkx`; `real-ladybug` (graph, DEC-013); `mcp`; `httpx`; `pydantic` v2.
+- Optional extras: `graphiti` (v0.2), `semantic` (ONNX, v0.3), `openapi` (v0.4), `dev` (ruff/pytest).
 - License: Apache-2.0.
 
 ## Critical commands
 ```bash
-uv sync                           # install
+uv sync --all-extras              # install (dev tools = `dev` extra)
 uv run forensic --version         # smoke test
 uv run forensic extract examples/tiny_fixture
 uv run pytest tests/ -x           # tests must pass before any merge
