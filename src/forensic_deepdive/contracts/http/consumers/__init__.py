@@ -7,6 +7,9 @@ registration wires in. fetch/axios is the first instance; RTK Query / React Quer
 """
 
 from forensic_deepdive.contracts.http.consumers.angular_http import extract_angular_http_consumers
+from forensic_deepdive.contracts.http.consumers.configured_client import (
+    extract_configured_client_consumers,
+)
 from forensic_deepdive.contracts.http.consumers.fetch_axios import extract_fetch_axios_consumers
 from forensic_deepdive.contracts.http.consumers.java_clients import extract_java_client_consumers
 from forensic_deepdive.contracts.http.consumers.jquery import extract_jquery_consumers
@@ -16,6 +19,7 @@ from forensic_deepdive.contracts.http.consumers.rtk_query import extract_rtk_que
 
 CONSUMER_EXTRACTORS = [
     extract_fetch_axios_consumers,
+    extract_configured_client_consumers,
     extract_rtk_query_consumers,
     extract_react_query_consumers,
     extract_angular_http_consumers,
@@ -26,11 +30,12 @@ CONSUMER_EXTRACTORS = [
 
 __all__ = [
     "CONSUMER_EXTRACTORS",
-    "extract_fetch_axios_consumers",
-    "extract_rtk_query_consumers",
-    "extract_react_query_consumers",
     "extract_angular_http_consumers",
+    "extract_configured_client_consumers",
+    "extract_fetch_axios_consumers",
+    "extract_java_client_consumers",
     "extract_jquery_consumers",
     "extract_py_requests_consumers",
-    "extract_java_client_consumers",
+    "extract_react_query_consumers",
+    "extract_rtk_query_consumers",
 ]
