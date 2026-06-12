@@ -39,3 +39,9 @@ it wasn't tuned for.
   gate items green**; the honest shortfall — 0 ROUTES_TO on Superset (its
   `SupersetClient` + Flask-AppBuilder abstractions) — defines the v0.5 head-of-line.
   See [`v0.4/README.md`](v0.4/README.md).
+- [`v0.5/`](v0.5/) — v0.5 "Cross-Boundary Protocols" acceptance. **Five protocols on
+  one `Endpoint` spine** (HTTP, MCP, registry-dispatch, gRPC, messaging) + the DI/ORM
+  tail. **Superset** (the v0.4 head-of-line, now **closed: 0 → 61 cross-stack
+  `ROUTES_TO`** + 210 `PERSISTS_TO`) + **hermes-agent** (the headline — 22 MCP tools +
+  35 registry-dispatch `ROUTES_TO`, vs 1 in v0.4) + **spring-petclinic** (DI/ORM tail)
+  + **grpc/rabbitmq/nest/jersey** (Steps 5–6). See [`v0.5/README.md`](v0.5/README.md).

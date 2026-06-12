@@ -30,6 +30,16 @@ free — the per-protocol git diff touches only `contracts/` + `registry.py` + t
 tail is the **one** sanctioned exception, adding the `DbTable` node + extending
 `trace`). Verified per step via byte-identical goldens and the fixture e2es.
 
+**Keystone — concrete zero-surfacing-diff evidence.** Across **all four** new-protocol
+commits (MCP / registry-dispatch / gRPC / messaging), the surfacing layer —
+`mcp_server/server.py` (`trace`), `emit/hotpaths_md.py`, `serve/graph_api.py` — was
+touched **zero** times (`git show <commit> --stat` over those paths is empty). The MCP
+commit's entire non-test src footprint: `contracts/mcp/*` + `registry.py` (+5) +
+`phases.py` (+6, the register-wire); registry-dispatch: `registry.py` (+4) + `phases.py`
+(+2). The DI/ORM tail (DEC-059) is the **only** commit that touches `server.py` — the
+deliberate, DEC'd `trace`-extension exception. The abstraction generalizes: five
+protocols, one `Endpoint`/`base.join` spine, surfacing untouched.
+
 ## §4.9 gate — local items (all green)
 
 - `pytest` green (705 → +5 Step 6) · `ruff check`/`format` clean.
@@ -50,24 +60,21 @@ tail is the **one** sanctioned exception, adding the `DbTable` node + extending
 | gRPC | stub↔servicer (`.proto` spec-backed) | — | — |
 | messaging | unique subscriber + literal channel | — | several subscribers on a channel → **AMBIGUOUS** fan-out |
 
-## Real-repo acceptance (runnable; the remaining gate items)
+## Real-repo acceptance — DONE (all 6 steps run on real upstream code)
 
-The fixture e2es prove each join + confidence rule; the real-repo runs are the
-final §4.9 evidence, recorded here as they land:
+| finding | repo | step(s) | headline |
+|---|---|---|---|
+| [`superset-test.md`](superset-test.md) | apache/superset (18.7k sym) | 1, 4 | **0 → 61 cross-stack `ROUTES_TO`** + 210 `PERSISTS_TO` / 55 `DbTable`s — the flagship gap **closed, 8/9 → 9/9** |
+| [`hermes-agent-test.md`](hermes-agent-test.md) | NousResearch/hermes-agent (21k sym) | 2, 3 | 22 MCP tools + 23 MCP edges + **35 registry-dispatch `ROUTES_TO`** (vs 1 in v0.4) |
+| [`spring-petclinic-test.md`](spring-petclinic-test.md) | spring-petclinic (143 sym) | 4 | 6 `INJECTS` + 6 `PERSISTS_TO` + 6 `DbTable`s — the DI/ORM tail |
+| [`steps5-6-test.md`](steps5-6-test.md) | grpc / rabbitmq / nest / jersey | 5, 6 | gRPC stub↔servicer + queue pub↔sub + NestJS/JAX-RS routes all fire |
 
-- **Superset** — Step 1 (`SupersetClient` + Flask-AppBuilder → `ROUTES_TO`, 8/9 → 9/9)
-  + Step 4 (SQLAlchemy `__tablename__` → `PERSISTS_TO`).
-- **NousResearch/hermes-agent** — Step 2 (MCP `HANDLES`/`CALLS_ENDPOINT`/`ROUTES_TO`
-  against its 186 `ClientSession` / 27 `FastMCP` / ~18 `@mcp.tool()`) + Step 3
-  (registry dispatch over the ~3,025 dispatch lines). The v0.4 finding's predictions,
-  now testable.
-- **spring-petclinic** — Step 4 (`@Autowired` + `@Entity`/`@Table` → the DI/ORM tail
-  reaching a `DbTable`).
-- **grpc-python route_guide** + **rabbitmq-tutorials** — Step 5.
-- **nestjs/nest** sample + **eclipse-ee4j/jersey** examples — Step 6.
-
-An honest single-repo shortfall (reported, never fabricated) is an acceptable
-gate-pass with the gap promoted to the next arc — the v0.4 → v0.5 pattern.
+Every step now has real-repo evidence. The runs also produced **four v0.6 refinements**
+(the findings-drive-the-next-arc loop): Superset's 1-of-55 `coremodel` ORM mis-tag;
+gRPC bare-keying collision in a repeated-service-name monorepo (→ package-qualified
+keying); RabbitMQ topic-exchange/binding topology (beyond direct queues); JAX-RS
+sub-resource locators. An honest single-repo shortfall (reported, never fabricated) is
+an acceptable gate-pass with the gap promoted to the next arc — the v0.4 → v0.5 pattern.
 
 ## Deferred (honest, logged for v0.6+)
 
