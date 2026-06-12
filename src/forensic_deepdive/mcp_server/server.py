@@ -685,37 +685,59 @@ def visualize(
 
 
 _TRACE_BOUNDARY = (
-    "v0.4 trace resolves consumer→endpoint→handler→CALLS tail; the "
-    "service→repository→table (DI/ORM) tail is v0.5."
+    "trace resolves consumer→endpoint→handler→CALLS tail, then follows INJECTS "
+    "(DI) and PERSISTS_TO (ORM) into the service→repository→table tail (DEC-059)."
 )
 
 
 def _calls_tail(store: LadybugStore, root_qn: str, max_depth: int) -> list[dict[str, Any]]:
-    """Bounded, cycle-safe BFS over outgoing CALLS from *root_qn* — the
-    service/repo tail behind a route handler. Flat list of
-    ``{symbol, file, depth, confidence}``, capped to keep the payload small."""
+    """Bounded, cycle-safe BFS over outgoing CALLS **and** INJECTS from *root_qn* —
+    the service/repo tail behind a route handler, now including the DI/ORM tail
+    (DEC-059): ``CALLS`` and ``INJECTS`` (both Symbol→Symbol) expand the frontier,
+    and ``PERSISTS_TO`` terminates at a ``Table``. Flat list of
+    ``{symbol|table, file, depth, confidence, via}``, capped to keep it small."""
     tail: list[dict[str, Any]] = []
     visited = {root_qn}
+    seen_tables: set[str] = set()
     frontier = [root_qn]
     for depth in range(1, max_depth + 1):
         if not frontier:
             break
-        rows = list(
-            store.query(
-                "MATCH (caller:Symbol)-[r:CALLS]->(callee:Symbol) "
+        # ORM terminals: a model reached on the frontier → its Table (DEC-059).
+        for tname, tid, tconf in store.query(
+            "MATCH (m:Symbol)-[p:PERSISTS_TO]->(t:DbTable) WHERE m.qualified_name IN $qns "
+            "RETURN t.name, t.table_id, p.confidence ORDER BY t.table_id",
+            {"qns": frontier},
+        ):
+            if tid in seen_tables:
+                continue
+            seen_tables.add(tid)
+            tail.append(
+                {
+                    "table": tname,
+                    "table_id": tid,
+                    "depth": depth,
+                    "confidence": tconf,
+                    "via": "persists_to",
+                }
+            )
+        # Symbol→Symbol expansion: CALLS (the call tail) + INJECTS (the DI tail).
+        next_frontier: list[str] = []
+        for via, rel in (("calls", "CALLS"), ("injects", "INJECTS")):
+            for cqn, cfp, conf in store.query(
+                f"MATCH (caller:Symbol)-[r:{rel}]->(callee:Symbol) "
                 "WHERE caller.qualified_name IN $qns "
                 "RETURN callee.qualified_name, callee.file_path, r.confidence "
                 "ORDER BY callee.qualified_name",
                 {"qns": frontier},
-            )
-        )
-        next_frontier: list[str] = []
-        for cqn, cfp, conf in rows:
-            if cqn in visited:
-                continue
-            visited.add(cqn)
-            tail.append({"symbol": cqn, "file": cfp, "depth": depth, "confidence": conf})
-            next_frontier.append(cqn)
+            ):
+                if cqn in visited:
+                    continue
+                visited.add(cqn)
+                tail.append(
+                    {"symbol": cqn, "file": cfp, "depth": depth, "confidence": conf, "via": via}
+                )
+                next_frontier.append(cqn)
         frontier = next_frontier
         if len(tail) >= 50:  # bound the tail; a feature slice is not the whole graph
             break

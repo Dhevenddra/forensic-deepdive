@@ -34,12 +34,15 @@ from forensic_deepdive.graph.schema import (
     HandlesEdge,
     ImplementsEdge,
     ImportsEdge,
+    InjectsEdge,
     MemberOfEdge,
     Module,
+    PersistsToEdge,
     Process,
     RoutesToEdge,
     Symbol,
     SymbolKind,
+    Table,
     TouchedByCommitEdge,
 )
 from forensic_deepdive.graph.store import GraphStore
@@ -904,6 +907,40 @@ class LadybugStore(GraphStore):
             "MATCH (c:Symbol {qualified_name: row.cq}), (p:Symbol {qualified_name: row.pq}) "
             "CREATE (c)-[:ROUTES_TO "
             "{confidence: row.conf, evidence: row.ev, via: row.via, endpoint: row.ep}]->(p)",
+            rows,
+        )
+
+    # --- DI / ORM traceability tail (DEC-059) -------------------------------
+
+    def add_many_tables(self, nodes: Iterable[Table]) -> None:
+        rows = [{"tid": n.table_id, "name": n.name, "orm": n.orm, "fw": n.framework} for n in nodes]
+        self._batch_execute(
+            "UNWIND $rows AS row CREATE (n:DbTable {"
+            "table_id: row.tid, name: row.name, orm: row.orm, framework: row.fw})",
+            rows,
+        )
+
+    def add_many_injects(self, edges: Iterable[InjectsEdge]) -> None:
+        rows = [
+            {"iq": e.injector, "jq": e.injected, "conf": str(e.confidence), "ev": e.evidence}
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (i:Symbol {qualified_name: row.iq}), (j:Symbol {qualified_name: row.jq}) "
+            "CREATE (i)-[:INJECTS {confidence: row.conf, evidence: row.ev}]->(j)",
+            rows,
+        )
+
+    def add_many_persists_to(self, edges: Iterable[PersistsToEdge]) -> None:
+        rows = [
+            {"mq": e.model, "tid": e.table_id, "conf": str(e.confidence), "ev": e.evidence}
+            for e in edges
+        ]
+        self._batch_execute(
+            "UNWIND $rows AS row "
+            "MATCH (m:Symbol {qualified_name: row.mq}), (t:DbTable {table_id: row.tid}) "
+            "CREATE (m)-[:PERSISTS_TO {confidence: row.conf, evidence: row.ev}]->(t)",
             rows,
         )
 

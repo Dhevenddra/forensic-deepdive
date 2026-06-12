@@ -89,7 +89,9 @@ def test_all_node_dataclasses_constructable():
 def test_ddl_covers_every_node_dataclass():
     # If a Node type is added to schema.py, NODE_TABLES must grow too.
     declared_tables = {_node_name(stmt) for stmt in NODE_TABLES}
-    expected = {"File", "Symbol", "Module", "Commit", "Author", "Process", "Endpoint"}
+    # DbTable (DEC-059) is the Cypher label for the Table dataclass (``Table`` is a
+    # reserved Kùzu keyword); the PK prefix stays ``table::``.
+    expected = {"File", "Symbol", "Module", "Commit", "Author", "Process", "Endpoint", "DbTable"}
     assert declared_tables == expected
 
 
@@ -108,6 +110,8 @@ def test_ddl_covers_every_edge_dataclass():
         "HANDLES",  # DEC-043
         "CALLS_ENDPOINT",  # DEC-043
         "ROUTES_TO",  # DEC-043
+        "INJECTS",  # DEC-059
+        "PERSISTS_TO",  # DEC-059
     }
     assert declared_rels == expected
 

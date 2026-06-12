@@ -54,12 +54,15 @@ from forensic_deepdive.graph import (
     HandlesEdge,
     ImplementsEdge,
     ImportsEdge,
+    InjectsEdge,
     LadybugStore,
     MemberOfEdge,
     Module,
+    PersistsToEdge,
     RoutesToEdge,
     Symbol,
     SymbolKind,
+    Table,
     TouchedByCommitEdge,
 )
 from forensic_deepdive.graph.schema import FileRole, module_pk
@@ -75,6 +78,7 @@ from forensic_deepdive.static.graph import SymbolGraph, build_symbol_graph
 from forensic_deepdive.static.ids import SymbolDescriptor, assign_disambiguators
 from forensic_deepdive.static.imports import Import
 from forensic_deepdive.static.inheritance import InheritanceRecord
+from forensic_deepdive.static.injection import InjectionRecord
 from forensic_deepdive.static.method_calls import MethodCall
 from forensic_deepdive.static.pagerank import RankedRepo, rank_files
 from forensic_deepdive.static.parse_cache import (
@@ -91,6 +95,7 @@ from forensic_deepdive.static.parse_cache import (
     resolve_worker_count,
     write_manifest,
 )
+from forensic_deepdive.static.persistence import PersistenceRecord
 from forensic_deepdive.static.resolver import MODULE_SCOPE, resolve_calls, resolve_method_calls
 from forensic_deepdive.static.tags import Tag
 
@@ -127,6 +132,8 @@ class ParseOutput:
     imports: list[Import]  # DEC-024 — one per import/include/require statement
     inheritance: list[InheritanceRecord]  # DEC-028 — class-hierarchy declarations
     method_calls: list[MethodCall]  # DEC-037 — dotted method calls
+    injection: list[InjectionRecord]  # DEC-059 — DI sites
+    persistence: list[PersistenceRecord]  # DEC-059 — ORM model→table
     parsed_count: int  # files run through Tree-sitter this run
     cached_count: int  # files served from the parse cache
     diff: ManifestDiff | None  # manifest diff vs previous run; None if cache off
@@ -140,6 +147,8 @@ class StaticOutput:
     imports: list[Import]  # DEC-024 — one per import/include/require statement
     inheritance: list[InheritanceRecord]  # DEC-028 — class-hierarchy declarations
     method_calls: list[MethodCall]  # DEC-037 — dotted method calls
+    injection: list[InjectionRecord]  # DEC-059 — DI sites
+    persistence: list[PersistenceRecord]  # DEC-059 — ORM model→table
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,12 +297,16 @@ class ParsePhase(Phase):
         imports: list[Import] = []
         inheritance: list[InheritanceRecord] = []
         method_calls: list[MethodCall] = []
+        injection: list[InjectionRecord] = []
+        persistence: list[PersistenceRecord] = []
         for rel_path in sorted(results):
             r = results[rel_path]
             tags.extend(r.tags)
             imports.extend(r.imports)
             inheritance.extend(r.inheritance)
             method_calls.extend(r.method_calls)
+            injection.extend(r.injection)
+            persistence.extend(r.persistence)
 
         diff: ManifestDiff | None = None
         if use_cache:
@@ -305,6 +318,8 @@ class ParsePhase(Phase):
             imports=imports,
             inheritance=inheritance,
             method_calls=method_calls,
+            injection=injection,
+            persistence=persistence,
             parsed_count=len(tasks),
             cached_count=len(results) - len(tasks),
             diff=diff,
@@ -344,7 +359,48 @@ class StaticPhase(Phase):
             imports=parsed.imports,
             inheritance=parsed.inheritance,
             method_calls=parsed.method_calls,
+            injection=parsed.injection,
+            persistence=parsed.persistence,
         )
+
+
+def _resolve_name_to_files(
+    name: str,
+    rel_path: str,
+    language: str,
+    imports: list[Import],
+    defs_top_by_file: dict[str, set[str]],
+    defs_top_by_lang: dict[str, dict[str, list[str]]],
+    source_files_by_path: dict[str, str],
+) -> tuple[list[str], Confidence] | None:
+    """Resolve a raw type/provider *name* referenced in *rel_path* to the file(s)
+    that define it, with confidence — the DEC-028 same-file → import → cross-file
+    ladder, shared by inheritance (EXTENDS/IMPLEMENTS) and DI (INJECTS). Returns
+    ``None`` when the name is external / unresolvable (the caller drops it).
+
+    Same-file or a matching import → ``EXTRACTED``; a unique cross-file
+    same-language definition → ``INFERRED``; several → ``AMBIGUOUS`` (every file)."""
+    if name in defs_top_by_file.get(rel_path, ()):
+        return [rel_path], Confidence.EXTRACTED
+    from forensic_deepdive.static.resolver import _resolve_import_to_file
+
+    imp_matches: list[str] = []
+    for imp in imports:
+        if imp.rel_path != rel_path:
+            continue
+        for ime in imp.imported_names:
+            if ime.name == name or ime.alias == name:
+                tgt = _resolve_import_to_file(imp, source_files_by_path)
+                if tgt is not None and name in defs_top_by_file.get(tgt, ()):
+                    imp_matches.append(tgt)
+                break
+    if imp_matches:
+        return imp_matches, Confidence.EXTRACTED
+    candidates = [c for c in defs_top_by_lang.get(language, {}).get(name, []) if c != rel_path]
+    if not candidates:
+        return None
+    target_files = sorted(candidates)
+    return target_files, (Confidence.INFERRED if len(target_files) == 1 else Confidence.AMBIGUOUS)
 
 
 def _http_match_keys(consumer: Contract) -> tuple[str, ...]:
@@ -714,38 +770,18 @@ class BuildGraphPhase(Phase):
             if ihr.rel_path not in source_file_paths:
                 continue
             child_qn = _qualified_name(ihr.rel_path, ihr.child_qn_local)
-            # 1. Same-file lookup.
-            target_files: list[str] = []
-            if ihr.parent_name in defs_top_by_file.get(ihr.rel_path, ()):
-                target_files = [ihr.rel_path]
-                conf = Confidence.EXTRACTED
-            else:
-                # 2. Import-walk: any import in this file naming the parent?
-                imp_matches: list[str] = []
-                for imp in static.imports:
-                    if imp.rel_path != ihr.rel_path:
-                        continue
-                    for ime in imp.imported_names:
-                        if ime.name == ihr.parent_name or ime.alias == ihr.parent_name:
-                            from forensic_deepdive.static.resolver import (
-                                _resolve_import_to_file,
-                            )
-
-                            tgt = _resolve_import_to_file(imp, source_files_by_path)
-                            if tgt is not None and ihr.parent_name in defs_top_by_file.get(tgt, ()):
-                                imp_matches.append(tgt)
-                            break
-                if imp_matches:
-                    target_files = imp_matches
-                    conf = Confidence.EXTRACTED
-                else:
-                    # 3. Cross-file fallback (same language only).
-                    candidates = defs_top_by_lang.get(ihr.language, {}).get(ihr.parent_name, [])
-                    candidates = [c for c in candidates if c != ihr.rel_path]
-                    if not candidates:
-                        continue  # external — drop
-                    target_files = sorted(candidates)
-                    conf = Confidence.INFERRED if len(target_files) == 1 else Confidence.AMBIGUOUS
+            resolved = _resolve_name_to_files(
+                ihr.parent_name,
+                ihr.rel_path,
+                ihr.language,
+                static.imports,
+                defs_top_by_file,
+                defs_top_by_lang,
+                source_files_by_path,
+            )
+            if resolved is None:
+                continue  # external — drop
+            target_files, conf = resolved
             for tgt_file in target_files:
                 parent_qn = _qualified_name(tgt_file, ihr.parent_name)
                 if ihr.kind == "extends":
@@ -766,6 +802,78 @@ class BuildGraphPhase(Phase):
                             evidence="ast-declaration",
                         )
                     )
+
+        # DEC-059 (v0.5 Step 4): resolve DI sites + ORM model→table. Injection
+        # reuses the same name-resolution ladder, then the Spring interface→impl
+        # ladder via the just-resolved IMPLEMENTS edges.
+        impls_by_interface: dict[str, list[str]] = {}
+        for ie in resolved_implements:
+            impls_by_interface.setdefault(ie.interface, []).append(ie.implementation)
+
+        resolved_injects: list[InjectsEdge] = []
+        for inj in static.injection:
+            if inj.rel_path not in source_file_paths:
+                continue
+            injector_qn = _qualified_name(inj.rel_path, inj.injector_qn_local)
+            resolved = _resolve_name_to_files(
+                inj.injected_type_name,
+                inj.rel_path,
+                inj.language,
+                static.imports,
+                defs_top_by_file,
+                defs_top_by_lang,
+                source_files_by_path,
+            )
+            if resolved is None:
+                continue
+            target_files, base_conf = resolved
+            for tgt_file in target_files:
+                target_qn = _qualified_name(tgt_file, inj.injected_type_name)
+                impls = sorted(impls_by_interface.get(target_qn, []))
+                if impls:
+                    # The injected type is an interface → resolve to its impl(s):
+                    # single → INFERRED, several → AMBIGUOUS-all (Spring's
+                    # NoUniqueBeanDefinition, mirrored — emit every candidate).
+                    conf = Confidence.INFERRED if len(impls) == 1 else Confidence.AMBIGUOUS
+                    for impl_qn in impls:
+                        resolved_injects.append(
+                            InjectsEdge(
+                                injector=injector_qn,
+                                injected=impl_qn,
+                                confidence=conf,
+                                evidence=f"di-{inj.kind}",
+                            )
+                        )
+                else:
+                    # Concrete type / provider callable → bind directly.
+                    resolved_injects.append(
+                        InjectsEdge(
+                            injector=injector_qn,
+                            injected=target_qn,
+                            confidence=base_conf,
+                            evidence=f"di-{inj.kind}",
+                        )
+                    )
+
+        tables_by_id: dict[str, Table] = {}
+        resolved_persists: list[PersistsToEdge] = []
+        for pr in static.persistence:
+            if pr.rel_path not in source_file_paths:
+                continue
+            model_qn = _qualified_name(pr.rel_path, pr.model_qn_local)
+            table_id = f"table::{pr.table_name}"
+            tables_by_id.setdefault(
+                table_id,
+                Table(table_id=table_id, name=pr.table_name, orm=pr.orm, framework=pr.framework),
+            )
+            resolved_persists.append(
+                PersistsToEdge(
+                    model=model_qn,
+                    table_id=table_id,
+                    confidence=Confidence.EXTRACTED if pr.literal else Confidence.INFERRED,
+                    evidence=f"orm-{pr.orm}",
+                )
+            )
 
         # DEC-032: collect everything in memory, then write each table via
         # a single batched UNWIND call (chunked at LadybugStore._BATCH_SIZE).
@@ -922,6 +1030,24 @@ class BuildGraphPhase(Phase):
             if e.implementation in valid_symbol_qns and e.interface in valid_symbol_qns
         ]
 
+        # DEC-059: DI/ORM tail. INJECTS filters both Symbol endpoints; PERSISTS_TO
+        # filters the model side (the Table node is always created). Tables sorted
+        # by PK; edges sorted for determinism.
+        edges_injects_to_write = sorted(
+            (
+                e
+                for e in resolved_injects
+                if e.injector in valid_symbol_qns and e.injected in valid_symbol_qns
+            ),
+            key=lambda e: (e.injector, e.injected),
+        )
+        edges_persists_to_write = sorted(
+            (e for e in resolved_persists if e.model in valid_symbol_qns),
+            key=lambda e: (e.model, e.table_id),
+        )
+        referenced_table_ids = {e.table_id for e in edges_persists_to_write}
+        tables_to_write = [tables_by_id[tid] for tid in sorted(referenced_table_ids)]
+
         # DEC-043: cross-boundary contracts → Endpoint nodes + HANDLES /
         # CALLS_ENDPOINT / ROUTES_TO edges. Endpoint nodes are already deduped +
         # sorted; the edges filter their Symbol endpoints against the valid set
@@ -985,6 +1111,7 @@ class BuildGraphPhase(Phase):
             store.add_many_modules(modules_to_write)
             store.add_many_symbols(symbols_to_write)
             store.add_many_endpoints(endpoints_to_write)
+            store.add_many_tables(tables_to_write)  # DEC-059
             store.add_many_authors(authors_to_write)
             store.add_many_commits(commit_records_to_write)
             store.add_many_defines(edges_defines)
@@ -1001,6 +1128,9 @@ class BuildGraphPhase(Phase):
             store.add_many_handles(edges_handles)
             store.add_many_calls_endpoint(edges_calls_endpoint)
             store.add_many_routes_to(edges_routes_to)
+            # DEC-059: DI/ORM tail — Table nodes exist now, so PERSISTS_TO attaches.
+            store.add_many_injects(edges_injects_to_write)
+            store.add_many_persists_to(edges_persists_to_write)
 
             # DEC-038 (Item E): build the sidecar lexical FTS5 index from the
             # graph so the hybrid NL query has its always-on floor ready. The

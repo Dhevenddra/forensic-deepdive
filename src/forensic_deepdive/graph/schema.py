@@ -141,6 +141,19 @@ class Process(Node):
 
 
 @dataclass(frozen=True, slots=True)
+class Table(Node):
+    """DEC-059 (v0.5 Step 4). The **one** new-node exception to the Endpoint-reuse
+    keystone (DEC-055): a persisted DB table is genuinely not an endpoint, so the
+    DI/ORM tail terminates at its own node. PK = ``table::<name>``; the model
+    Symbol reaches it via a ``PERSISTS_TO`` edge."""
+
+    table_id: str  # PRIMARY KEY — "table::<name>"
+    name: str = ""  # the raw table name
+    orm: str = ""  # sqlalchemy | jpa | django | ...
+    framework: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class Endpoint(Node):
     """DEC-043 (v0.4). The canonical cross-boundary contract — the join *node*.
 
@@ -286,6 +299,31 @@ class RoutesToEdge(Edge):
     endpoint: str = ""  # the Endpoint contract_id this join is on
 
 
+# --- DI / ORM traceability tail (DEC-059, v0.5 Step 4) ---------------------
+
+
+@dataclass(frozen=True, slots=True)
+class InjectsEdge(Edge):
+    """A dependency-injection binding: the *injector* Symbol (a class/handler with
+    an ``@Autowired`` field, an auto-wired constructor, or a FastAPI ``Depends``)
+    depends on the *injected* Symbol (the resolved provider/impl). Confidence is the
+    Spring resolution ladder (DEC-059): concrete → EXTRACTED, single intra-repo impl
+    → INFERRED, multiple impls → AMBIGUOUS-all (mirroring ``NoUniqueBeanDefinition``)."""
+
+    injector: str = ""  # Symbol.qualified_name (the class/site with the dependency)
+    injected: str = ""  # Symbol.qualified_name (the resolved provider/impl)
+
+
+@dataclass(frozen=True, slots=True)
+class PersistsToEdge(Edge):
+    """An ORM model Symbol persists to a :class:`Table` node. Literal table name
+    (``__tablename__``/``@Table(name=)``) → EXTRACTED; a convention-derived name →
+    INFERRED."""
+
+    model: str = ""  # Symbol.qualified_name (the ORM entity/model class)
+    table_id: str = ""  # Table PK ("table::<name>")
+
+
 # ---------------------------------------------------------------------------
 # LadybugDB DDL
 # ---------------------------------------------------------------------------
@@ -339,6 +377,14 @@ NODE_TABLES: list[str] = [
         "normalized_path STRING, raw_path_samples STRING, framework STRING, "
         "spec_backed BOOLEAN, "
         "PRIMARY KEY(contract_id))"
+    ),
+    # Table (DEC-059) — the one new-node exception; the DI/ORM tail terminal.
+    # Cypher label is ``DbTable`` (``Table`` is a reserved keyword in Kùzu); the
+    # Python dataclass stays :class:`Table` and the PK prefix stays ``table::``.
+    (
+        "CREATE NODE TABLE IF NOT EXISTS DbTable("
+        "table_id STRING, name STRING, orm STRING, framework STRING, "
+        "PRIMARY KEY(table_id))"
     ),
 ]
 
@@ -394,5 +440,14 @@ REL_TABLES: list[str] = [
         "CREATE REL TABLE IF NOT EXISTS ROUTES_TO("
         "FROM Symbol TO Symbol, confidence STRING, evidence STRING, "
         "via STRING, endpoint STRING)"
+    ),
+    # DI / ORM traceability tail (DEC-059, v0.5 Step 4).
+    (
+        "CREATE REL TABLE IF NOT EXISTS INJECTS("
+        "FROM Symbol TO Symbol, confidence STRING, evidence STRING)"
+    ),
+    (
+        "CREATE REL TABLE IF NOT EXISTS PERSISTS_TO("
+        "FROM Symbol TO DbTable, confidence STRING, evidence STRING)"
     ),
 ]

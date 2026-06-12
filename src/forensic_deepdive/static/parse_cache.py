@@ -53,8 +53,10 @@ from pathlib import Path
 from forensic_deepdive.cache import CACHE_DIRNAME
 from forensic_deepdive.static.imports import Import, ImportedName, extract_imports
 from forensic_deepdive.static.inheritance import InheritanceRecord, extract_inheritance
+from forensic_deepdive.static.injection import InjectionRecord, extract_injection
 from forensic_deepdive.static.method_calls import MethodCall, extract_method_calls
 from forensic_deepdive.static.parse import ParsedFile, parse_source
+from forensic_deepdive.static.persistence import PersistenceRecord, extract_persistence
 from forensic_deepdive.static.tags import TAGS_SCM, Tag, extract_tags
 
 # Bump when the parse / extraction *code* changes in a way that alters the
@@ -65,7 +67,7 @@ from forensic_deepdive.static.tags import TAGS_SCM, Tag, extract_tags
 #   v2 (DEC-037): ParseResult gained ``method_calls``.
 #   v3 (DEC-050): TS/TSX heritage extraction widened (abstract classes,
 #       interface→interface extends, generic_type / member_expression targets).
-PARSER_VERSION = 3
+PARSER_VERSION = 4  # DEC-059 (v0.5 Step 4): + injection / persistence records
 
 # Subdirectory layout under the repo's gitignored cache dir:
 #   .forensic-deepdive/cache/parse/<entry_key>.json   — one per (content, lang)
@@ -129,6 +131,8 @@ class ParseResult:
     imports: tuple[Import, ...]
     inheritance: tuple[InheritanceRecord, ...]
     method_calls: tuple[MethodCall, ...] = ()  # DEC-037 — dotted method calls
+    injection: tuple[InjectionRecord, ...] = ()  # DEC-059 — DI sites
+    persistence: tuple[PersistenceRecord, ...] = ()  # DEC-059 — ORM model→table
 
 
 def parse_and_extract(abs_path: Path, rel_path: str, language: str, source: bytes) -> ParseResult:
@@ -151,6 +155,8 @@ def parse_and_extract(abs_path: Path, rel_path: str, language: str, source: byte
         imports=tuple(extract_imports(parsed)),
         inheritance=tuple(extract_inheritance(parsed)),
         method_calls=tuple(extract_method_calls(parsed)),
+        injection=tuple(extract_injection(parsed)),
+        persistence=tuple(extract_persistence(parsed)),
     )
 
 
@@ -333,6 +339,52 @@ def _method_call_from_dict(d: dict, rel_path: str) -> MethodCall:
     )
 
 
+def _injection_to_dict(r: InjectionRecord) -> dict:
+    return {
+        "injector_qn_local": r.injector_qn_local,
+        "injected_type_name": r.injected_type_name,
+        "kind": r.kind,
+        "language": r.language,
+        "line": r.line,
+    }
+
+
+def _injection_from_dict(d: dict, rel_path: str) -> InjectionRecord:
+    return InjectionRecord(
+        rel_path=rel_path,
+        injector_qn_local=d["injector_qn_local"],
+        injected_type_name=d["injected_type_name"],
+        kind=d["kind"],
+        language=d["language"],
+        line=d["line"],
+    )
+
+
+def _persistence_to_dict(r: PersistenceRecord) -> dict:
+    return {
+        "model_qn_local": r.model_qn_local,
+        "table_name": r.table_name,
+        "orm": r.orm,
+        "framework": r.framework,
+        "language": r.language,
+        "line": r.line,
+        "literal": r.literal,
+    }
+
+
+def _persistence_from_dict(d: dict, rel_path: str) -> PersistenceRecord:
+    return PersistenceRecord(
+        rel_path=rel_path,
+        model_qn_local=d["model_qn_local"],
+        table_name=d["table_name"],
+        orm=d["orm"],
+        framework=d["framework"],
+        language=d["language"],
+        line=d["line"],
+        literal=d["literal"],
+    )
+
+
 # ---------------------------------------------------------------------------
 # The cache
 # ---------------------------------------------------------------------------
@@ -378,6 +430,12 @@ class ParseCache:
                 method_calls=tuple(
                     _method_call_from_dict(m, rel_path) for m in payload.get("method_calls", ())
                 ),
+                injection=tuple(
+                    _injection_from_dict(j, rel_path) for j in payload.get("injection", ())
+                ),
+                persistence=tuple(
+                    _persistence_from_dict(p, rel_path) for p in payload.get("persistence", ())
+                ),
             )
         except (KeyError, TypeError):
             return None
@@ -397,6 +455,8 @@ class ParseCache:
             "imports": [_import_to_dict(i) for i in result.imports],
             "inheritance": [_inheritance_to_dict(h) for h in result.inheritance],
             "method_calls": [_method_call_to_dict(m) for m in result.method_calls],
+            "injection": [_injection_to_dict(j) for j in result.injection],
+            "persistence": [_persistence_to_dict(p) for p in result.persistence],
         }
         text = json.dumps(payload, separators=(",", ":")) + "\n"
         dest = self._entry_path(content_sha, language)
