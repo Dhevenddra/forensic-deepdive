@@ -17,6 +17,7 @@ from typing import Protocol
 
 from forensic_deepdive.contracts.base import Contract
 from forensic_deepdive.contracts.http.normalize import http_contract_id
+from forensic_deepdive.contracts.mcp.normalize import mcp_contract_id
 from forensic_deepdive.static.imports import Import
 from forensic_deepdive.static.method_calls import MethodCall
 from forensic_deepdive.static.tags import Tag
@@ -73,6 +74,10 @@ class ProtocolEntry:
 REGISTRY: dict[str, ProtocolEntry] = {
     # HTTP key_builder is now the real normalizer-backed contractId (DEC-044).
     "http": ProtocolEntry("http", http_contract_id),
+    # MCP is the second live instance (DEC-057, v0.5 Step 2): bare-tool keying
+    # ``mcp::<tool>`` over the same Endpoint/base.join spine — the keystone proof
+    # is that only this entry + the contracts/mcp extractors change.
+    "mcp": ProtocolEntry("mcp", mcp_contract_id),
     "grpc": ProtocolEntry("grpc", grpc_key_builder),
     "topic": ProtocolEntry("topic", topic_key_builder),
 }

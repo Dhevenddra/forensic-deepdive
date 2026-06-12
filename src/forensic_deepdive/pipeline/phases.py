@@ -27,6 +27,7 @@ from forensic_deepdive.cache import cache_dir
 from forensic_deepdive.contracts import Contract, ContractContext, ContractRole, CrossLink, join
 from forensic_deepdive.contracts.http.normalize import http_wildcard_id
 from forensic_deepdive.contracts.http.register import register_http_extractors
+from forensic_deepdive.contracts.mcp.register import register_mcp_extractors
 from forensic_deepdive.contracts.registry import REGISTRY
 from forensic_deepdive.contracts.specs import collect_spec_operations, reconcile_with_specs
 from forensic_deepdive.emit import RepoFacts, render_all
@@ -371,8 +372,11 @@ class ContractPhase(Phase):
 
     def run(self, ctx: Context) -> ContractOutput:
         # DEC-045: wire the HTTP provider/consumer extractors into the registry
-        # (idempotent — a guarded no-op after the first call).
+        # (idempotent — a guarded no-op after the first call). DEC-057 (v0.5
+        # Step 2): MCP registers the same way — a registration wire, not a
+        # surfacing-layer change (the keystone: join/trace/emit/serve untouched).
         register_http_extractors()
+        register_mcp_extractors()
         cfg = ctx.config
         # inventory ran before static (which depends on it), so it's in ctx.
         inv = ctx.get(InventoryPhase).inventory
