@@ -17,8 +17,10 @@ from typing import Protocol
 
 from forensic_deepdive.contracts.base import Contract
 from forensic_deepdive.contracts.dispatch.normalize import registry_contract_id
+from forensic_deepdive.contracts.grpc.normalize import grpc_contract_id
 from forensic_deepdive.contracts.http.normalize import http_contract_id
 from forensic_deepdive.contracts.mcp.normalize import mcp_contract_id
+from forensic_deepdive.contracts.messaging.normalize import messaging_contract_id
 from forensic_deepdive.static.imports import Import
 from forensic_deepdive.static.method_calls import MethodCall
 from forensic_deepdive.static.tags import Tag
@@ -49,16 +51,6 @@ class KeyBuilder(Protocol):
     def __call__(self, *args: object, **kwargs: object) -> str: ...
 
 
-def grpc_key_builder(*args: object, **kwargs: object) -> str:
-    raise NotImplementedError(
-        "gRPC contract keys (grpc::<pkg>.<Service>/<Method>) are a v0.5 seam (DEC-043)."
-    )
-
-
-def topic_key_builder(*args: object, **kwargs: object) -> str:
-    raise NotImplementedError("Topic/queue/event contract keys are a v0.5 seam (DEC-043).")
-
-
 @dataclass
 class ProtocolEntry:
     """One protocol's registration. ``provider_extractors`` / ``consumer_extractors``
@@ -82,8 +74,12 @@ REGISTRY: dict[str, ProtocolEntry] = {
     # Registry-dispatch is the third live instance (DEC-058, v0.5 Step 3):
     # ``registry::<id>::<key>`` (+ a ``::*`` wildcard for dynamic-key fan-out).
     "registry": ProtocolEntry("registry", registry_contract_id),
-    "grpc": ProtocolEntry("grpc", grpc_key_builder),
-    "topic": ProtocolEntry("topic", topic_key_builder),
+    # gRPC is the fourth live instance (DEC-060, v0.5 Step 5): bare ``grpc::<Svc>/
+    # <Method>`` keying; the ``.proto`` is the spec (spec_backed, like OpenAPI).
+    "grpc": ProtocolEntry("grpc", grpc_contract_id),
+    # Messaging is the fifth live instance (DEC-060, v0.5 Step 5): ``topic::``/
+    # ``queue::`` pub↔sub join. Hosts both kinds under the one ``topic`` entry.
+    "topic": ProtocolEntry("topic", messaging_contract_id),
 }
 
 

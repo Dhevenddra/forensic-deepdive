@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from forensic_deepdive.graph.schema import Confidence
@@ -67,6 +67,33 @@ class CrossLink:
 
 def _collection_sort(contracts: list[Contract]) -> list[Contract]:
     return sorted(contracts, key=lambda c: (c.rel_path, c.line, c.symbol_id))
+
+
+def reconcile_spec_backed(providers: list[Contract]) -> list[Contract]:
+    """Collapse a *spec* provider into the in-code provider it describes (DEC-060,
+    generalizing DEC-048's OpenAPI reconcile to any protocol).
+
+    A ``.proto`` rpc (or any spec source) emits a ``spec_backed`` provider with a
+    *synthetic* ``symbol_id``. When a real in-code provider (a servicer method) for
+    the same ``contract_id`` also exists, the spec is the **same** logical endpoint,
+    not a second one — so we drop the synthetic spec provider and mark the real
+    provider ``spec_backed=True`` (its unique join then upgrades to EXTRACTED via
+    :func:`_link_confidence`, instead of being miscounted as AMBIGUOUS). A spec with
+    **no** in-code provider stays as the honest spec-only endpoint. Deterministic:
+    groups are walked in sorted ``contract_id`` order."""
+    by_id: dict[str, list[Contract]] = defaultdict(list)
+    for p in providers:
+        by_id[p.contract_id].append(p)
+    out: list[Contract] = []
+    for contract_id in sorted(by_id):
+        members = by_id[contract_id]
+        real = [m for m in members if not m.spec_backed]
+        spec = [m for m in members if m.spec_backed]
+        if real and spec:
+            out.extend(replace(m, spec_backed=True) for m in real)
+        else:
+            out.extend(members)
+    return out
 
 
 def _link_confidence(

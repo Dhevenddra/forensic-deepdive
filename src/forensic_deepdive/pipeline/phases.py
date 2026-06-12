@@ -24,11 +24,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from forensic_deepdive.cache import cache_dir
-from forensic_deepdive.contracts import Contract, ContractContext, ContractRole, CrossLink, join
+from forensic_deepdive.contracts import (
+    Contract,
+    ContractContext,
+    ContractRole,
+    CrossLink,
+    join,
+    reconcile_spec_backed,
+)
 from forensic_deepdive.contracts.dispatch.register import register_dispatch_extractors
+from forensic_deepdive.contracts.grpc.register import register_grpc_extractors
 from forensic_deepdive.contracts.http.normalize import http_wildcard_id
 from forensic_deepdive.contracts.http.register import register_http_extractors
 from forensic_deepdive.contracts.mcp.register import register_mcp_extractors
+from forensic_deepdive.contracts.messaging.register import register_messaging_extractors
 from forensic_deepdive.contracts.registry import REGISTRY
 from forensic_deepdive.contracts.specs import collect_spec_operations, reconcile_with_specs
 from forensic_deepdive.emit import RepoFacts, render_all
@@ -435,6 +444,8 @@ class ContractPhase(Phase):
         register_http_extractors()
         register_mcp_extractors()
         register_dispatch_extractors()  # DEC-058 (v0.5 Step 3) — same registration wire.
+        register_grpc_extractors()  # DEC-060 (v0.5 Step 5)
+        register_messaging_extractors()  # DEC-060 (v0.5 Step 5)
         cfg = ctx.config
         # inventory ran before static (which depends on it), so it's in ctx.
         inv = ctx.get(InventoryPhase).inventory
@@ -468,6 +479,10 @@ class ContractPhase(Phase):
                 ", ".join(spec_scan.skipped_yaml),
             )
         providers = reconcile_with_specs(providers, spec_scan.operations)
+        # DEC-060: collapse a spec provider (e.g. a .proto rpc) into the in-code
+        # provider (a servicer) it describes, so the join sees one provider (→
+        # EXTRACTED) not two (→ AMBIGUOUS). Generalizes the OpenAPI reconcile.
+        providers = reconcile_spec_backed(providers)
 
         cross_links = join(providers, consumers, match_keys=_http_match_keys)
         endpoints = _build_endpoints(providers, consumers)
