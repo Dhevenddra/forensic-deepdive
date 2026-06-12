@@ -25,6 +25,7 @@ from pathlib import Path
 
 from forensic_deepdive.cache import cache_dir
 from forensic_deepdive.contracts import Contract, ContractContext, ContractRole, CrossLink, join
+from forensic_deepdive.contracts.dispatch.register import register_dispatch_extractors
 from forensic_deepdive.contracts.http.normalize import http_wildcard_id
 from forensic_deepdive.contracts.http.register import register_http_extractors
 from forensic_deepdive.contracts.mcp.register import register_mcp_extractors
@@ -377,6 +378,7 @@ class ContractPhase(Phase):
         # surfacing-layer change (the keystone: join/trace/emit/serve untouched).
         register_http_extractors()
         register_mcp_extractors()
+        register_dispatch_extractors()  # DEC-058 (v0.5 Step 3) — same registration wire.
         cfg = ctx.config
         # inventory ran before static (which depends on it), so it's in ctx.
         inv = ctx.get(InventoryPhase).inventory

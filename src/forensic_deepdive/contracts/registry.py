@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Protocol
 
 from forensic_deepdive.contracts.base import Contract
+from forensic_deepdive.contracts.dispatch.normalize import registry_contract_id
 from forensic_deepdive.contracts.http.normalize import http_contract_id
 from forensic_deepdive.contracts.mcp.normalize import mcp_contract_id
 from forensic_deepdive.static.imports import Import
@@ -78,6 +79,9 @@ REGISTRY: dict[str, ProtocolEntry] = {
     # ``mcp::<tool>`` over the same Endpoint/base.join spine — the keystone proof
     # is that only this entry + the contracts/mcp extractors change.
     "mcp": ProtocolEntry("mcp", mcp_contract_id),
+    # Registry-dispatch is the third live instance (DEC-058, v0.5 Step 3):
+    # ``registry::<id>::<key>`` (+ a ``::*`` wildcard for dynamic-key fan-out).
+    "registry": ProtocolEntry("registry", registry_contract_id),
     "grpc": ProtocolEntry("grpc", grpc_key_builder),
     "topic": ProtocolEntry("topic", topic_key_builder),
 }
