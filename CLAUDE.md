@@ -42,6 +42,7 @@ uv run ruff format src/ tests/
 - **PageRank port from Aider** — the algorithm, not the dependency. `src/forensic_deepdive/static/pagerank.py` must remain dependency-free of aider itself.
 - **Skill descriptions are the load-bearing selector.** Three skills, three single-intent descriptions. Don't merge them.
 - **Confidence tags on emitted rules** (EXTRACTED / INFERRED / AMBIGUOUS). Stolen from Graphify (MIT). Trust depends on this.
+- **The `Endpoint`/`base.join` keystone (DEC-043/055).** Five protocols (HTTP, MCP, registry-dispatch, gRPC, messaging) share **one** `Endpoint` join node + the protocol-blind `base.join`. A new protocol = a `KeyBuilder` + provider/consumer extractors only — it must NOT change `trace`/emit/`serve` (they query `Endpoint`/`HANDLES`/`CALLS_ENDPOINT`/`ROUTES_TO` generically). The DI/ORM `DbTable` node is the **one** DEC'd exception. If you add a `protocol==` branch to the surfacing layer, you generalized wrong.
 
 ## Never
 - Never push to remote without explicit user instruction.
@@ -64,6 +65,8 @@ uv run ruff format src/ tests/
 | Adding... | Touch... |
 |---|---|
 | New language support | `src/forensic_deepdive/static/tags.py` (add tags.scm) + `tests/fixtures/<lang>_sample/` + test in `tests/test_parse.py` |
+| New cross-boundary protocol (v0.5) | `src/forensic_deepdive/contracts/<proto>/` (normalize + provider/consumer extractors + idempotent `register_*`) + a `ProtocolEntry` in `contracts/registry.py` + the register-wire in `pipeline/phases.py::ContractPhase.run` + tests. **Keystone: reuse the `Endpoint` node — do NOT touch `trace`/emit/`serve`.** (DEC-055/057) |
+| New HTTP framework provider | `src/forensic_deepdive/contracts/http/providers/<fw>.py` + append to `providers/__init__.py::PROVIDER_EXTRACTORS` + test (DEC-045/062) |
 | New emitter section | `src/forensic_deepdive/emit/<artifact>_md.py` + golden-file fixture in `tests/fixtures/expected_emit/` |
 | New CLI subcommand | `src/forensic_deepdive/cli.py` + `tests/test_cli.py` |
 | New skill | `.claude/skills/<name>/SKILL.md` + add to `docs/SKILLS.md` index |

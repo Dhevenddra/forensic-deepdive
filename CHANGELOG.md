@@ -4,6 +4,53 @@ All notable changes to `forensic-deepdive`. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 follow [SemVer](https://semver.org/).
 
+## [0.5.0] — 2026-06-12
+
+> v0.5 **"Cross-Boundary Protocols"** — extends the DEC-043 `CrossBoundaryEdge`/
+> `Endpoint` abstraction from one protocol (HTTP) to **five** (HTTP, MCP, registry-
+> dispatch, gRPC, messaging) **on the same spine**, plus the DI/ORM traceability
+> tail. The headline: agents. v0.4 proved the static layer was blind to how agents
+> wire themselves; v0.5 models MCP tool dispatch + registry dispatch as cross-
+> boundary protocols, taking hermes-agent from **1** internal `ROUTES_TO` to **22
+> MCP tool endpoints + 35 registry-dispatch `ROUTES_TO`**. The v0.4 flagship
+> shortfall is **closed**: Superset **0 → 61** cross-stack `ROUTES_TO`. Pure-static
+> floor + the 5-artifact + ≤5kb-AGENT_BRIEF contracts unchanged; the 5 golden
+> artifacts stay byte-identical (every new edge class is graph-only).
+
+### Added
+- **The flagship HTTP gap closed** (DEC-056) — a configured-client consumer
+  (`<Client>.get/post({endpoint})`, the SupersetClient shape, guarded by object-
+  literal shape not an allowlist) + a Flask-AppBuilder provider (`ModelRestApi`/
+  `@expose`). Superset: **0 → 61** cross-stack `ROUTES_TO`, 8/9 → **9/9** gate.
+- **MCP as a `CrossBoundaryEdge` protocol** (DEC-057) — `@mcp.tool()` providers +
+  `ClientSession.call_tool("name")` consumers joined through
+  `Endpoint(protocol='mcp', contract_id='mcp::<tool>')`. Bare-tool keying, separator-
+  normalized. The **keystone proof**: zero surfacing-layer change — `trace`/`serve
+  --ui`/HOTPATHS light up MCP for free.
+- **Tool-registry dynamic dispatch** (DEC-058) — `registry[key]()` / `@registry.register`
+  / dict-literal registries modeled as `Endpoint(protocol='registry')` with a
+  provider-side `::*` wildcard fan-out (literal-key → INFERRED, dynamic-key →
+  AMBIGUOUS-all), **capped** per registry, surfaced honestly.
+- **The DI/ORM traceability tail** (DEC-059) — `INJECTS` (Symbol→Symbol) +
+  `PERSISTS_TO` (Symbol→`DbTable`) + the one new-node exception (`DbTable`). Spring
+  `@Autowired`/ctor + FastAPI `Depends`; SQLAlchemy/JPA/Django ORM. The Spring
+  resolution ladder (concrete→EXTRACTED, single-impl→INFERRED, multi→AMBIGUOUS-all).
+  `trace` now walks handler→inject→repo→model→table (the committed v0.4 boundary
+  promise, delivered).
+- **gRPC + messaging** (DEC-060/061) — gRPC `.proto` (tree-sitter-proto, zero new
+  dep) as the spec + servicer providers + stub consumers; messaging `topic::`/`queue::`
+  pub↔sub (Kafka/pika/`@KafkaListener`). The OpenAPI spec-reconcile generalized
+  (`reconcile_spec_backed`).
+- **Framework breadth** (DEC-062) — NestJS (`@Controller` + verb decorators) + JAX-RS
+  (`@Path` + `@GET`/…) HTTP providers, with the enclosing-class guard.
+
+### Notes
+- Real-repo acceptance on all 6 steps (`docs/findings/v0.5/`): Superset, hermes-agent,
+  spring-petclinic, grpc/rabbitmq/nest/jersey. Four v0.6 refinements logged.
+- Deferred (carried to a future arc): Django provider; `PROVIDES` edge; server-/
+  package-qualified MCP/gRPC keying; Redis/NATS/SNS-SQS + topic-exchange messaging;
+  TypeORM/Prisma; multi-repo federation; memory hardening. See `docs/findings/v0.5/DEFERRED.md`.
+
 ## [0.4.0] — 2026-06-05
 
 > v0.4 **"Cross-Stack & Visual"** — the cross-language wedge (a frontend call

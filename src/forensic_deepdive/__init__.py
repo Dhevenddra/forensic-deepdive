@@ -7,4 +7,4 @@ try:
     # Avoids the v0.1→v0.3 drift where this literal was never bumped.
     __version__ = version("forensic-deepdive")
 except PackageNotFoundError:  # running from a source tree without metadata
-    __version__ = "0.4.0"
+    __version__ = "0.5.0"
