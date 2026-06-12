@@ -12,6 +12,8 @@ from forensic_deepdive.contracts.http.providers.flask import extract_flask_provi
 from forensic_deepdive.contracts.http.providers.flask_appbuilder import (
     extract_flask_appbuilder_providers,
 )
+from forensic_deepdive.contracts.http.providers.jaxrs import extract_jaxrs_providers
+from forensic_deepdive.contracts.http.providers.nestjs import extract_nestjs_providers
 from forensic_deepdive.contracts.http.providers.spring import extract_spring_providers
 
 PROVIDER_EXTRACTORS = [
@@ -20,6 +22,8 @@ PROVIDER_EXTRACTORS = [
     extract_flask_appbuilder_providers,
     extract_express_providers,
     extract_spring_providers,
+    extract_nestjs_providers,
+    extract_jaxrs_providers,
 ]
 
 __all__ = [
@@ -28,5 +32,7 @@ __all__ = [
     "extract_fastapi_providers",
     "extract_flask_appbuilder_providers",
     "extract_flask_providers",
+    "extract_jaxrs_providers",
+    "extract_nestjs_providers",
     "extract_spring_providers",
 ]
