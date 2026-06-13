@@ -20,6 +20,9 @@ htmlcov/
 .forensic-deepdive/cache/
 .forensic-deepdive/index/
 .forensic-deepdive/last_run.json
+# the local graph DB + agent-insight store (DEC-013/019; portable via the DEC-069
+# git shadow-ref, not the working tree)
+.deepdive/
 
 # Graphify cache (if used)
 graphify-out/cache/
