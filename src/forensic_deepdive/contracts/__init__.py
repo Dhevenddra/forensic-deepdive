@@ -11,6 +11,7 @@ from forensic_deepdive.contracts.base import (
     ContractRole,
     CrossLink,
     join,
+    reconcile_amqp,
     reconcile_spec_backed,
 )
 from forensic_deepdive.contracts.http.normalize import (
@@ -41,6 +42,7 @@ __all__ = [
     "join",
     "normalize_consumer_path",
     "normalize_provider_path",
+    "reconcile_amqp",
     "reconcile_spec_backed",
     "register_consumer",
     "register_provider",

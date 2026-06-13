@@ -2,16 +2,20 @@
 
 A subscriber/listener processes a channel — the HANDLES side. Shapes::
 
-    consumer.subscribe(["orders"])               # Kafka  → topic::orders (Python)
-    channel.basic_consume(queue="tasks")          # pika   → queue::tasks (Python)
-    channel.queue_declare("tasks")                # pika   → queue::tasks (Python)
+    consumer.subscribe(["orders"])                                # Kafka  → topic::orders
+    channel.basic_consume(queue="tasks")                          # pika   → queue::tasks
+    channel.queue_declare("tasks")                                # pika   → queue::tasks
+    channel.queue_bind(exchange="logs", routing_key="kern.*")     # pika topic → amqp::logs
 
-    @KafkaListener(topics = "orders")             # Spring → topic::orders (Java)
+    @KafkaListener(topics = "orders")                             # Spring → topic::orders
     public void onMessage(String m) { ... }
 
 The Python subscription site's provider ``symbol_id`` is the enclosing function (the
 code that owns the subscription); the Java listener's is the annotated method (via
-``_parent_chain``). A literal channel → EXTRACTED.
+``_parent_chain``). A ``queue_bind`` to a named **exchange** keys on the exchange
+(``amqp::<exchange>``) and carries the ``routing_key`` as the ``binding_pattern``
+(``match_key``, DEC-067); the routing/binding match is refined by ``reconcile_amqp``. A
+literal channel → EXTRACTED.
 """
 
 from __future__ import annotations
@@ -28,14 +32,19 @@ from forensic_deepdive.contracts.http.scan import (
     keyword_arg_value,
     string_list_values,
 )
-from forensic_deepdive.contracts.messaging.normalize import QUEUE, TOPIC, messaging_contract_id
+from forensic_deepdive.contracts.messaging.normalize import (
+    AMQP,
+    QUEUE,
+    TOPIC,
+    messaging_contract_id,
+)
 from forensic_deepdive.graph.schema import Confidence
 from forensic_deepdive.static.tags import _parent_chain
 
 if TYPE_CHECKING:
     from forensic_deepdive.contracts.registry import ContractContext
 
-_PY_MARKERS = (b".subscribe(", b"basic_consume", b"queue_declare")
+_PY_MARKERS = (b".subscribe(", b"basic_consume", b"queue_declare", b"queue_bind")
 _JAVA_MARKERS = (b"KafkaListener",)
 _CONSUMER_RECVS = frozenset({"consumer", "_consumer", "kafka_consumer", "kafka", "self"})
 
@@ -56,9 +65,10 @@ def _receiver_name(fn: Node, src: bytes) -> str | None:
     return None
 
 
-def _py_channels(call: Node, src: bytes) -> list[tuple[str, str]]:
-    """``[(kind, channel), ...]`` for a Python subscriber call (subscribe may name
-    several topics), or ``[]``."""
+def _py_channels(call: Node, src: bytes) -> list[tuple[str, str, str]]:
+    """``[(kind, channel, match_key), ...]`` for a Python subscriber call (subscribe may
+    name several topics), or ``[]``. ``match_key`` is the AMQP binding pattern (only for
+    ``amqp::``), else ``""``."""
     fn = call.child_by_field_name("function")
     if fn is None or fn.type != "attribute":
         return []
@@ -72,13 +82,18 @@ def _py_channels(call: Node, src: bytes) -> list[tuple[str, str]]:
             return []
         list_node = next((c for c in args.children if c.type == "list"), None)
         topics = string_list_values(list_node, src) if list_node is not None else []
-        return [(TOPIC, t) for t in topics]
+        return [(TOPIC, t, "") for t in topics]
     if method == "basic_consume":
         q = keyword_arg_value(args, "queue", src)
-        return [(QUEUE, q)] if q else []
+        return [(QUEUE, q, "")] if q else []
     if method == "queue_declare":
         q = keyword_arg_value(args, "queue", src) or first_positional_string(args, src)
-        return [(QUEUE, q)] if q else []
+        return [(QUEUE, q, "")] if q else []
+    if method == "queue_bind":  # pika topic-exchange binding (DEC-067)
+        exchange = keyword_arg_value(args, "exchange", src)
+        binding = keyword_arg_value(args, "routing_key", src)
+        if exchange:
+            return [(AMQP, exchange, binding or "")]
     return []
 
 
@@ -91,14 +106,22 @@ def _extract_python(ctx: ContractContext) -> list[Contract]:
         for node in _walk(root):
             if node.type != "call":
                 continue
-            for kind, channel in _py_channels(node, src):
+            for kind, channel, match_key in _py_channels(node, src):
                 contract_id = messaging_contract_id(kind, channel)
                 symbol_id = _enclosing_symbol(node, src, rel_path)
                 if (contract_id, symbol_id) in seen:
                     continue
                 seen.add((contract_id, symbol_id))
                 out.append(
-                    _provider(contract_id, symbol_id, kind, channel, rel_path, node.start_point[0])
+                    _provider(
+                        contract_id,
+                        symbol_id,
+                        kind,
+                        channel,
+                        rel_path,
+                        node.start_point[0],
+                        match_key,
+                    )
                 )
     return out
 
@@ -172,20 +195,28 @@ def _kafka_listener_topics_from_anno(anno: Node, src: bytes) -> list[str]:
 
 
 def _provider(
-    contract_id: str, symbol_id: str, kind: str, channel: str, rel_path: str, line: int
+    contract_id: str,
+    symbol_id: str,
+    kind: str,
+    channel: str,
+    rel_path: str,
+    line: int,
+    match_key: str = "",
 ) -> Contract:
+    ev = f"subscribe {kind}::{channel}" + (f" bind={match_key}" if match_key else "")
     return Contract(
         role=ContractRole.PROVIDER,
         contract_id=contract_id,
         symbol_id=symbol_id,
         confidence=Confidence.EXTRACTED,
-        evidence=f"subscribe {kind}::{channel}",
+        evidence=ev,
         protocol=kind,
         normalized_path=channel,
         raw_path=channel,
         framework="messaging",
         rel_path=rel_path,
         line=line,
+        match_key=match_key,
     )
 
 

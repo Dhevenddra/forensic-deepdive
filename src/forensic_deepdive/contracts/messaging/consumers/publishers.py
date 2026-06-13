@@ -1,15 +1,18 @@
 """Messaging publisher-consumer extractor (DEC-060, v0.5 Step 5).
 
 A publisher sends to a channel — the CALLS_ENDPOINT side (ROUTES_TO publisher→
-subscriber). Two Python shapes::
+subscriber). Shapes::
 
-    producer.send("orders", value=b"...")        # Kafka → topic::orders
-    channel.basic_publish(routing_key="tasks")    # pika  → queue::tasks
+    producer.send("orders", value=b"...")                     # Kafka → topic::orders
+    channel.basic_publish(routing_key="tasks")                 # pika default → queue::tasks
+    channel.basic_publish(exchange="logs", routing_key="k.x")  # pika topic → amqp::logs (DEC-067)
 
 Kafka ``.send``/``.produce`` is guarded by a producer-ish receiver-name allowlist
-(``.send`` is otherwise far too common); pika ``basic_publish`` reads the
-``routing_key`` kwarg. Literal channel name → EXTRACTED; caller ``symbol_id`` via the
-reused ``_enclosing_symbol``.
+(``.send`` is otherwise far too common). pika ``basic_publish`` with a **named
+exchange** keys on the exchange (``amqp::<exchange>``) and carries the ``routing_key``
+as ``match_key`` (DEC-067); an **empty/absent** exchange is the default exchange, where
+the ``routing_key`` IS the queue name (``queue::<name>``, the DEC-060 behavior). Literal
+channel → EXTRACTED; caller ``symbol_id`` via the reused ``_enclosing_symbol``.
 """
 
 from __future__ import annotations
@@ -25,7 +28,12 @@ from forensic_deepdive.contracts.http.scan import (
     iter_candidate_files,
     keyword_arg_value,
 )
-from forensic_deepdive.contracts.messaging.normalize import QUEUE, TOPIC, messaging_contract_id
+from forensic_deepdive.contracts.messaging.normalize import (
+    AMQP,
+    QUEUE,
+    TOPIC,
+    messaging_contract_id,
+)
 from forensic_deepdive.graph.schema import Confidence
 
 if TYPE_CHECKING:
@@ -53,8 +61,9 @@ def _receiver_name(fn: Node, src: bytes) -> str | None:
     return None
 
 
-def _classify(call: Node, src: bytes) -> tuple[str, str] | None:
-    """``(kind, channel)`` for a publisher call, or ``None``."""
+def _classify(call: Node, src: bytes) -> tuple[str, str, str] | None:
+    """``(kind, channel, match_key)`` for a publisher call, or ``None``. ``match_key``
+    is the AMQP ``routing_key`` (only for ``amqp::``), else ``""``."""
     fn = call.child_by_field_name("function")
     if fn is None or fn.type != "attribute":
         return None
@@ -68,10 +77,14 @@ def _classify(call: Node, src: bytes) -> tuple[str, str] | None:
         if recv is None or recv not in _PRODUCER_RECVS:
             return None
         topic = first_positional_string(args, src)
-        return (TOPIC, topic) if topic else None
+        return (TOPIC, topic, "") if topic else None
     if method == "basic_publish":
-        key = keyword_arg_value(args, "routing_key", src)
-        return (QUEUE, key) if key else None
+        exchange = keyword_arg_value(args, "exchange", src)
+        routing_key = keyword_arg_value(args, "routing_key", src)
+        if exchange:  # named exchange → topic-exchange path; routing_key is the match key
+            return (AMQP, exchange, routing_key or "")
+        if routing_key:  # default ('' / absent) exchange → routing_key IS the queue name
+            return (QUEUE, routing_key, "")
     return None
 
 
@@ -85,25 +98,27 @@ def extract_publisher_consumers(ctx: ContractContext) -> list[Contract]:
             classified = _classify(node, src)
             if classified is None:
                 continue
-            kind, channel = classified
+            kind, channel, match_key = classified
             contract_id = messaging_contract_id(kind, channel)
             symbol_id = _enclosing_symbol(node, src, rel_path)
             if (contract_id, symbol_id) in seen:
                 continue
             seen.add((contract_id, symbol_id))
+            ev = f"publish {kind}::{channel}" + (f" rk={match_key}" if match_key else "")
             contracts.append(
                 Contract(
                     role=ContractRole.CONSUMER,
                     contract_id=contract_id,
                     symbol_id=symbol_id,
                     confidence=Confidence.EXTRACTED,
-                    evidence=f"publish {kind}::{channel}",
+                    evidence=ev,
                     protocol=kind,
                     normalized_path=channel,
                     raw_path=channel,
                     framework="messaging",
                     rel_path=rel_path,
                     line=node.start_point[0],
+                    match_key=match_key,
                 )
             )
     return contracts

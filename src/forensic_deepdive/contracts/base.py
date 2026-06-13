@@ -50,6 +50,10 @@ class Contract:
     # consistent with the DEC-035 sort-key adaptation since our Tags carry line).
     rel_path: str = ""
     line: int = 0
+    # DEC-067: AMQP topic-exchange match metadata — a publisher's routing_key / a
+    # subscriber's binding_pattern. Empty for every other contract shape; read only by
+    # reconcile_amqp (the exchange is the join key, this refines the match within it).
+    match_key: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +97,71 @@ def reconcile_spec_backed(providers: list[Contract]) -> list[Contract]:
             out.extend(replace(m, spec_backed=True) for m in real)
         else:
             out.extend(members)
+    return out
+
+
+def reconcile_amqp(
+    cross_links: list[CrossLink],
+    providers: list[Contract],
+    consumers: list[Contract],
+) -> list[CrossLink]:
+    """Prune + re-confidence AMQP topic-exchange cross-links (DEC-067, generalizing the
+    DEC-060 ``reconcile_spec_backed`` precedent to a per-pair refinement).
+
+    :func:`join` links every publisher to every subscriber sharing an ``amqp::<exchange>``
+    key (the cartesian over the shared-literal exchange — ``join`` stays unchanged). This
+    refines those links by the AMQP topic match between the publisher's ``routing_key`` and
+    each subscriber's ``binding_pattern`` (both carried in :attr:`Contract.match_key`):
+    **exact → EXTRACTED**, **wildcard → INFERRED**, **provable non-match → DROP**. A
+    publisher with several matching subscribers → all **AMBIGUOUS** (emit every match,
+    never pick one). Non-AMQP links pass through untouched. Deterministic: re-sorted by
+    ``(consumer_symbol_id, provider_symbol_id)``."""
+    from forensic_deepdive.contracts.messaging.normalize import AMQP, amqp_match_kind
+
+    prefix = AMQP + "::"
+    pub_rk = {(c.symbol_id, c.contract_id): c.match_key for c in consumers if c.protocol == AMQP}
+    sub_bp = {(p.symbol_id, p.contract_id): p.match_key for p in providers if p.protocol == AMQP}
+
+    passthrough = [cl for cl in cross_links if not cl.contract_id.startswith(prefix)]
+    by_pub: dict[tuple[str, str], list[CrossLink]] = defaultdict(list)
+    for cl in cross_links:
+        if cl.contract_id.startswith(prefix):
+            by_pub[(cl.consumer_symbol_id, cl.contract_id)].append(cl)
+
+    reconciled: list[CrossLink] = []
+    for (pub_sym, contract_id), links in by_pub.items():
+        routing_key = pub_rk.get((pub_sym, contract_id))
+        if routing_key is None:
+            continue
+        matched: list[tuple[CrossLink, str, str]] = []
+        for cl in links:
+            binding = sub_bp.get((cl.provider_symbol_id, contract_id))
+            if binding is None:
+                continue
+            if routing_key and binding:
+                kind = amqp_match_kind(binding, routing_key)  # exact | wildcard | None(drop)
+            else:
+                # At least one side's key is dynamic/non-literal: the exchange is the only
+                # proven shared literal, so the routing match is indeterminate → INFERRED
+                # (never EXTRACTED — we can't prove it; never DROP — they share the exchange).
+                kind = "indeterminate"
+            if kind is not None:
+                matched.append((cl, kind, binding or "*"))
+        if not matched:
+            continue  # provable non-match → drop every candidate for this publisher
+        ambiguous = len(matched) > 1
+        for cl, kind, binding in matched:
+            confidence = (
+                Confidence.AMBIGUOUS
+                if ambiguous
+                else (Confidence.EXTRACTED if kind == "exact" else Confidence.INFERRED)
+            )
+            reconciled.append(
+                replace(cl, confidence=confidence, evidence=f"amqp {routing_key}~{binding} {kind}")
+            )
+
+    out = passthrough + reconciled
+    out.sort(key=lambda cl: (cl.consumer_symbol_id, cl.provider_symbol_id))
     return out
 
 

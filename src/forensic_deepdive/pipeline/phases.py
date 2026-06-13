@@ -30,6 +30,7 @@ from forensic_deepdive.contracts import (
     ContractRole,
     CrossLink,
     join,
+    reconcile_amqp,
     reconcile_spec_backed,
 )
 from forensic_deepdive.contracts.dispatch.register import register_dispatch_extractors
@@ -451,6 +452,11 @@ class ContractPhase(Phase):
         providers = reconcile_spec_backed(providers)
 
         cross_links = join(providers, consumers, match_keys=_http_match_keys)
+        # DEC-067 (v0.6 Step 4): AMQP topic-exchange links are matched by exchange in
+        # join (the cartesian); reconcile prunes/re-confidences each by the routing_key↔
+        # binding_pattern topic match (exact→EXTRACTED, wildcard→INFERRED, non-match→DROP,
+        # multi→AMBIGUOUS). A contract-layer prune — base.join/trace/emit/serve unchanged.
+        cross_links = reconcile_amqp(cross_links, providers, consumers)
         endpoints = _build_endpoints(providers, consumers)
         return ContractOutput(
             providers=providers,
