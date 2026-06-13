@@ -27,6 +27,12 @@ from mcp.server.fastmcp import FastMCP
 
 from forensic_deepdive.graph import LadybugStore
 from forensic_deepdive.insights import Insight, JsonlInsightStore
+from forensic_deepdive.insights.recall_index import (
+    InsightRecallIndex,
+    ensure_recall_index,
+    recall_index_path_for_jsonl,
+)
+from forensic_deepdive.insights.shadow_ref import save_to_shadow_ref
 
 DEFAULT_DEPTH = 3
 DEFAULT_MAX_DEPTH = 10
@@ -43,6 +49,13 @@ def _insight_store_path(graph_db_path: Path) -> Path:
     lives at ``<repo>/.deepdive/graph.lbug``; insights live alongside at
     ``<repo>/.deepdive/insights.jsonl``."""
     return Path(graph_db_path).parent / _INSIGHT_SUBPATH
+
+
+def _repo_root_for_jsonl(jsonl_path: Path) -> Path:
+    """The repo root for the git shadow-ref (DEC-069): the JSONL lives under
+    ``<repo>/.deepdive/`` — strip it; otherwise its own parent."""
+    parent = Path(jsonl_path).parent
+    return parent.parent if parent.name == ".deepdive" else parent
 
 
 # ---------------------------------------------------------------------------
@@ -611,7 +624,16 @@ def record_insight(
         return {"error": str(exc)}
     path = _insight_store_path(graph_db_path)
     store = JsonlInsightStore(path)
+    # DEC-069 dedup (DEC-036 content-hash discipline): skip an identical insight (same
+    # symbol|claim|evidence|verified_by) already stored — re-recording a learning in a
+    # later session collapses to one entry rather than growing the JSONL.
+    if insight.content_hash() in {i.content_hash() for i in store.iter_all()}:
+        return {"recorded": insight.to_dict(), "path": str(path), "deduplicated": True}
     store.record(insight)
+    # Refresh the derived FTS5 recall index + sync the git shadow-ref (both best-effort,
+    # local-only — the JSONL stays authoritative; the index/ref are rebuildable/portable).
+    ensure_recall_index(recall_index_path_for_jsonl(path), path)
+    save_to_shadow_ref(_repo_root_for_jsonl(path), path)
     return {"recorded": insight.to_dict(), "path": str(path)}
 
 
@@ -632,9 +654,12 @@ def recall_insights(
     first, capped at *limit*. ``since`` is an ISO timestamp — when
     provided, only insights recorded at or after that timestamp are
     returned."""
+    # DEC-069: the recall backend is now the derived FTS5/BM25 index (rebuilt from the
+    # authoritative JSONL when stale) — symbol substring match first (the DEC-019 contract),
+    # then BM25 full-text over symbol+claim+evidence. Signature + response shape unchanged.
     path = _insight_store_path(graph_db_path)
-    store = JsonlInsightStore(path)
-    matches = store.recall(symbol, since=since, limit=limit)
+    index_path = ensure_recall_index(recall_index_path_for_jsonl(path), path)
+    matches = InsightRecallIndex(index_path).search(symbol, since=since, limit=limit)
     return {
         "symbol": symbol,
         "insights": [m.to_dict() for m in matches],

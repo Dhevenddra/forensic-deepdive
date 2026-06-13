@@ -9,6 +9,7 @@ between calls, opened-and-closed inside each tool invocation.
 
 from __future__ import annotations
 
+import hashlib
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -79,6 +80,14 @@ class Insight:
             recorded_at=datetime.now(UTC).isoformat(timespec="microseconds"),
             session_id=session_id,
         )
+
+    def content_hash(self) -> str:
+        """SHA-256 of the insight's *content* — ``symbol|claim|evidence|verified_by``
+        (DEC-069, the DEC-036 ParseCache content-hash discipline). ``recorded_at`` /
+        ``session_id`` are deliberately excluded so re-recording the same learning in a
+        later session collapses to one entry in the recall index (dedup key)."""
+        payload = f"{self.symbol}\x1f{self.claim}\x1f{self.evidence}\x1f{self.verified_by}"
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, str | None]:
         """Return a JSON-serializable mapping (used by the JSONL backend
