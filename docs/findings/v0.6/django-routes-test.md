@@ -49,18 +49,49 @@ only by the cross-file same-name fallback → its resolver confidence (INFERRED/
 an unresolvable view is dropped (Endpoint kept, HANDLES filtered) — never a synthetic
 `symbol_id`.
 
-## Honest shortfall (reported, not fabricated)
+## Real-repo acceptance — `wagtail/wagtail` (the cross-file-scale stress, PRD matrix)
 
-No Django repo is in the local stress set (`C:\Dev\scratch` currently holds the Step
-3/4/5 repos: jersey, rabbitmq, grpc). The capability is **fixture-proven end to end**
-across all the PRD-named shapes; the **real-repo stress matrix** (a DRF tutorial app for
-the primary `include()`+router target, `django/django` and wagtail for cross-file scale)
-is the pending acceptance item, to run when a Django repo is added to the stress set. Per
-the v0.4/v0.5 findings discipline this is an acceptable pass with the real-repo run
-flagged as the next step — not a defect.
+Shallow-cloned into `C:\Dev\scratch\wagtail` (a real Django CMS, ~707 Python + a React
+admin; 962 files analyzed). v0.5 had **no Django provider** → 0 Django Endpoints; v0.6:
+
+| signal | v0.5 | **v0.6** |
+|---|---|---|
+| Django `Endpoint` nodes | 0 | **125** |
+| cross-file `HANDLES` (route → handler in another file) | 0 | **99, all EXTRACTED** |
+| endpoints with a located handler | 0 | **83 / 125** (66 %) |
+| distinct handler files bound | 0 | **29** |
+| endpoints with >1 handler (the `include(variable)` collapse) | — | 9 |
+
+The 99 HANDLES are all cross-file and all EXTRACTED — e.g. `http::*::/account` →
+`wagtail/admin/views/account.py::AccountView` (route declared in
+`wagtail/admin/urls/__init__.py`, handler resolved in a different file), `/aging-pages` →
+`wagtail/admin/views/reports/aging_pages.py::AgingPagesView`. Module-qualified views
+(`home.error_test`), bare `Klass.as_view()`, and module-qualified `home.HomeView.as_view()`
+all resolve. The **42 unlocated** endpoints are honest (`handler=None`, no HANDLES, never a
+synthetic symbol): `include(<variable>)` mounts (see below), `registry.as_view("index")`
+instances (an object method, not a class view), and views that resolve to a non-`def`
+symbol. 3 cross-stack `ROUTES_TO` materialized (wagtail's React admin mostly calls its own
+client layer, so the frontend-join surface is small — expected for a CMS).
+
+## Honest shortfall / v0.7 seed (reported, not fabricated)
+
+- **`include(<variable>)` is not recursed** — only `include('app.urls')` (string) is.
+  Wagtail mounts most sub-URLconfs as `path("api/", include(api_urls))` where `api_urls`
+  is an imported list. Those modules are then treated as **roots** (emitted at their bare
+  paths, missing the parent prefix), which is why 9 endpoints collapse onto a shared path
+  with >1 handler (e.g. two apps' `add/` routes → `/multiple/add`). The routes + handlers
+  are still correct and located; only the cross-module prefix is dropped. Resolving an
+  `include(<variable>)` to the variable's bound urlpatterns list is a clean v0.7 follow-on
+  (it extends the include-graph root detection, not the join). The **DRF default-router
+  CRUD + string-`include()` prefix + cross-stack ROUTES_TO** are fully covered by the
+  fixture e2e above; wagtail uses a *custom* `WagtailAPIRouter` (not Simple/Default), so
+  its API routes aren't CRUD-expanded — correctly (an unknown router class → not expanded,
+  no fabrication). A real DRF-default-router repo is a nice-to-have addition to the matrix.
 
 ## Takeaway
 
 Django joins the cross-boundary join as a pure `providers/` add: a decoupled `urls.py`
-table now binds to its view handlers across files and lights up `trace`/HOTPATHS/`serve
---ui` for free — the keystone held, with honest confidence and no fabrication.
+table now binds to its view handlers **across files at real-repo scale** (wagtail: 0 →
+125 Endpoints, 99 EXTRACTED cross-file HANDLES across 29 files) and lights up
+`trace`/HOTPATHS/`serve --ui` for free — the keystone held, with honest confidence, a
+documented `include(<variable>)` limitation (a v0.7 seed), and no fabrication.
