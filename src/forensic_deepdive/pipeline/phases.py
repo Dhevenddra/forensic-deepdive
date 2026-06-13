@@ -105,7 +105,12 @@ from forensic_deepdive.static.parse_cache import (
     write_manifest,
 )
 from forensic_deepdive.static.persistence import PersistenceRecord
-from forensic_deepdive.static.resolver import MODULE_SCOPE, resolve_calls, resolve_method_calls
+from forensic_deepdive.static.resolver import (
+    MODULE_SCOPE,
+    resolve_calls,
+    resolve_method_calls,
+    resolve_name_to_files,
+)
 from forensic_deepdive.static.tags import Tag
 
 logger = logging.getLogger(__name__)
@@ -371,45 +376,6 @@ class StaticPhase(Phase):
             injection=parsed.injection,
             persistence=parsed.persistence,
         )
-
-
-def _resolve_name_to_files(
-    name: str,
-    rel_path: str,
-    language: str,
-    imports: list[Import],
-    defs_top_by_file: dict[str, set[str]],
-    defs_top_by_lang: dict[str, dict[str, list[str]]],
-    source_files_by_path: dict[str, str],
-) -> tuple[list[str], Confidence] | None:
-    """Resolve a raw type/provider *name* referenced in *rel_path* to the file(s)
-    that define it, with confidence — the DEC-028 same-file → import → cross-file
-    ladder, shared by inheritance (EXTENDS/IMPLEMENTS) and DI (INJECTS). Returns
-    ``None`` when the name is external / unresolvable (the caller drops it).
-
-    Same-file or a matching import → ``EXTRACTED``; a unique cross-file
-    same-language definition → ``INFERRED``; several → ``AMBIGUOUS`` (every file)."""
-    if name in defs_top_by_file.get(rel_path, ()):
-        return [rel_path], Confidence.EXTRACTED
-    from forensic_deepdive.static.resolver import _resolve_import_to_file
-
-    imp_matches: list[str] = []
-    for imp in imports:
-        if imp.rel_path != rel_path:
-            continue
-        for ime in imp.imported_names:
-            if ime.name == name or ime.alias == name:
-                tgt = _resolve_import_to_file(imp, source_files_by_path)
-                if tgt is not None and name in defs_top_by_file.get(tgt, ()):
-                    imp_matches.append(tgt)
-                break
-    if imp_matches:
-        return imp_matches, Confidence.EXTRACTED
-    candidates = [c for c in defs_top_by_lang.get(language, {}).get(name, []) if c != rel_path]
-    if not candidates:
-        return None
-    target_files = sorted(candidates)
-    return target_files, (Confidence.INFERRED if len(target_files) == 1 else Confidence.AMBIGUOUS)
 
 
 def _http_match_keys(consumer: Contract) -> tuple[str, ...]:
@@ -785,7 +751,7 @@ class BuildGraphPhase(Phase):
             if ihr.rel_path not in source_file_paths:
                 continue
             child_qn = _qualified_name(ihr.rel_path, ihr.child_qn_local)
-            resolved = _resolve_name_to_files(
+            resolved = resolve_name_to_files(
                 ihr.parent_name,
                 ihr.rel_path,
                 ihr.language,
@@ -830,7 +796,7 @@ class BuildGraphPhase(Phase):
             if inj.rel_path not in source_file_paths:
                 continue
             injector_qn = _qualified_name(inj.rel_path, inj.injector_qn_local)
-            resolved = _resolve_name_to_files(
+            resolved = resolve_name_to_files(
                 inj.injected_type_name,
                 inj.rel_path,
                 inj.language,
