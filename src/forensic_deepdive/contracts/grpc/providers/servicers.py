@@ -19,12 +19,17 @@ async servicers beyond the method-name shape.
 
 from __future__ import annotations
 
+import posixpath
 from typing import TYPE_CHECKING
 
 from tree_sitter import Node
 
 from forensic_deepdive.contracts.base import Contract, ContractRole
-from forensic_deepdive.contracts.grpc.normalize import grpc_contract_id
+from forensic_deepdive.contracts.grpc.normalize import (
+    grpc_contract_id,
+    grpc_module_alias_table,
+    grpc_resolve_module,
+)
 from forensic_deepdive.contracts.http.scan import iter_candidate_files, rightmost_name
 from forensic_deepdive.graph.schema import Confidence
 from forensic_deepdive.static.tags import _parent_chain
@@ -49,15 +54,27 @@ def _walk(node: Node):
         stack.extend(reversed(n.children))
 
 
-def _servicer_service(class_node: Node, src: bytes) -> str | None:
-    """The service name of a class whose base is a ``<Svc>Servicer`` (else None)."""
+def _servicer_base(class_node: Node, src: bytes) -> tuple[str, str] | None:
+    """``(module_ref, service)`` for a class whose base is a ``<Svc>Servicer``, else
+    ``None``. ``module_ref`` is the attribute object (``route_guide_pb2_grpc`` in
+    ``route_guide_pb2_grpc.RouteGuideServicer``) or — for a bare ``from``-imported base —
+    the base name itself (resolved to its module via the alias table)."""
     for c in class_node.children:
         if c.type != "argument_list":
             continue
         for base in c.children:
-            name = rightmost_name(base, src) if base.type in ("identifier", "attribute") else None
-            if name is not None and name.endswith(_SUFFIX) and len(name) > len(_SUFFIX):
-                return name[: -len(_SUFFIX)]
+            if base.type == "attribute":
+                obj = base.child_by_field_name("object")
+                attr = base.child_by_field_name("attribute")
+                if obj is None or attr is None:
+                    continue
+                name = _text(attr, src)
+                if name.endswith(_SUFFIX) and len(name) > len(_SUFFIX):
+                    return (rightmost_name(obj, src) or "", name[: -len(_SUFFIX)])
+            elif base.type == "identifier":
+                name = _text(base, src)
+                if name.endswith(_SUFFIX) and len(name) > len(_SUFFIX):
+                    return (name, name[: -len(_SUFFIX)])
     return None
 
 
@@ -75,12 +92,18 @@ def extract_servicer_providers(ctx: ContractContext) -> list[Contract]:
     seen: set[tuple[str, str]] = set()
     contracts: list[Contract] = []
     for rel_path, src, root in iter_candidate_files(ctx, languages=_LANGS, markers=_MARKERS):
+        dir_prefix = posixpath.dirname(rel_path)
+        alias_table = grpc_module_alias_table(
+            [imp for imp in ctx.imports if imp.rel_path == rel_path], rel_path
+        )
         for node in _walk(root):
             if node.type != "class_definition":
                 continue
-            service = _servicer_service(node, src)
-            if service is None:
+            base = _servicer_base(node, src)
+            if base is None:
                 continue
+            module_ref, service = base
+            module = grpc_resolve_module(module_ref, alias_table, dir_prefix)
             body = node.child_by_field_name("body")
             if body is None:
                 continue
@@ -105,7 +128,7 @@ def extract_servicer_providers(ctx: ContractContext) -> list[Contract]:
                 symbol_id = _method_symbol_id(definition, src, rel_path)
                 if symbol_id is None:
                     continue
-                contract_id = grpc_contract_id(service, method)
+                contract_id = grpc_contract_id(module, service, method)
                 if (contract_id, symbol_id) in seen:
                     continue
                 seen.add((contract_id, symbol_id))
@@ -115,7 +138,7 @@ def extract_servicer_providers(ctx: ContractContext) -> list[Contract]:
                         contract_id=contract_id,
                         symbol_id=symbol_id,
                         confidence=Confidence.EXTRACTED,
-                        evidence=f"grpc servicer {service}.{method}",
+                        evidence=f"grpc servicer {module}.{service}.{method}",
                         protocol="grpc",
                         method=method,
                         normalized_path=f"{service}/{method}",

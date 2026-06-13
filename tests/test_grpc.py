@@ -14,12 +14,17 @@ import shutil
 from pathlib import Path
 
 from forensic_deepdive.contracts.grpc.consumers.stubs import extract_stub_consumers
+from forensic_deepdive.contracts.grpc.normalize import (
+    grpc_module_alias_table,
+    grpc_resolve_module,
+)
 from forensic_deepdive.contracts.grpc.proto_scan import extract_proto_providers
 from forensic_deepdive.contracts.grpc.providers.servicers import extract_servicer_providers
 from forensic_deepdive.contracts.registry import ContractContext
 from forensic_deepdive.graph import LadybugStore
 from forensic_deepdive.pipeline import PipelineRunner, default_phases
 from forensic_deepdive.pipeline.runner import ExtractConfig
+from forensic_deepdive.static.imports import Import, ImportedName
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SAMPLE = "grpc_sample"
@@ -37,28 +42,70 @@ def _ctx(tmp_path: Path) -> ContractContext:
     )
 
 
+def _imp(rel_path, module_path, names=(), alias=""):
+    return Import(
+        rel_path=rel_path,
+        module_path=module_path,
+        language="python",
+        line=0,
+        module_alias=alias,
+        imported_names=tuple(ImportedName(n, a) for n, a in names),
+    )
+
+
+def test_grpc_module_alias_table_and_resolution():
+    rel = "examples/helloworld/greeter_server.py"
+    # flat sibling import → directory-qualified (two dirs that both `import X` differ).
+    t = grpc_module_alias_table([_imp(rel, "helloworld_pb2_grpc")], rel)
+    assert (
+        grpc_resolve_module("helloworld_pb2_grpc", t) == "examples/helloworld/helloworld_pb2_grpc"
+    )
+    # aliased flat import.
+    t = grpc_module_alias_table([_imp(rel, "helloworld_pb2_grpc", alias="hw")], rel)
+    assert grpc_resolve_module("hw", t) == "examples/helloworld/helloworld_pb2_grpc"
+    # `from . import X_pb2_grpc` (relative submodule) → directory-qualified sibling.
+    t = grpc_module_alias_table([_imp(rel, ".", names=[("route_guide_pb2_grpc", "")])], rel)
+    assert (
+        grpc_resolve_module("route_guide_pb2_grpc", t) == "examples/helloworld/route_guide_pb2_grpc"
+    )
+    # `from pkg.gen import foo_pb2_grpc` (dotted package) → shared dotted identity.
+    t = grpc_module_alias_table([_imp(rel, "pkg.gen", names=[("foo_pb2_grpc", "")])], rel)
+    assert grpc_resolve_module("foo_pb2_grpc", t) == "pkg.gen.foo_pb2_grpc"
+    # `from helloworld_pb2_grpc import GreeterStub` (symbol from a flat module).
+    t = grpc_module_alias_table(
+        [_imp(rel, "helloworld_pb2_grpc", names=[("GreeterStub", "")])], rel
+    )
+    assert grpc_resolve_module("GreeterStub", t) == "examples/helloworld/helloworld_pb2_grpc"
+
+
 def test_proto_scan_emits_spec_backed_providers(tmp_path):
     provs = {c.contract_id: c for c in extract_proto_providers(_ctx(tmp_path))}
     assert set(provs) == {
-        "grpc::RouteGuide/GetFeature",
-        "grpc::RouteGuide/ListFeatures",
-        "grpc::RouteGuide/RecordRoute",
+        "grpc::route_guide_pb2_grpc::RouteGuide/GetFeature",
+        "grpc::route_guide_pb2_grpc::RouteGuide/ListFeatures",
+        "grpc::route_guide_pb2_grpc::RouteGuide/RecordRoute",
     }
     assert all(c.spec_backed and c.protocol == "grpc" for c in provs.values())
 
 
 def test_servicer_methods_are_providers(tmp_path):
     provs = {(c.contract_id, c.symbol_id) for c in extract_servicer_providers(_ctx(tmp_path))}
-    assert ("grpc::RouteGuide/GetFeature", "server.py::RouteGuideServicer.GetFeature") in provs
-    assert ("grpc::RouteGuide/ListFeatures", "server.py::RouteGuideServicer.ListFeatures") in provs
+    assert (
+        "grpc::route_guide_pb2_grpc::RouteGuide/GetFeature",
+        "server.py::RouteGuideServicer.GetFeature",
+    ) in provs
+    assert (
+        "grpc::route_guide_pb2_grpc::RouteGuide/ListFeatures",
+        "server.py::RouteGuideServicer.ListFeatures",
+    ) in provs
     # RecordRoute has no servicer method.
     assert not any(cid.endswith("RecordRoute") for cid, _ in provs)
 
 
 def test_stub_calls_are_consumers(tmp_path):
     cons = {(c.contract_id, c.symbol_id) for c in extract_stub_consumers(_ctx(tmp_path))}
-    assert ("grpc::RouteGuide/GetFeature", "client.py::fetch_feature") in cons
-    assert ("grpc::RouteGuide/ListFeatures", "client.py::list_all") in cons
+    assert ("grpc::route_guide_pb2_grpc::RouteGuide/GetFeature", "client.py::fetch_feature") in cons
+    assert ("grpc::route_guide_pb2_grpc::RouteGuide/ListFeatures", "client.py::list_all") in cons
 
 
 def _run(tmp_path: Path) -> Path:
@@ -92,13 +139,13 @@ def test_grpc_routes_to_is_extracted_spec_backed(tmp_path):
         (
             "client.py::fetch_feature",
             "server.py::RouteGuideServicer.GetFeature",
-            "grpc::RouteGuide/GetFeature",
+            "grpc::route_guide_pb2_grpc::RouteGuide/GetFeature",
             "EXTRACTED",
         ),
         (
             "client.py::list_all",
             "server.py::RouteGuideServicer.ListFeatures",
-            "grpc::RouteGuide/ListFeatures",
+            "grpc::route_guide_pb2_grpc::RouteGuide/ListFeatures",
             "EXTRACTED",
         ),
     }
@@ -106,18 +153,18 @@ def test_grpc_routes_to_is_extracted_spec_backed(tmp_path):
 
 def test_unimplemented_rpc_is_spec_only_endpoint(tmp_path):
     db = _run(tmp_path)
+    cid = "grpc::route_guide_pb2_grpc::RouteGuide/RecordRoute"
     with LadybugStore(db) as s:
         spec_backed = {
             r[0]
             for r in s.query(
-                "MATCH (e:Endpoint) WHERE e.contract_id = 'grpc::RouteGuide/RecordRoute' "
-                "RETURN e.spec_backed"
+                f"MATCH (e:Endpoint) WHERE e.contract_id = '{cid}' RETURN e.spec_backed"
             )
         }
         handlers = list(
             s.query(
                 "MATCH (sm:Symbol)-[:HANDLES]->(e:Endpoint) "
-                "WHERE e.contract_id = 'grpc::RouteGuide/RecordRoute' RETURN sm.qualified_name"
+                f"WHERE e.contract_id = '{cid}' RETURN sm.qualified_name"
             )
         )
     assert spec_backed == {True}

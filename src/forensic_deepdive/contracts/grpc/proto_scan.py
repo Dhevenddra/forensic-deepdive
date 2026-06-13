@@ -17,13 +17,14 @@ ignore-dirs, mirroring ``detect_spec_files``.
 from __future__ import annotations
 
 import os
+import posixpath
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tree_sitter import Node
 
 from forensic_deepdive.contracts.base import Contract, ContractRole
-from forensic_deepdive.contracts.grpc.normalize import grpc_contract_id
+from forensic_deepdive.contracts.grpc.normalize import grpc_contract_id, grpc_flat_module_id
 from forensic_deepdive.graph.schema import Confidence
 from forensic_deepdive.inventory import DEFAULT_IGNORE_DIRS
 from forensic_deepdive.static.parse import parse_source
@@ -69,6 +70,11 @@ def extract_proto_providers(ctx: ContractContext) -> list[Contract]:
             rel_path = str(path.relative_to(ctx.repo_path)).replace(os.sep, "/")
         except ValueError:
             rel_path = path.name
+        # DEC-068: protoc emits ``<protofile>_pb2_grpc`` next to the .proto — the module
+        # identity both the servicer base and the stub ctor reference. Directory-qualified
+        # (the generated module is a sibling), matching the flat-import resolution. (NOT a
+        # .proto parse of ``package`` — the wire-path equivalence stays deferred.)
+        module = grpc_flat_module_id(path.stem + "_pb2_grpc", posixpath.dirname(rel_path))
         root = parse_source(data, "proto").root_node
         for node in _walk(root):
             if node.type != "service":
@@ -90,7 +96,7 @@ def extract_proto_providers(ctx: ContractContext) -> list[Contract]:
                         break
                 if method is None:
                     continue
-                contract_id = grpc_contract_id(service, method)
+                contract_id = grpc_contract_id(module, service, method)
                 if contract_id in seen:
                     continue
                 seen.add(contract_id)
