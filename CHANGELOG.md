@@ -4,6 +4,66 @@ All notable changes to `forensic-deepdive`. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 follow [SemVer](https://semver.org/).
 
+## [0.6.0] — 2026-06-14
+
+> v0.6 **"Findings-Driven Refinements"** — does **not** add a sixth protocol or expand
+> the public surface. It **hardens** the five-protocol `CrossBoundaryEdge`/`Endpoint`
+> abstraction against the four real-repo failure modes the v0.5 acceptance runs
+> surfaced, ships the deferred Django provider, hardens lane-(iii) agent memory, and
+> profiles. Every refinement is a `KeyBuilder`/provider/consumer/resolver/`reconcile_*`
+> change over the **unchanged** `base.join`/`Endpoint`/`trace`/emit/`serve` machinery
+> (the keystone held on all eight steps). **Zero new base-env runtime deps**; the
+> 5-artifact + 9-MCP-tool contracts unchanged; the 5 golden artifacts stay
+> byte-identical (every refinement is graph-only). DEC-063 → DEC-070; 740 tests.
+
+### Added
+- **Django decoupled-route provider** (DEC-065) — the first provider that resolves
+  handlers **across files**: a `urls.py` `urlpatterns` table (`path()`/`re_path()`/
+  `Klass.as_view()`/`include()` prefix recursion/DRF `router.register` CRUD) binds to
+  its view handlers in other files via the shared `resolve_name_to_files` ladder +
+  Python submodule resolution. Method-agnostic views key at `http::*::<path>`. wagtail:
+  **0 → 125** `Endpoint`s, **99 EXTRACTED cross-file HANDLES** across 29 files.
+- **JAX-RS sub-resource locators** (DEC-066) — a `@Path` method with no verb resolves its
+  return type to a resource class and recurses into its routes (prefix concatenated).
+  jersey `bookstore-webapp`: **0 → 1** cross-file EXTRACTED route. `Object`/unresolvable
+  return → an honest unmatched locator (never guessed).
+- **AMQP topic-exchange + binding-key topology** (DEC-067) — RabbitMQ topic exchanges key
+  on the shared-literal **exchange** (`amqp::<exchange>`) so `base.join` matches unchanged;
+  a contract-layer `reconcile_amqp` refines each pair by the `*`/`#` routing-key↔binding
+  match (exact→EXTRACTED, wildcard→INFERRED, non-match→DROP, multi→AMBIGUOUS). rabbitmq-
+  tutorials: **0 → 3** exchange `ROUTES_TO`.
+- **Agent-memory FTS5/BM25 recall** (DEC-069) — `recall_insights` gains a derived,
+  rebuildable SQLite/FTS5 BM25 index (reusing the DEC-041 sidecar) + content-hash dedup +
+  a git **shadow-ref** (`refs/forensic-deepdive/insights`) so the store survives a clone.
+  **Zero runtime LLM** (the pure-static floor); same tool signatures (the one sanctioned
+  `mcp_server` touch — an existing tool's backend, not a 10th tool).
+
+### Changed
+- **ORM Django/SQLAlchemy disambiguation** (DEC-064) — a bare `Model` base (e.g. Flask-
+  AppBuilder's SQLAlchemy `Model`) is only tagged Django on a Django-specific signal
+  (`django.db.models` import / qualified `models.Model` base / nested `Meta` + `models.*Field`);
+  else it falls through to SQLAlchemy. apache/superset: **54/55 → 55/55** correct ORM tags.
+- **gRPC package/directory-qualified keying** (DEC-068) — `grpc::<module>::<Service>/<Method>`,
+  recovering the generated `*_pb2_grpc` module identity from Python AST (servicer base / stub
+  ctor / proto filename) via an import-alias table; **directory-qualified** for flat sibling
+  imports (each example dir is its own `sys.path` root). grpc-examples: **~975 → 68**
+  cartesian `AMBIGUOUS` (resolved; the 68 are genuine same-dir dual servers). No `.proto`
+  parse for the module; `[proto]` stays deferred.
+
+### Performance
+- **Indexed absolute-import resolution** (DEC-070) — `_resolve_python_import`'s O(files)
+  suffix scan (the profiling hot spot — 62% of a Superset extract, ~1.2 B `endswith` calls)
+  becomes an O(1) precomputed suffix-index lookup. **A Superset extract drops 1711s → 117s
+  (14.7×); 1.258 B → 49.5 M function calls** — byte-identical output (the resolver returns
+  the same file → the same graph → the same artifacts).
+
+### Notes
+- v0.6 surfaces its own v0.7 seeds (reported, never fabricated): Django `include(<variable>)`
+  recursion; AMQP dynamic-key matching; `resolve_name_to_files` as the next perf candidate;
+  Go/Java gRPC + the wire-path equivalence; the `[semantic]` RRF fusion over insights.
+- Incremental/persistent graph update stays deferred to **v1.0** (the last load-bearing
+  fundamental). GUI/IDE remains out of scope (its own research arc).
+
 ## [0.5.0] — 2026-06-12
 
 > v0.5 **"Cross-Boundary Protocols"** — extends the DEC-043 `CrossBoundaryEdge`/
