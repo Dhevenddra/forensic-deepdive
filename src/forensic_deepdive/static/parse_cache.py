@@ -67,7 +67,8 @@ from forensic_deepdive.static.tags import TAGS_SCM, Tag, extract_tags
 #   v2 (DEC-037): ParseResult gained ``method_calls``.
 #   v3 (DEC-050): TS/TSX heritage extraction widened (abstract classes,
 #       interface→interface extends, generic_type / member_expression targets).
-PARSER_VERSION = 4  # DEC-059 (v0.5 Step 4): + injection / persistence records
+#   v4 (DEC-059): + injection / persistence records.
+PARSER_VERSION = 5  # DEC-064 (v0.6 Step 1): ORM Django/SQLAlchemy disambiguation
 
 # Subdirectory layout under the repo's gitignored cache dir:
 #   .forensic-deepdive/cache/parse/<entry_key>.json   — one per (content, lang)

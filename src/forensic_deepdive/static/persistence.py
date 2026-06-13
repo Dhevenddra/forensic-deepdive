@@ -11,7 +11,13 @@ Shapes (research §4):
 - **Django (Python)** — ``class User(models.Model): class Meta: db_table = "users"``
   → literal (EXTRACTED); no ``db_table`` → the model name lowered (INFERRED,
   convention-derived — the true Django default is ``<app>_<model>``, but the app
-  label isn't statically recoverable here).
+  label isn't statically recoverable here). **Django is only chosen when a
+  Django-specific signal is present (DEC-064): a ``django.db.models`` import, a
+  qualified ``models.Model`` base, or a nested ``class Meta`` + a ``models.*Field``.**
+  A class with a bare ``Model`` base and none of those (e.g. Flask-AppBuilder's
+  SQLAlchemy ``Model``, as in Superset's ``coremodel``) falls through to SQLAlchemy
+  with the lowered class name (INFERRED, the auto-``__tablename__`` convention) —
+  this is the only behavior change vs DEC-059: the ``orm`` property, not the table.
 - **JPA (Java)** — ``@Entity @Table(name="users") class User`` → literal (EXTRACTED);
   ``@Entity`` with no ``@Table`` → the class name (the JPA default, INFERRED).
 
@@ -140,8 +146,102 @@ def _django_meta_db_table(body: Node) -> str | None:
     return None
 
 
+def _file_has_django_models_import(root: Node) -> bool:
+    """``from django.db.models import ...`` / ``from django.db import models`` —
+    a file-level signal that ``Model`` bases here are Django, not SQLAlchemy."""
+    for node in _iter(root):
+        if node.type != "import_from_statement":
+            continue
+        mod = node.child_by_field_name("module_name")
+        if mod is None:
+            continue
+        mod_text = _text(mod)
+        if mod_text.startswith("django.db.models"):
+            return True
+        if mod_text == "django.db":  # from django.db import [..., ] models
+            for c in node.children:
+                if c is mod:
+                    continue
+                if c.type in ("dotted_name", "identifier") and _text(c) == "models":
+                    return True
+                if c.type == "aliased_import":
+                    nm = c.child_by_field_name("name")
+                    if nm is not None and _text(nm) == "models":
+                        return True
+    return False
+
+
+def _has_qualified_django_base(node: Node) -> bool:
+    """A base written as ``models.Model`` / ``django.db.models.Model`` (the
+    qualified attribute form Django uses), vs a bare ``Model`` identifier."""
+    for c in node.children:
+        if c.type != "argument_list":
+            continue
+        for arg in c.children:
+            if arg.type != "attribute":
+                continue
+            attr = arg.child_by_field_name("attribute")
+            obj = arg.child_by_field_name("object")
+            if (
+                attr is not None
+                and obj is not None
+                and _text(attr) == "Model"
+                and _text(obj).split(".")[-1] == "models"
+            ):
+                return True
+    return False
+
+
+def _django_meta_present(body: Node) -> bool:
+    """A nested ``class Meta:`` block (the Django model convention)."""
+    for stmt in body.children:
+        if stmt.type != "class_definition":
+            continue
+        name_node = stmt.child_by_field_name("name")
+        if name_node is not None and _text(name_node) == "Meta":
+            return True
+    return False
+
+
+def _has_models_field(body: Node) -> bool:
+    """A class-body assignment whose value is a ``models.<X>Field(...)`` call."""
+    for stmt in body.children:
+        assign = stmt if stmt.type == "assignment" else None
+        if assign is None and stmt.type == "expression_statement":
+            assign = next((c for c in stmt.children if c.type == "assignment"), None)
+        if assign is None:
+            continue
+        right = assign.child_by_field_name("right")
+        if right is None or right.type != "call":
+            continue
+        fn = right.child_by_field_name("function")
+        if fn is None or fn.type != "attribute":
+            continue
+        obj = fn.child_by_field_name("object")
+        attr = fn.child_by_field_name("attribute")
+        if (
+            obj is not None
+            and attr is not None
+            and _text(obj).split(".")[-1] == "models"
+            and _text(attr).endswith("Field")
+        ):
+            return True
+    return False
+
+
+def _is_django_model(node: Node, body: Node, *, has_django_import: bool) -> bool:
+    """The DEC-064 gate: a ``Model``-based class is Django only on a Django-specific
+    signal — else it falls through to SQLAlchemy (e.g. Flask-AppBuilder's ``Model``)."""
+    return (
+        has_django_import
+        or _has_qualified_django_base(node)
+        or (_django_meta_present(body) and _has_models_field(body))
+    )
+
+
 def _extract_python(parsed: ParsedFile) -> list[PersistenceRecord]:
     records: list[PersistenceRecord] = []
+    has_django_import = _file_has_django_models_import(parsed.tree.root_node)
     for node in _iter(parsed.tree.root_node):
         if node.type != "class_definition":
             continue
@@ -166,34 +266,37 @@ def _extract_python(parsed: ParsedFile) -> list[PersistenceRecord]:
             )
             continue
         bases = _class_base_names(node)
-        if "Model" in bases:  # Django model
+        if "Model" not in bases:  # not an ORM model we recognize
+            continue
+        if _is_django_model(node, body, has_django_import=has_django_import):  # Django
             db_table = _django_meta_db_table(body)
-            if db_table:
-                records.append(
-                    PersistenceRecord(
-                        parsed.rel_path,
-                        model_qn,
-                        db_table,
-                        "django",
-                        "django",
-                        parsed.language,
-                        _row(node),
-                        True,
-                    )
+            records.append(
+                PersistenceRecord(
+                    parsed.rel_path,
+                    model_qn,
+                    db_table if db_table else _text(name_node).lower(),
+                    "django",
+                    "django",
+                    parsed.language,
+                    _row(node),
+                    bool(db_table),
                 )
-            else:
-                records.append(
-                    PersistenceRecord(
-                        parsed.rel_path,
-                        model_qn,
-                        _text(name_node).lower(),
-                        "django",
-                        "django",
-                        parsed.language,
-                        _row(node),
-                        False,
-                    )
+            )
+        else:  # bare-`Model` base, no Django signal → SQLAlchemy (DEC-064)
+            # Flask-AppBuilder / declarative `Model` auto-derives `__tablename__`
+            # as the lowercased class name (INFERRED — convention, not syntactic).
+            records.append(
+                PersistenceRecord(
+                    parsed.rel_path,
+                    model_qn,
+                    _text(name_node).lower(),
+                    "sqlalchemy",
+                    "sqlalchemy",
+                    parsed.language,
+                    _row(node),
+                    False,
                 )
+            )
     return records
 
 

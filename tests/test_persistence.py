@@ -53,3 +53,41 @@ def test_jpa_entity_table_literal_and_derived():
 def test_non_entity_class_is_ignored():
     assert _records("public class Helper {}\n", "java", "H.java") == []
     assert _records("class Plain:\n    pass\n", "python", "p.py") == []
+
+
+# --- DEC-064: Django-vs-SQLAlchemy disambiguation on a bare `Model` base --------
+
+
+def test_bare_model_base_without_django_signal_is_sqlalchemy():
+    """The Superset ``coremodel`` shape: a Flask-AppBuilder ``Model`` base (SQLAlchemy)
+    with no Django signal must NOT be mis-tagged Django — it falls through to
+    SQLAlchemy with the lowered class name (INFERRED)."""
+    recs = _records("class CoreModel(Model):\n    pass\n", "python", "m.py")
+    assert [(r.model_qn_local, r.table_name, r.orm, r.literal) for r in recs] == [
+        ("CoreModel", "coremodel", "sqlalchemy", False)
+    ]
+
+
+def test_qualified_models_model_base_is_django():
+    recs = _records("class Visit(models.Model):\n    pass\n", "python", "m.py")
+    assert (recs[0].table_name, recs[0].orm, recs[0].literal) == ("visit", "django", False)
+
+
+def test_django_import_signal_promotes_bare_model_base():
+    """``from django.db import models`` is a file-level Django signal: a bare
+    ``Model`` base in such a file is Django, not SQLAlchemy."""
+    src = "from django.db import models\nclass Pet(Model):\n    pass\n"
+    recs = _records(src, "python", "m.py")
+    assert (recs[0].table_name, recs[0].orm) == ("pet", "django")
+
+
+def test_meta_plus_models_field_signal_is_django():
+    """A bare ``Model`` base with a nested ``Meta`` + a ``models.*Field`` is Django."""
+    src = (
+        "class Animal(Model):\n"
+        "    name = models.CharField(max_length=80)\n"
+        "    class Meta:\n"
+        "        db_table = 'animals'\n"
+    )
+    recs = _records(src, "python", "m.py")
+    assert (recs[0].table_name, recs[0].orm, recs[0].literal) == ("animals", "django", True)
