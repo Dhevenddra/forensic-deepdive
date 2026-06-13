@@ -13,14 +13,42 @@ from pathlib import Path
 import pytest
 
 from forensic_deepdive.graph.schema import Confidence
-from forensic_deepdive.static.imports import extract_imports
+from forensic_deepdive.static.imports import Import, extract_imports
 from forensic_deepdive.static.parse import ParsedFile, parse_source
 from forensic_deepdive.static.resolver import (
     MODULE_SCOPE,
     ResolvedCall,
+    _resolve_python_import,
     resolve_calls,
 )
 from forensic_deepdive.static.tags import extract_tags
+
+
+def _pyimp(module_path: str, rel_path: str = "x.py") -> Import:
+    return Import(rel_path=rel_path, module_path=module_path, language="python", line=0)
+
+
+def test_resolve_python_import_exact_suffix_and_order() -> None:
+    """DEC-070 (v0.6 perf): the indexed absolute-import resolution preserves the original
+    two-pass scan's semantics — exact match wins over suffix; suffix returns the first file
+    in dict-iteration order; no match → None."""
+    sfbp = {
+        "top.py": "python",
+        "pkg/__init__.py": "python",
+        "a/b/mod.py": "python",  # first 'mod' in order
+        "c/d/mod.py": "python",  # second 'mod'
+    }
+    # Exact top-level + package.
+    assert _resolve_python_import(_pyimp("top"), sfbp) == "top.py"
+    assert _resolve_python_import(_pyimp("pkg"), sfbp) == "pkg/__init__.py"
+    # Suffix match: 'b.mod' → the unique a/b/mod.py.
+    assert _resolve_python_import(_pyimp("b.mod"), sfbp) == "a/b/mod.py"
+    # Ambiguous bare 'mod' → first in dict-iteration order (a/b/mod.py).
+    assert _resolve_python_import(_pyimp("mod"), sfbp) == "a/b/mod.py"
+    # No match.
+    assert _resolve_python_import(_pyimp("nope.zzz"), sfbp) is None
+    # Exact beats suffix: 'a/b/mod' has an exact a/b/mod.py.
+    assert _resolve_python_import(_pyimp("a.b.mod"), sfbp) == "a/b/mod.py"
 
 
 def _parse(language: str, rel_path: str, src: bytes) -> ParsedFile:
