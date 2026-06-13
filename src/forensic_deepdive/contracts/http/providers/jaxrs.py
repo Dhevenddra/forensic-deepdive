@@ -16,9 +16,27 @@ guard** (Spring precedent): a verb annotation counts only inside an ``@Path`` cl
 Both literals → EXTRACTED. Modeled on the Spring provider (Java annotations, class
 prefix + method route).
 
-Deferred (DEC-062): ``@ApplicationPath`` app-prefix nesting; sub-resource locators
-(a method returning a sub-resource class); ``@Produces``/``@Consumes`` content
-negotiation; a ``@Path`` value that is a constant/computed expression.
+**Sub-resource locators (DEC-066, v0.6 Step 3).** A ``@Path`` method with **no verb
+annotation** is a *sub-resource locator* — it returns a resource object whose own
+``@GET``/``@Path`` methods serve the routes under the locator's path::
+
+    @Path("/")  class Bookstore {
+        @Path("items/{id}/")  public Item getItem(...) { ... }   // locator → Item
+    }
+    class Item {                       // a sub-resource (no class @Path)
+        @GET  public Item getXml() {}  // → GET /items/{id}/  (handler = Item.getXml)
+    }
+
+We resolve the locator's declared **return type** to its class (the shared
+``resolve_name_to_files`` ladder + a JAX-RS resource-class index for the node), then
+recurse into that class's verb / nested-locator methods, concatenating the prefix.
+Confidence (DEC-066): a return type resolving to **exactly one** concrete resource class
+→ EXTRACTED (the return type is a declared concrete fact); **several** candidate classes
+→ AMBIGUOUS (emit every candidate); an ``Object`` / unresolvable return → the locator is
+emitted **unmatched** (an Endpoint at its path, no handler — never a guessed sub-route).
+
+Deferred (DEC-062): ``@ApplicationPath`` app-prefix nesting; ``@Produces``/``@Consumes``
+content negotiation; a ``@Path`` value that is a constant/computed expression.
 """
 
 from __future__ import annotations
@@ -35,6 +53,7 @@ from forensic_deepdive.contracts.http.normalize import (
 )
 from forensic_deepdive.contracts.http.scan import iter_candidate_files, java_string_literal
 from forensic_deepdive.graph.schema import Confidence
+from forensic_deepdive.static.resolver import resolve_name_to_files
 from forensic_deepdive.static.tags import _parent_chain
 
 if TYPE_CHECKING:
@@ -48,6 +67,26 @@ _VERB_ANNOTATIONS = {
     "DELETE": "delete",
     "PATCH": "patch",
 }
+
+# Return types that are never a sub-resource (so a @Path-no-verb method returning one is
+# not treated as a locator). ``Object`` IS treated as a locator but is unresolvable →
+# the locator is emitted unmatched (DEC-066 / invariant 2).
+_NON_RESOURCE_RETURNS = frozenset(
+    {
+        "void",
+        "Response",
+        "String",
+        "boolean",
+        "int",
+        "long",
+        "double",
+        "float",
+        "char",
+        "byte",
+        "short",
+    }
+)
+_MAX_SUBRESOURCE_DEPTH = 6
 
 
 class _Route(NamedTuple):
@@ -141,47 +180,215 @@ def _method_route(method: Node, src: bytes, rel_path: str) -> _Route | None:
     return _Route(tuple(verbs), method_path, f"{rel_path}::{qn_local}", name_node.start_point[0])
 
 
+def _return_type_name(method: Node, src: bytes) -> str | None:
+    """The base type name of a method's declared return type: ``Item`` →
+    ``Item``; ``Class<Item>`` / ``List<Item>`` → the first type argument (``Item``);
+    ``void``/array/qualified → ``None`` (not a simple resource type)."""
+    t = method.child_by_field_name("type")
+    if t is None:
+        return None
+    if t.type == "type_identifier":
+        return _text(t, src)
+    if t.type == "generic_type":
+        targs = next((c for c in t.children if c.type == "type_arguments"), None)
+        if targs is not None:
+            arg = next((c for c in targs.children if c.type == "type_identifier"), None)
+            if arg is not None:
+                return _text(arg, src)
+        base = next((c for c in t.children if c.type == "type_identifier"), None)
+        return _text(base, src) if base is not None else None
+    return None
+
+
+def _method_locator(method: Node, src: bytes) -> str | None:
+    """A sub-resource locator is a method with a ``@Path`` and **no** verb annotation
+    that returns a resource-ish type. Returns the locator's ``@Path`` value (``""`` for
+    a bare ``@Path``), or ``None`` when the method isn't a locator."""
+    modifiers = next((c for c in method.children if c.type == "modifiers"), None)
+    has_verb = False
+    has_path = False
+    path = ""
+    for anno in _annotations(modifiers):
+        anno_name = _anno_name(anno, src)
+        if anno_name in _VERB_ANNOTATIONS:
+            has_verb = True
+        elif anno_name == "Path":
+            has_path = True
+            path = _path_value(anno, src)
+    if has_verb or not has_path:
+        return None
+    rt = _return_type_name(method, src)
+    if rt is None or rt in _NON_RESOURCE_RETURNS:
+        return None
+    return path
+
+
+def _min_conf(a: Confidence, b: Confidence) -> Confidence:
+    order = {Confidence.EXTRACTED: 2, Confidence.INFERRED: 1, Confidence.AMBIGUOUS: 0}
+    return a if order[a] <= order[b] else b
+
+
+class _Resolver(NamedTuple):
+    """Inputs for resolving a locator return-type name to its resource class(es)."""
+
+    imports: list  # ctx.imports
+    defs_top_by_file: dict[str, set[str]]
+    defs_top_by_lang: dict[str, dict[str, list[str]]]
+    source_files_by_path: dict[str, str]
+    class_index: dict[str, list[tuple[str, bytes, Node]]]  # simple name -> class nodes
+
+
+def _resolve_resource_class(
+    return_name: str, rel_path: str, r: _Resolver
+) -> list[tuple[str, bytes, Node]]:
+    """Resolve a locator's return-type name to the resource class node(s). Uses the
+    shared name resolver to scope to file(s) (DEC-059), narrowed to JAX-RS classes."""
+    candidates = r.class_index.get(return_name, [])
+    if not candidates:
+        return []
+    resolved = resolve_name_to_files(
+        return_name,
+        rel_path,
+        "java",
+        r.imports,
+        r.defs_top_by_file,
+        r.defs_top_by_lang,
+        r.source_files_by_path,
+    )
+    if resolved is not None:
+        files = set(resolved[0])
+        narrowed = [c for c in candidates if c[0] in files]
+        if narrowed:
+            return narrowed
+    return candidates
+
+
+class _Emit(NamedTuple):
+    contracts: list[Contract]
+    seen: set[tuple[str, str]]
+
+
+def _emit_route(
+    emit: _Emit, verb: str, raw: str, symbol_id: str, conf: Confidence, rel_path: str, line: int
+) -> None:
+    normalized = normalize_provider_path(raw)
+    if is_noise_path(normalized):
+        return
+    contract_id = http_contract_id(verb, normalized)
+    if (contract_id, symbol_id) in emit.seen:
+        return
+    emit.seen.add((contract_id, symbol_id))
+    emit.contracts.append(
+        Contract(
+            role=ContractRole.PROVIDER,
+            contract_id=contract_id,
+            symbol_id=symbol_id,
+            confidence=conf,
+            evidence=f"jaxrs {symbol_id.rsplit('::', 1)[-1] or 'locator'} {verb.upper()}",
+            protocol="http",
+            method=verb.upper(),
+            normalized_path=normalized,
+            raw_path=raw,
+            framework="jaxrs",
+            rel_path=rel_path,
+            line=line,
+        )
+    )
+
+
+def _emit_class_routes(
+    rel_path: str,
+    src: bytes,
+    class_node: Node,
+    prefix: str,
+    conf: Confidence,
+    depth: int,
+    visited: frozenset[tuple[str, str]],
+    r: _Resolver,
+    emit: _Emit,
+) -> None:
+    """Emit verb-method routes for *class_node* under *prefix*, and recurse into its
+    sub-resource locators (resolving each locator's return type to a resource class)."""
+    body = next((c for c in class_node.children if c.type == "class_body"), None)
+    if body is None:
+        return
+    name_node = class_node.child_by_field_name("name")
+    class_name = _text(name_node, src) if name_node is not None else ""
+    visited = visited | {(rel_path, class_name)}
+    for member in body.children:
+        if member.type != "method_declaration":
+            continue
+        route = _method_route(member, src, rel_path)
+        if route is not None:  # a verb method → leaf route
+            for verb in route.verbs:
+                _emit_route(
+                    emit,
+                    verb,
+                    _join(prefix, route.raw_path),
+                    route.symbol_id,
+                    conf,
+                    rel_path,
+                    route.line,
+                )
+            continue
+        locator_path = _method_locator(member, src)
+        if locator_path is None:
+            continue
+        return_name = _return_type_name(member, src)
+        loc_prefix = _join(prefix, locator_path)
+        targets = _resolve_resource_class(return_name, rel_path, r) if return_name else []
+        if not targets or depth >= _MAX_SUBRESOURCE_DEPTH:
+            # Object / unresolvable return (or recursion cap) → honest unmatched locator:
+            # surface the routing boundary as an Endpoint with no handler, never a guess.
+            _emit_route(
+                emit, "*", loc_prefix, "", Confidence.AMBIGUOUS, rel_path, member.start_point[0]
+            )
+            continue
+        sub_conf = _min_conf(
+            conf, Confidence.EXTRACTED if len(targets) == 1 else Confidence.AMBIGUOUS
+        )
+        for tgt_rel, tgt_src, tgt_node in targets:
+            tgt_name_node = tgt_node.child_by_field_name("name")
+            tgt_name = _text(tgt_name_node, tgt_src) if tgt_name_node is not None else ""
+            if (tgt_rel, tgt_name) in visited:
+                continue
+            _emit_class_routes(
+                tgt_rel, tgt_src, tgt_node, loc_prefix, sub_conf, depth + 1, visited, r, emit
+            )
+
+
 def extract_jaxrs_providers(ctx: ContractContext) -> list[Contract]:
-    seen: set[tuple[str, str]] = set()
-    contracts: list[Contract] = []
-    for rel_path, src, root in iter_candidate_files(ctx, languages=("java",), markers=_MARKERS):
+    files = list(iter_candidate_files(ctx, languages=("java",), markers=_MARKERS))
+    # Index every JAX-RS-candidate class by simple name (for sub-resource resolution).
+    class_index: dict[str, list[tuple[str, bytes, Node]]] = {}
+    for rel_path, src, root in files:
+        for node in _walk(root):
+            if node.type != "class_declaration":
+                continue
+            name_node = node.child_by_field_name("name")
+            if name_node is not None:
+                class_index.setdefault(_text(name_node, src), []).append((rel_path, src, node))
+    # Top-level def name indexes for the shared resolver (Java types).
+    defs_top_by_file: dict[str, set[str]] = {}
+    defs_top_by_lang: dict[str, dict[str, list[str]]] = {}
+    for t in ctx.tags:
+        if t.kind != "def" or t.parent:
+            continue
+        defs_top_by_file.setdefault(t.rel_path, set()).add(t.name)
+        defs_top_by_lang.setdefault(t.language, {}).setdefault(t.name, []).append(t.rel_path)
+    r = _Resolver(
+        ctx.imports, defs_top_by_file, defs_top_by_lang, ctx.source_files_by_path, class_index
+    )
+
+    emit = _Emit([], set())
+    for rel_path, src, root in files:
         for node in _walk(root):
             if node.type != "class_declaration":
                 continue
             class_path = _class_path(node, src)
             if class_path is None:
-                continue  # not a JAX-RS resource — enclosing-class guard
-            body = next((c for c in node.children if c.type == "class_body"), None)
-            if body is None:
-                continue
-            for member in body.children:
-                if member.type != "method_declaration":
-                    continue
-                route = _method_route(member, src, rel_path)
-                if route is None:
-                    continue
-                normalized = normalize_provider_path(_join(class_path, route.raw_path))
-                if is_noise_path(normalized):
-                    continue
-                for verb in route.verbs:
-                    contract_id = http_contract_id(verb, normalized)
-                    if (contract_id, route.symbol_id) in seen:
-                        continue
-                    seen.add((contract_id, route.symbol_id))
-                    contracts.append(
-                        Contract(
-                            role=ContractRole.PROVIDER,
-                            contract_id=contract_id,
-                            symbol_id=route.symbol_id,
-                            confidence=Confidence.EXTRACTED,
-                            evidence=f"jaxrs {route.symbol_id.rsplit('::', 1)[-1]} {verb.upper()}",
-                            protocol="http",
-                            method=verb.upper(),
-                            normalized_path=normalized,
-                            raw_path=_join(class_path, route.raw_path),
-                            framework="jaxrs",
-                            rel_path=rel_path,
-                            line=route.line,
-                        )
-                    )
-    return contracts
+                continue  # not a root JAX-RS resource — enclosing-class guard
+            _emit_class_routes(
+                rel_path, src, node, class_path, Confidence.EXTRACTED, 0, frozenset(), r, emit
+            )
+    return emit.contracts
