@@ -119,7 +119,8 @@ def test_handles_bind_views_across_files_with_include_prefix(tmp_path):
     # include('myproject.api.urls') prefix 'api/v1/' concatenates onto app routes,
     # and the handler resolves cross-file into views.py.
     assert ("http::*::/api/v1/vets", f"{views_file}::vet_list") in handles
-    assert ("http::*::/api/v1/vets/{param}", f"{views_file}::VetDetail") in handles
+    # VetDetail is a CBV with a `get` method → specific verb (DEC-072), not http::*::.
+    assert ("http::GET::/api/v1/vets/{param}", f"{views_file}::VetDetail") in handles
     assert ("http::*::/api/v1/pets/{param}", f"{views_file}::legacy_view") in handles
     # DRF DefaultRouter CRUD expansion, prefixed by the include().
     assert ("http::POST::/api/v1/owners", f"{views_file}::OwnerViewSet") in handles
@@ -165,3 +166,52 @@ def test_routes_to_joins_consumer_to_django_views(tmp_path):
         "http::POST::/api/v1/owners",
         "EXTRACTED",
     ) in routes
+
+
+# --- DEC-072 (v0.7 Step 1): Django provider completion ----------------------
+
+V07_SAMPLE = "django_v07_sample"
+
+
+def _build_sample(tmp_path: Path, sample: str) -> Path:
+    repo = tmp_path / sample
+    shutil.copytree(FIXTURES / sample, repo)
+    db_path = tmp_path / "graph.lbug"
+    PipelineRunner(default_phases()).run(
+        ExtractConfig(
+            repo_path=repo,
+            output_dir=tmp_path / "out",
+            flatten=False,
+            write_editor_shims=False,
+            build_graph_db=True,
+            graph_db_path=db_path,
+        )
+    )
+    return db_path
+
+
+def test_django_v07_completion(tmp_path):
+    """include(<variable>) prefix recursion + CBV verbs + DRF @action + deep view path."""
+    db_path = _build_sample(tmp_path, V07_SAMPLE)
+    with LadybugStore(db_path) as s:
+        handles = {
+            (r[0], r[1])
+            for r in s.query(
+                "MATCH (e:Endpoint)<-[:HANDLES]-(sym:Symbol) "
+                "RETURN e.contract_id, sym.qualified_name"
+            )
+        }
+    views = "apiapp/views.py"
+    # (1) include(<variable>): every app route carries the 'api/' parent prefix (the
+    # wagtail collapse fix) — not bare '/account', '/deep', '/users'.
+    assert ("http::GET::/api/account", f"{views}::AccountView") in handles  # CBV get
+    assert ("http::POST::/api/account", f"{views}::AccountView") in handles  # CBV post
+    # (2) CBV verbs: AccountView emits GET + POST (specific), never http::*::/api/account.
+    assert not any(c == "http::*::/api/account" for c, _ in handles)
+    # (3) deep dotted view path apiapp.deep.handlers.deep_view, prefixed.
+    assert ("http::*::/api/deep", "apiapp/deep/handlers.py::deep_view") in handles
+    # (4) DRF router CRUD under the prefix.
+    assert ("http::GET::/api/users", f"{views}::UserViewSet") in handles
+    # (5) DRF @action: detail=True POST set_password + detail=False GET recent.
+    assert ("http::POST::/api/users/{param}/set_password", f"{views}::UserViewSet") in handles
+    assert ("http::GET::/api/users/recent", f"{views}::UserViewSet") in handles
