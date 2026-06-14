@@ -44,21 +44,21 @@ Frontend/client call sites joined to the backend handler they hit, via a normali
 
 | Consumer | Handler | Endpoint | Confidence |
 | --- | --- | --- | --- |
-| `asyncio_route_guide_client.py::guide_get_one_feature` | `asyncio_route_guide_server.py::RouteGuideServicer.GetFeature` | `grpc::RouteGuide/GetFeature` | `AMBIGUOUS` |
-| `asyncio_route_guide_client.py::guide_get_one_feature` | `route_guide_server.py::RouteGuideServicer.GetFeature` | `grpc::RouteGuide/GetFeature` | `AMBIGUOUS` |
-| `route_guide_client.py::guide_get_one_feature` | `asyncio_route_guide_server.py::RouteGuideServicer.GetFeature` | `grpc::RouteGuide/GetFeature` | `AMBIGUOUS` |
-| `route_guide_client.py::guide_get_one_feature` | `route_guide_server.py::RouteGuideServicer.GetFeature` | `grpc::RouteGuide/GetFeature` | `AMBIGUOUS` |
-| `asyncio_route_guide_client.py::guide_list_features` | `asyncio_route_guide_server.py::RouteGuideServicer.ListFeatures` | `grpc::RouteGuide/ListFeatures` | `AMBIGUOUS` |
-| `asyncio_route_guide_client.py::guide_list_features` | `route_guide_server.py::RouteGuideServicer.ListFeatures` | `grpc::RouteGuide/ListFeatures` | `AMBIGUOUS` |
-| `route_guide_client.py::guide_list_features` | `asyncio_route_guide_server.py::RouteGuideServicer.ListFeatures` | `grpc::RouteGuide/ListFeatures` | `AMBIGUOUS` |
-| `route_guide_client.py::guide_list_features` | `route_guide_server.py::RouteGuideServicer.ListFeatures` | `grpc::RouteGuide/ListFeatures` | `AMBIGUOUS` |
-| `asyncio_route_guide_client.py::guide_record_route` | `asyncio_route_guide_server.py::RouteGuideServicer.RecordRoute` | `grpc::RouteGuide/RecordRoute` | `AMBIGUOUS` |
-| `asyncio_route_guide_client.py::guide_record_route` | `route_guide_server.py::RouteGuideServicer.RecordRoute` | `grpc::RouteGuide/RecordRoute` | `AMBIGUOUS` |
-| `route_guide_client.py::guide_record_route` | `asyncio_route_guide_server.py::RouteGuideServicer.RecordRoute` | `grpc::RouteGuide/RecordRoute` | `AMBIGUOUS` |
-| `route_guide_client.py::guide_record_route` | `route_guide_server.py::RouteGuideServicer.RecordRoute` | `grpc::RouteGuide/RecordRoute` | `AMBIGUOUS` |
-| `asyncio_route_guide_client.py::guide_route_chat` | `asyncio_route_guide_server.py::RouteGuideServicer.RouteChat` | `grpc::RouteGuide/RouteChat` | `AMBIGUOUS` |
-| `asyncio_route_guide_client.py::guide_route_chat` | `route_guide_server.py::RouteGuideServicer.RouteChat` | `grpc::RouteGuide/RouteChat` | `AMBIGUOUS` |
-| `route_guide_client.py::guide_route_chat` | `asyncio_route_guide_server.py::RouteGuideServicer.RouteChat` | `grpc::RouteGuide/RouteChat` | `AMBIGUOUS` |
+| `asyncio_route_guide_client.py::guide_get_one_feature` | `asyncio_route_guide_server.py::RouteGuideServicer.GetFeature` | `grpc::route_guide_pb2_grpc::RouteGuide/GetFeature` | `AMBIGUOUS` |
+| `asyncio_route_guide_client.py::guide_get_one_feature` | `route_guide_server.py::RouteGuideServicer.GetFeature` | `grpc::route_guide_pb2_grpc::RouteGuide/GetFeature` | `AMBIGUOUS` |
+| `route_guide_client.py::guide_get_one_feature` | `asyncio_route_guide_server.py::RouteGuideServicer.GetFeature` | `grpc::route_guide_pb2_grpc::RouteGuide/GetFeature` | `AMBIGUOUS` |
+| `route_guide_client.py::guide_get_one_feature` | `route_guide_server.py::RouteGuideServicer.GetFeature` | `grpc::route_guide_pb2_grpc::RouteGuide/GetFeature` | `AMBIGUOUS` |
+| `asyncio_route_guide_client.py::guide_list_features` | `asyncio_route_guide_server.py::RouteGuideServicer.ListFeatures` | `grpc::route_guide_pb2_grpc::RouteGuide/ListFeatures` | `AMBIGUOUS` |
+| `asyncio_route_guide_client.py::guide_list_features` | `route_guide_server.py::RouteGuideServicer.ListFeatures` | `grpc::route_guide_pb2_grpc::RouteGuide/ListFeatures` | `AMBIGUOUS` |
+| `route_guide_client.py::guide_list_features` | `asyncio_route_guide_server.py::RouteGuideServicer.ListFeatures` | `grpc::route_guide_pb2_grpc::RouteGuide/ListFeatures` | `AMBIGUOUS` |
+| `route_guide_client.py::guide_list_features` | `route_guide_server.py::RouteGuideServicer.ListFeatures` | `grpc::route_guide_pb2_grpc::RouteGuide/ListFeatures` | `AMBIGUOUS` |
+| `asyncio_route_guide_client.py::guide_record_route` | `asyncio_route_guide_server.py::RouteGuideServicer.RecordRoute` | `grpc::route_guide_pb2_grpc::RouteGuide/RecordRoute` | `AMBIGUOUS` |
+| `asyncio_route_guide_client.py::guide_record_route` | `route_guide_server.py::RouteGuideServicer.RecordRoute` | `grpc::route_guide_pb2_grpc::RouteGuide/RecordRoute` | `AMBIGUOUS` |
+| `route_guide_client.py::guide_record_route` | `asyncio_route_guide_server.py::RouteGuideServicer.RecordRoute` | `grpc::route_guide_pb2_grpc::RouteGuide/RecordRoute` | `AMBIGUOUS` |
+| `route_guide_client.py::guide_record_route` | `route_guide_server.py::RouteGuideServicer.RecordRoute` | `grpc::route_guide_pb2_grpc::RouteGuide/RecordRoute` | `AMBIGUOUS` |
+| `asyncio_route_guide_client.py::guide_route_chat` | `asyncio_route_guide_server.py::RouteGuideServicer.RouteChat` | `grpc::route_guide_pb2_grpc::RouteGuide/RouteChat` | `AMBIGUOUS` |
+| `asyncio_route_guide_client.py::guide_route_chat` | `route_guide_server.py::RouteGuideServicer.RouteChat` | `grpc::route_guide_pb2_grpc::RouteGuide/RouteChat` | `AMBIGUOUS` |
+| `route_guide_client.py::guide_route_chat` | `asyncio_route_guide_server.py::RouteGuideServicer.RouteChat` | `grpc::route_guide_pb2_grpc::RouteGuide/RouteChat` | `AMBIGUOUS` |
 
 ## Change hot spots
 
@@ -92,4 +92,4 @@ _None._
 
 ---
 
-*Generated by forensic-deepdive 0.6.0 on 2026-06-12. Regenerate with `forensic update` — do not hand-edit.*
+*Generated by forensic-deepdive 0.6.0 on 2026-06-13. Regenerate with `forensic update` — do not hand-edit.*
