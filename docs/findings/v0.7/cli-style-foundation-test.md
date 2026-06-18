@@ -57,7 +57,14 @@ everywhere else — so the styled CLI is genuinely pipe/CI-safe, not just colour
 Track B diffs touch only `cli/*` (the package move + the style layer) + `pyproject.toml` —
 **never `emit/*` or any machine-output path**. The 5-artifact/9-tool contract is unchanged
 (the panel *reads* it). `serve` (MCP stdio / `--ui` HTML) gains no ANSI. Tests:
-`tests/test_cli_style.py` (8) + the existing `test_cli.py` unchanged.
+`tests/test_cli_style.py` (7) + the existing `test_cli.py` unchanged.
+
+## Aesthetic refinement — Hermes-style blue gradient
+
+Per the brief, the wordmark carries a **vertical blue gradient** (light `#7cc7ff` → deep
+`#1b5fc9`, per row) echoing Hermes' gold→bronze depth in our palette — truecolor hexes that
+Rich auto-degrades to the nearest 256/8-colour blue, and that vanish entirely on the plain
+title path. (Reference: `hermes-agent`'s `hermes_cli/banner.py` per-row truecolor rows.)
 
 ## Takeaway
 

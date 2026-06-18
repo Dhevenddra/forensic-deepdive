@@ -46,7 +46,10 @@ def render_banner(console: Console) -> None:
     console can't/shouldn't render block art)."""
     version = f"v{__version__}"
     if _can_render_blocks(console):
-        console.print(Text(_WORDMARK, style="banner"))
+        # Per-row blue gradient (light → deep) for a Hermes-style 3-D depth in our palette.
+        rows = _WORDMARK.split("\n")
+        for i, row in enumerate(rows, start=1):
+            console.print(Text(row, style=f"banner.{min(i, 5)}"))
         line = Text(_TAGLINE, style="tagline")
         line.append(Text(f"{version}".rjust(max(1, 48 - len(_TAGLINE))), style="version"))
         console.print(line)

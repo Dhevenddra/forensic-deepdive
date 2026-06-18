@@ -21,6 +21,13 @@ FORENSIC_THEME = Theme(
     {
         # --- brand chrome (blue on black, white text) ---
         "banner": "bold bright_blue",
+        # Wordmark vertical gradient (Hermes-style depth, in our blue) — light → deep.
+        # Truecolor hexes; Rich auto-degrades to the nearest 256/8-colour blue.
+        "banner.1": "bold #7cc7ff",
+        "banner.2": "bold #4aa3f0",
+        "banner.3": "bold #2f81f7",
+        "banner.4": "bold #1f6feb",
+        "banner.5": "bold #1b5fc9",
         "brand": "bold bright_blue",
         "header": "bold bright_blue",
         "border": "blue",
