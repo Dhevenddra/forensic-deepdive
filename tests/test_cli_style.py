@@ -25,6 +25,11 @@ from forensic_deepdive.cli.style.console import (
     get_console,
     set_plain,
 )
+from forensic_deepdive.cli.style.render import (
+    _confidence_split_text,
+    print_extract_summary,
+    render_trace,
+)
 
 
 def _console(*, terminal: bool, color: bool) -> tuple[Console, io.StringIO]:
@@ -98,6 +103,69 @@ def test_set_plain_forces_no_color():
         assert get_console().no_color is True
     finally:
         set_plain(False)
+
+
+# --- styled command rendering (DEC-079) -------------------------------------
+
+
+def _downstream_payload() -> dict:
+    return {
+        "matches": [{"qualified_name": "a.ts::f"}],
+        "direction": "downstream",
+        "chains": [
+            {
+                "consumer": "a.ts::f",
+                "endpoint": "http::POST::/api/x",
+                "method": "POST",
+                "normalized_path": "/api/x",
+                "call_confidence": "EXTRACTED",
+                "handler": "H.java::C.m",
+                "handles_confidence": "INFERRED",
+                "downstream": ["svc.do"],
+            }
+        ],
+        "symbol": "f",
+    }
+
+
+def test_trace_json_mode_is_plain_no_ansi():
+    import json
+
+    c, sio = _console(terminal=True, color=True)  # colour TTY, but --json → plain JSON
+    render_trace(c, _downstream_payload(), plain=True)
+    out = sio.getvalue()
+    assert "\x1b[" not in out  # no ANSI even on a colour TTY when piping JSON
+    assert json.loads(out)["direction"] == "downstream"
+
+
+def test_trace_tree_shows_endpoint_handler_and_confidence_words():
+    c, sio = _console(terminal=True, color=True)
+    render_trace(c, _downstream_payload(), plain=False)
+    out = sio.getvalue()
+    assert "POST" in out and "/api/x" in out and "via http" in out
+    assert "EXTRACTED" in out and "INFERRED" in out  # confidence never colour-alone
+    assert "C.m" in out  # the resolved handler
+
+
+def test_trace_unresolved_is_a_friendly_message():
+    c, sio = _console(terminal=True, color=True)
+    render_trace(c, {"matches": [], "unresolved": True, "symbol": "nope"}, plain=False)
+    assert "no symbol matched" in sio.getvalue()
+
+
+def test_confidence_split_text_ascii():
+    t = _confidence_split_text({"EXTRACTED": 3, "INFERRED": 1, "AMBIGUOUS": 0}, glyphs=False)
+    assert "4 cross-stack route" in t.plain
+    assert "[E] 3" in t.plain and "[I] 1" in t.plain and "[A] 0" in t.plain
+
+
+def test_extract_summary_cache_hit():
+    from types import SimpleNamespace
+
+    c, sio = _console(terminal=False, color=False)
+    print_extract_summary(c, SimpleNamespace(cache_hit=True, output_dir="docs/codebase"))
+    out = sio.getvalue()
+    assert "cache hit" in out and "\x1b[" not in out
 
 
 # --- keystone guard: the style layer must never touch emit/ -----------------

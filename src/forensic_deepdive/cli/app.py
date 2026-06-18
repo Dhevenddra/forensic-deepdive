@@ -15,15 +15,12 @@ latter as the smoke test).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import typer
 from rich.console import Console
 
 from forensic_deepdive import __version__
-
-if TYPE_CHECKING:
-    from forensic_deepdive.pipeline import ExtractResult
 
 app = typer.Typer(
     name="forensic",
@@ -121,27 +118,31 @@ def extract(
     ] = None,
 ) -> None:
     """Run the full forensic deep-dive pipeline."""
+    from forensic_deepdive.cli.style import get_console, print_extract_summary
     from forensic_deepdive.pipeline import run_extract
 
+    out = get_console()
     for flag, enabled in (("--local", local), ("--with-graphiti", with_graphiti), ("--fast", fast)):
         if enabled:
-            console.print(f"[yellow]{flag} is a v0.2 flag; ignored in v0.1.[/yellow]")
+            out.print(f"[warn]{flag} is a v0.2 flag; ignored in v0.1.[/warn]")
     if stage is not None:
-        console.print("[yellow]--stage is not implemented in v0.1; running all stages.[/yellow]")
+        out.print("[warn]--stage is not implemented in v0.1; running all stages.[/warn]")
 
     try:
-        result = run_extract(
-            path,
-            output,
-            force=force,
-            flatten=legacy_repomix,
-            workers=workers,
-            semantic=semantic,
-        )
+        # A live status spinner on a TTY (silent on a pipe — Console-only, no ANSI piped).
+        with out.status(f"[brand]forensic deep-dive[/brand] — analyzing {path} …"):
+            result = run_extract(
+                path,
+                output,
+                force=force,
+                flatten=legacy_repomix,
+                workers=workers,
+                semantic=semantic,
+            )
     except (NotADirectoryError, FileNotFoundError) as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        out.print(f"[err]Error:[/err] {exc}")
         raise typer.Exit(code=1) from exc
-    _print_extract_summary(result)
+    print_extract_summary(out, result)
 
 
 @app.command()
@@ -156,56 +157,21 @@ def update(
     ] = None,
 ) -> None:
     """Incrementally refresh artifacts. v0.1: re-runs extract with --force."""
+    from forensic_deepdive.cli.style import get_console, print_extract_summary
     from forensic_deepdive.pipeline import run_extract
 
-    console.print(
-        "[dim]v0.1 update is a full re-extract (--force); "
-        "incremental refresh arrives in v0.2.[/dim]"
+    out = get_console()
+    out.print(
+        "[muted]v0.1 update is a full re-extract (--force); "
+        "incremental refresh arrives in v0.2.[/muted]"
     )
     try:
-        result = run_extract(path, None, force=True, workers=workers)
+        with out.status(f"[brand]forensic update[/brand] — re-extracting {path} …"):
+            result = run_extract(path, None, force=True, workers=workers)
     except (NotADirectoryError, FileNotFoundError) as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        out.print(f"[err]Error:[/err] {exc}")
         raise typer.Exit(code=1) from exc
-    _print_extract_summary(result)
-
-
-def _print_extract_summary(result: ExtractResult) -> None:
-    """Print a human-readable summary of an extract run."""
-    if result.cache_hit:
-        console.print(
-            f"[green]Cache hit[/green]: artifacts already current in "
-            f"[bold]{result.output_dir}[/bold] (use --force to regenerate)."
-        )
-        return
-
-    facts = result.facts
-    assert facts is not None  # only None on a cache hit
-    languages = (
-        ", ".join(
-            f"{name} ({count})"
-            for name, count in sorted(
-                facts.language_breakdown.items(), key=lambda kv: (-kv[1], kv[0])
-            )
-        )
-        or "none"
-    )
-    console.print(f"[bold green]forensic extract complete[/bold green]: {facts.repo_name}")
-    console.print(f"  Files analyzed : {facts.file_count}  ({languages})")
-    console.print(
-        f"  Symbol graph   : {facts.symbol_graph.graph.number_of_nodes()} files, "
-        f"{facts.symbol_graph.graph.number_of_edges()} edges"
-    )
-    console.print(f"  Flatten        : {'Repomix ok' if result.flatten_ok else 'skipped'}")
-    console.print(f"  Artifacts      : {result.output_dir}")
-    for name in sorted(result.artifacts):
-        console.print(f"    - {name}")
-    if result.shims.written:
-        console.print(f"  Shims written  : {', '.join(p.name for p in result.shims.written)}")
-    if result.shims.skipped:
-        console.print(
-            f"  Shims skipped  : {', '.join(p.name for p in result.shims.skipped)} (already exist)"
-        )
+    print_extract_summary(out, result)
 
 
 @app.command()
@@ -245,6 +211,44 @@ def query(
         console.print(f"[bold]> {hit.text}[/bold]")
         for line in hit.context_after:
             console.print(f"  {line}")
+
+
+@app.command()
+def trace(
+    symbol: Annotated[str, typer.Argument(help="Symbol to trace (qualified or bare name).")],
+    repo: Annotated[
+        Path, typer.Option(help="Repo with a built `.deepdive/graph.lbug` (default: cwd).")
+    ] = Path("."),
+    graph_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--graph", help="Explicit .lbug path (overrides <repo>/.deepdive/graph.lbug)."
+        ),
+    ] = None,
+    upstream: Annotated[
+        bool,
+        typer.Option("--upstream", help="Trace who calls this endpoint (default: downstream)."),
+    ] = False,
+    depth: Annotated[int, typer.Option(help="Max downstream CALLS depth.")] = 6,
+    json_out: Annotated[
+        bool, typer.Option("--json", help="Emit plain JSON (machine mode, pipe-safe).")
+    ] = False,
+) -> None:
+    """Trace a cross-stack feature slice — frontend call → Endpoint → handler → tail
+    (DEC-052). A confidence-coloured tree on a TTY; plain JSON with ``--json`` or when piped."""
+    from forensic_deepdive.cli.style import get_console, render_trace
+    from forensic_deepdive.mcp_server.server import trace as trace_query
+
+    db_path = graph_path or repo / ".deepdive" / "graph.lbug"
+    out = get_console()
+    if not db_path.exists():
+        out.print(f"[err]No graph at {db_path}.[/err] Run `forensic extract` first to build it.")
+        raise typer.Exit(code=1)
+    payload = trace_query(
+        db_path, symbol, direction="upstream" if upstream else "downstream", max_depth=depth
+    )
+    payload.setdefault("symbol", symbol)
+    render_trace(out, payload, plain=json_out)
 
 
 @app.command()
