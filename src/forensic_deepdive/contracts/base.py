@@ -54,6 +54,12 @@ class Contract:
     # subscriber's binding_pattern. Empty for every other contract shape; read only by
     # reconcile_amqp (the exchange is the join key, this refines the match within it).
     match_key: str = ""
+    # DEC-073: JAX-RS content negotiation — the @Produces/@Consumes media type(s)
+    # (e.g. "produces=application/json; consumes=application/json"). A non-key display
+    # property carried on the contract (the DEC-057 version-property precedent: never part
+    # of contract_id, so two methods differing only by media type collapse to one
+    # Endpoint). Empty for every other contract shape.
+    content_type: str = ""
 
 
 @dataclass(frozen=True, slots=True)
