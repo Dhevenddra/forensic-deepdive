@@ -77,6 +77,51 @@ def save_to_shadow_ref(repo_path: Path, jsonl_path: Path, *, ref: str = SHADOW_R
     return code == 0
 
 
+def _resolve_remote(repo_path: Path, remote: str | None) -> str | None:
+    """The remote to push to: the explicit *remote*, else ``origin`` if present, else the
+    first configured remote, else ``None`` (nothing to push to)."""
+    code, out = _git(repo_path, "remote")
+    remotes = out.decode().split() if code == 0 else []
+    if remote is not None:
+        return remote if remote in remotes else None
+    if "origin" in remotes:
+        return "origin"
+    return remotes[0] if remotes else None
+
+
+def push_shadow_ref(
+    repo_path: Path,
+    *,
+    remote: str | None = None,
+    ref: str = SHADOW_REF,
+    dry_run: bool = False,
+) -> tuple[bool, str]:
+    """Publish the local insight shadow *ref* to a *remote* (DEC-075) — **explicit only,
+    never automatic** (the never-push discipline extends to the insight ref). Returns
+    ``(ok, message)``. Best-effort: outside a git repo, with no remote, or if the ref
+    doesn't exist yet, returns ``(False, <reason>)`` rather than raising. ``dry_run`` passes
+    ``git push --dry-run`` (no refs actually move)."""
+    repo_path = Path(repo_path)
+    if not _is_git_repo(repo_path):
+        return False, "not a git repository"
+    code, _ = _git(repo_path, "rev-parse", "--verify", "--quiet", ref)
+    if code != 0:
+        return False, f"no insight ref to push ({ref}); record an insight first"
+    target = _resolve_remote(repo_path, remote)
+    if target is None:
+        reason = f"remote {remote!r} not found" if remote else "no git remote configured"
+        return False, reason
+    args = ["push"]
+    if dry_run:
+        args.append("--dry-run")
+    args += [target, f"{ref}:{ref}"]
+    code, out = _git(repo_path, *args)
+    verb = "would push" if dry_run else "pushed"
+    if code == 0:
+        return True, f"{verb} {ref} → {target}"
+    return False, f"git push failed (exit {code}): {out.decode(errors='replace').strip()}"
+
+
 def load_from_shadow_ref(repo_path: Path, jsonl_path: Path, *, ref: str = SHADOW_REF) -> bool:
     """Restore the JSONL store from the shadow *ref* (e.g. after a clone that fetched it).
     Writes ``<ref>:insights.jsonl`` to *jsonl_path*. Returns ``True`` on success, ``False``

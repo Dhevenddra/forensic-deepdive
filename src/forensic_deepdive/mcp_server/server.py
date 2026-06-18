@@ -32,6 +32,7 @@ from forensic_deepdive.insights.recall_index import (
     ensure_recall_index,
     recall_index_path_for_jsonl,
 )
+from forensic_deepdive.insights.semantic_recall import ensure_insight_semantic_index
 from forensic_deepdive.insights.shadow_ref import save_to_shadow_ref
 
 DEFAULT_DEPTH = 3
@@ -632,7 +633,11 @@ def record_insight(
     store.record(insight)
     # Refresh the derived FTS5 recall index + sync the git shadow-ref (both best-effort,
     # local-only — the JSONL stays authoritative; the index/ref are rebuildable/portable).
-    ensure_recall_index(recall_index_path_for_jsonl(path), path)
+    index_path = recall_index_path_for_jsonl(path)
+    ensure_recall_index(index_path, path)
+    # DEC-075: refresh the opt-in semantic vector index too (no-op without the [semantic]
+    # extra + model — the FTS5 lexical index always works).
+    ensure_insight_semantic_index(index_path, path)
     save_to_shadow_ref(_repo_root_for_jsonl(path), path)
     return {"recorded": insight.to_dict(), "path": str(path)}
 

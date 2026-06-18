@@ -19,7 +19,9 @@ import sqlite3
 from collections.abc import Iterable
 from pathlib import Path
 
+from forensic_deepdive.insights.decay import DEFAULT_HALF_LIFE_DAYS, decay_weight
 from forensic_deepdive.insights.store import Insight
+from forensic_deepdive.query.fuse import reciprocal_rank_fusion
 from forensic_deepdive.query.lexical import _tokenize
 
 _INDEX_SUBPATH = (".forensic-deepdive", "index", "insights.db")
@@ -142,62 +144,148 @@ class InsightRecallIndex:
     def exists(self) -> bool:
         return self.index_path.is_file()
 
-    def search(self, symbol: str, *, since: str | None = None, limit: int = 50) -> list[Insight]:
-        """Backward-compatible recall (DEC-019 semantics) + BM25 (DEC-069): a **symbol
-        substring** match first (newest-first — the existing contract), then **BM25**
-        full-text matches for the query tokens (best-ranked first), de-duplicated. ``since``
-        filters by ISO timestamp; ``limit`` caps the total."""
+    def search(
+        self,
+        symbol: str,
+        *,
+        since: str | None = None,
+        limit: int = 50,
+        decay: bool = True,
+        semantic: bool = True,
+        half_life_days: float = DEFAULT_HALF_LIFE_DAYS,
+    ) -> list[Insight]:
+        """Recall insights for *symbol*. The DEC-019/069 contract is preserved: a **symbol
+        substring** match first (newest-first, never decayed — the precise-lookup contract),
+        then a **fuzzy tail** — BM25 full-text, optionally fused with opt-in ONNX semantic
+        recall (DEC-075) via RRF (DEC-038), then recency-**decayed** (DEC-075) so a newer
+        insight outranks an equally-relevant older one. ``since`` filters by ISO timestamp;
+        ``limit`` caps the total. *decay*/*semantic* default on; *semantic* is a no-op unless
+        the ``[semantic]`` extra + model + a built vector index are present (then it degrades
+        silently to BM25 — the pure-static floor)."""
         if not self.exists():
             return []
         conn = sqlite3.connect(self.index_path)
         try:
-            return self._search(conn, symbol, since, limit)
+            return self._search(conn, symbol, since, limit, decay, semantic, half_life_days)
         finally:
             conn.close()
 
     def _search(
-        self, conn: sqlite3.Connection, symbol: str, since: str | None, limit: int
+        self,
+        conn: sqlite3.Connection,
+        symbol: str,
+        since: str | None,
+        limit: int,
+        decay: bool,
+        semantic: bool,
+        half_life_days: float,
     ) -> list[Insight]:
         cols = "symbol, claim, evidence, verified_by, recorded_at, session_id"
         seen: set[str] = set()
         out: list[Insight] = []
 
-        def _keep(row: tuple) -> bool:
-            ins = _row_to_insight(row)
-            if since is not None and ins.recorded_at < since:
-                return False
-            key = ins.content_hash()
-            if key in seen:
-                return False
-            seen.add(key)
-            out.append(ins)
-            return True
+        def _passes(ins: Insight) -> bool:
+            return since is None or ins.recorded_at >= since
 
-        # (a) symbol substring match — the DEC-019 contract, newest-first.
+        # (a) symbol substring match — the DEC-019 precise-lookup contract, newest-first,
+        # NOT decayed/fused (an exact symbol hit is the authoritative lookup).
         for row in conn.execute(
             f"SELECT {cols} FROM insights WHERE symbol LIKE ? ESCAPE '\\' "
             "ORDER BY recorded_at DESC",
             (f"%{_like_escape(symbol)}%",),
         ):
-            _keep(row)
+            ins = _row_to_insight(row)
+            h = ins.content_hash()
+            if not _passes(ins) or h in seen:
+                continue
+            seen.add(h)
+            out.append(ins)
             if len(out) >= limit:
                 return out
 
-        # (b) BM25 full-text over symbol+claim+evidence (best rank first).
+        # (b) fuzzy tail: BM25 (+ opt-in semantic) ranked lists, RRF-fused (DEC-038), then
+        # recency-decayed (DEC-075). Ids are content hashes so the two indexes agree.
+        by_hash: dict[str, Insight] = {}
+        ranked_lists: list[list[str]] = []
+
+        bm25_ranked: list[str] = []
         tokens = _query_tokens(symbol)
         if tokens:
             match_expr = " OR ".join(f"{tok}*" for tok in tokens)
             for row in conn.execute(
-                "SELECT i.symbol, i.claim, i.evidence, i.verified_by, i.recorded_at, "
-                "i.session_id, bm25(insights_fts) AS rank "
+                "SELECT i.content_hash, i.symbol, i.claim, i.evidence, i.verified_by, "
+                "i.recorded_at, i.session_id, bm25(insights_fts) AS rank "
                 "FROM insights_fts JOIN insights i ON i.id = insights_fts.rowid "
                 "WHERE insights_fts MATCH ? ORDER BY rank ASC, i.recorded_at DESC",
                 (match_expr,),
             ):
-                _keep(row[:6])
-                if len(out) >= limit:
-                    break
+                h, ins = row[0], _row_to_insight(row[1:7])
+                if not _passes(ins) or h in seen or h in by_hash:
+                    continue
+                by_hash[h] = ins
+                bm25_ranked.append(h)
+        if bm25_ranked:
+            ranked_lists.append(bm25_ranked)
+
+        if semantic:
+            sem_ranked = self._semantic_ranked(conn, symbol, since, seen, by_hash, cols)
+            if sem_ranked:
+                ranked_lists.append(sem_ranked)
+
+        scores = reciprocal_rank_fusion(ranked_lists)
+        if decay:
+            scores = {
+                h: s * decay_weight(by_hash[h].recorded_at, half_life_days=half_life_days)
+                for h, s in scores.items()
+            }
+        # Two-stage stable sort → score desc primary, newer-first then hash on ties.
+        tail = sorted(by_hash, key=lambda h: (by_hash[h].recorded_at, h), reverse=True)
+        tail.sort(key=lambda h: scores.get(h, 0.0), reverse=True)
+        for h in tail:
+            out.append(by_hash[h])
+            if len(out) >= limit:
+                break
         return out[:limit]
+
+    def _semantic_ranked(
+        self,
+        conn: sqlite3.Connection,
+        symbol: str,
+        since: str | None,
+        seen: set[str],
+        by_hash: dict[str, Insight],
+        cols: str,
+    ) -> list[str]:
+        """The opt-in semantic ranked list of content hashes (DEC-075), filling *by_hash*
+        for hashes BM25 didn't already surface. ``[]`` when semantic recall is unavailable."""
+        from forensic_deepdive.insights.semantic_recall import (
+            InsightSemanticIndex,
+            insight_semantic_available,
+            insight_semantic_dir,
+        )
+
+        sem_dir = insight_semantic_dir(self.index_path)
+        if not insight_semantic_available(sem_dir):
+            return []
+        out: list[str] = []
+        for h in InsightSemanticIndex(sem_dir).search(symbol, limit=200):
+            if h in seen:
+                continue
+            ins = by_hash.get(h)
+            if ins is None:
+                ins = self._insight_by_hash(conn, h, cols)
+                if ins is None or (since is not None and ins.recorded_at < since):
+                    continue
+                by_hash[h] = ins
+            out.append(h)
+        return out
+
+    @staticmethod
+    def _insight_by_hash(conn: sqlite3.Connection, content_hash: str, cols: str) -> Insight | None:
+        row = conn.execute(
+            f"SELECT {cols} FROM insights WHERE content_hash = ?", (content_hash,)
+        ).fetchone()
+        return _row_to_insight(row) if row is not None else None
 
 
 def _query_tokens(query: str) -> list[str]:

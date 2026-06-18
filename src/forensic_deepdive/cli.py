@@ -362,8 +362,7 @@ def serve(
             )
             raise typer.Exit(code=1)
         console.print(
-            f"[bold green]forensic serve --ui[/bold green] — graph explorer "
-            f"(read-only, {host})"
+            f"[bold green]forensic serve --ui[/bold green] — graph explorer (read-only, {host})"
         )
         try:
             serve_ui(
@@ -389,6 +388,44 @@ def serve(
     from forensic_deepdive.mcp_server import serve_stdio
 
     asyncio.run(serve_stdio(db_path))
+
+
+insights_app = typer.Typer(
+    name="insights",
+    help="Manage the durable agent-insight store (lane iii).",
+    no_args_is_help=True,
+)
+app.add_typer(insights_app)
+
+
+@insights_app.command("push")
+def insights_push(
+    repo: Annotated[
+        Path, typer.Argument(help="Repo whose insight shadow-ref to push (default: cwd).")
+    ] = Path("."),
+    remote: Annotated[
+        str | None,
+        typer.Option(help="Git remote to push to (default: origin, else the first remote)."),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Show what would be pushed without pushing."),
+    ] = False,
+) -> None:
+    """Publish the local insight shadow-ref (``refs/forensic-deepdive/insights``) to a remote
+    (DEC-075). **Explicit only** — insights never push automatically (the never-push
+    discipline extends to the insight ref). Best-effort: a clear message if there's no ref,
+    no remote, or no git repo."""
+    from forensic_deepdive.insights.shadow_ref import push_shadow_ref, save_to_shadow_ref
+
+    # Refresh the ref from the current JSONL first, so a push always reflects local insights.
+    save_to_shadow_ref(repo, repo / ".deepdive" / "insights.jsonl")
+    ok, message = push_shadow_ref(repo, remote=remote, dry_run=dry_run)
+    if ok:
+        console.print(f"[green]{message}[/green]")
+    else:
+        console.print(f"[yellow]insights push: {message}[/yellow]")
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
