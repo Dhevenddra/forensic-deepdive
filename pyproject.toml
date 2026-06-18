@@ -21,7 +21,12 @@ dependencies = [
     "tree-sitter-language-pack>=1.8.0",
     "networkx>=3.3",
     "typer>=0.12",
-    "rich>=13.7",
+    # DEC-077 (v0.7 Track B): rich is the load-bearing dependency for the styled CLI
+    # (cli/style/*). It was already a direct dep (DEC-071 assumed it was only transitive via
+    # typer — it was not); v0.7 makes that intentional and widens the pin to the installed
+    # major (15.x is locked; the Console/Theme/Panel APIs we use are stable across 14–15).
+    # textual + pyfiglet stay deferred (no new transitive package).
+    "rich>=14,<16",
     "pygithub>=2.3",
     "httpx>=0.27",
     "pydantic>=2.7",

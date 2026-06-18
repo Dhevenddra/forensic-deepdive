@@ -51,14 +51,36 @@ def main(
             is_eager=True,
         ),
     ] = False,
+    plain: Annotated[
+        bool,
+        typer.Option(
+            "--plain/--color",
+            "--no-color",
+            help="Disable colour/styling (also honours NO_COLOR and non-TTY auto-detect).",
+        ),
+    ] = False,
 ) -> None:
     """Forensic deep-dive of any codebase. Produces 5 durable markdown artifacts."""
+    # DEC-078: the global plain toggle. Console-only; never affects artifacts or machine
+    # output (which are plain regardless). NO_COLOR / non-TTY are auto-detected downstream.
+    from forensic_deepdive.cli.style import set_plain
+
+    set_plain(plain)
 
 
 @app.command()
 def version() -> None:
     """Print version and exit."""
     console.print(f"forensic-deepdive {__version__}")
+
+
+@app.command()
+def info() -> None:
+    """Show the banner + a data-driven capability panel (artifacts, protocols, MCP tools,
+    the confidence legend). A CLI convenience — not a 6th artifact or 10th MCP tool."""
+    from forensic_deepdive.cli.style import get_console, render_info
+
+    render_info(get_console())
 
 
 @app.command()

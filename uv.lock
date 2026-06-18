@@ -494,7 +494,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "pyyaml", marker = "extra == 'openapi'", specifier = ">=6.0" },
     { name = "real-ladybug", specifier = ">=0.15.3" },
-    { name = "rich", specifier = ">=13.7" },
+    { name = "rich", specifier = ">=14,<16" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "tokenizers", marker = "extra == 'semantic'", specifier = ">=0.15" },
     { name = "tree-sitter-language-pack", specifier = ">=1.8.0" },
