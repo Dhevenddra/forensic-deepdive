@@ -40,6 +40,45 @@ def test_amqp_match_kind():
     assert amqp_match_kind("auth.*", "kern.critical") is None
 
 
+def test_amqp_binding_matches_boundary_battery():
+    """DEC-074 (v0.7 Step 3) — lock the matcher against the canonical RabbitMQ
+    topic-rule battery, especially the ``#`` zero-word *boundary* cases the PRD flagged
+    (a `#` at the start/end/middle absorbing zero words). Validated bug-free; this guards
+    against regression."""
+    matches = [
+        # (binding, routing) that MUST match
+        ("kern.critical", "kern.critical"),  # exact equality
+        ("kern.*", "kern.critical"),  # * = exactly one word
+        ("*.critical", "kern.critical"),
+        ("*.*.rabbit", "quick.brown.rabbit"),
+        ("kern.#", "kern.critical.fatal"),  # # = many words
+        ("kern.#", "kern"),  # # = zero words (trailing boundary)
+        ("#.kern", "kern"),  # # = zero words (leading boundary)
+        ("a.#.b", "a.b"),  # # = zero words (interior boundary)
+        ("a.#.b", "a.x.y.b"),  # # = many words (interior)
+        ("#", ""),  # # alone matches the empty key
+        ("#", "a.b.c"),  # # alone matches anything
+        ("lazy.#", "lazy"),
+    ]
+    non_matches = [
+        # (binding, routing) that MUST NOT match (provable non-match → DROP)
+        ("kern.*", "kern.a.b"),  # * is exactly one word, not two
+        ("kern.*", "kern"),  # * requires a word
+        ("*", ""),  # * requires exactly one word (empty has none)
+        ("a.#.b", "a.b.c"),  # anchored tail "b" must be last
+        ("auth.*", "kern.critical"),  # different first word
+    ]
+    for binding, routing in matches:
+        assert amqp_binding_matches(binding, routing), f"{binding!r} should match {routing!r}"
+        # match_kind is "exact" iff literally equal, else "wildcard" (never None here).
+        assert amqp_match_kind(binding, routing) == ("exact" if binding == routing else "wildcard")
+    for binding, routing in non_matches:
+        assert not amqp_binding_matches(binding, routing), (
+            f"{binding!r} should NOT match {routing!r}"
+        )
+        assert amqp_match_kind(binding, routing) is None  # → DROP
+
+
 # --- reconcile_amqp prune (unit) --------------------------------------------
 
 
