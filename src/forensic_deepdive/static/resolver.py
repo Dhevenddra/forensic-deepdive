@@ -767,6 +767,26 @@ def _qualify(rel_path: str, qn_local: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Single-entry cache for the imports-by-rel_path index (DEC-076, v0.7 perf) — the DEC-070
+# pattern. One ``imports`` list is reused across every name resolved in a pass, so grouping
+# it by rel_path once (keyed by the list's identity) turns the per-name O(all imports) scan
+# into an O(imports in this file) lookup. Single-entry + identity check → no leak/id-reuse
+# hazard; resolution is single-threaded (BuildGraphPhase / ContractPhase).
+_IMPORTS_BY_RELPATH_CACHE: dict[str, object] = {"imports": None, "index": None}
+
+
+def _imports_by_rel_path(imports: list[Import]) -> dict[str, list[Import]]:
+    """``rel_path -> [imports declared in that file]`` in original list order (so the
+    resolution result is byte-identical to the prior full scan). Built once per pass."""
+    if _IMPORTS_BY_RELPATH_CACHE["imports"] is not imports:
+        index: dict[str, list[Import]] = {}
+        for imp in imports:
+            index.setdefault(imp.rel_path, []).append(imp)
+        _IMPORTS_BY_RELPATH_CACHE["imports"] = imports
+        _IMPORTS_BY_RELPATH_CACHE["index"] = index
+    return _IMPORTS_BY_RELPATH_CACHE["index"]  # type: ignore[return-value]
+
+
 def resolve_name_to_files(
     name: str,
     rel_path: str,
@@ -788,9 +808,11 @@ def resolve_name_to_files(
         return [rel_path], Confidence.EXTRACTED
 
     imp_matches: list[str] = []
-    for imp in imports:
-        if imp.rel_path != rel_path:
-            continue
+    # DEC-076 (v0.7 perf): index imports by their rel_path once per pass (identity-cached,
+    # the DEC-070 pattern) so this is O(imports in *this* file), not an O(all imports) scan
+    # per resolved name. Byte-identical: the per-file list preserves original list order, so
+    # the same imports are visited in the same order and ``imp_matches`` is unchanged.
+    for imp in _imports_by_rel_path(imports).get(rel_path, ()):
         for ime in imp.imported_names:
             if ime.name == name or ime.alias == name:
                 tgt = _resolve_import_to_file(imp, source_files_by_path)

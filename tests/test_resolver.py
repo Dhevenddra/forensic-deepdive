@@ -51,6 +51,49 @@ def test_resolve_python_import_exact_suffix_and_order() -> None:
     assert _resolve_python_import(_pyimp("a.b.mod"), sfbp) == "a/b/mod.py"
 
 
+def test_resolve_name_to_files_indexed_preserves_order_and_tiers() -> None:
+    """DEC-076 (v0.7 perf): the imports-by-rel_path index must reproduce the prior full
+    scan exactly — multiple same-file imports binding the name are collected in original
+    list order, and the cross-file fallback tiers (INFERRED unique / AMBIGUOUS several) are
+    unchanged. Also exercises the single-entry identity cache rebuilding on a new list."""
+    from forensic_deepdive.static.imports import ImportedName
+    from forensic_deepdive.static.resolver import _imports_by_rel_path, resolve_name_to_files
+
+    def imp(rel, module, *names):
+        return Import(
+            rel_path=rel,
+            module_path=module,
+            language="python",
+            line=0,
+            imported_names=tuple(ImportedName(name=n) for n in names),
+        )
+
+    sfbp = {"a.py": "python", "p1.py": "python", "p2.py": "python"}
+    defs_by_file = {"p1.py": {"Widget"}, "p2.py": {"Widget"}}
+    defs_by_lang = {"python": {"Widget": ["p1.py", "p2.py"]}}
+    imports = [imp("a.py", "p1", "Widget"), imp("a.py", "p2", "Widget"), imp("b.py", "p1", "X")]
+
+    # Index groups by rel_path in original list order.
+    grouped = _imports_by_rel_path(imports)
+    assert [i.module_path for i in grouped["a.py"]] == ["p1", "p2"]
+    assert [i.module_path for i in grouped["b.py"]] == ["p1"]
+
+    # Both a.py imports bind Widget → collected in list order (EXTRACTED).
+    files, conf = resolve_name_to_files("Widget", "a.py", "python", imports, defs_by_file,
+                                        defs_by_lang, sfbp)
+    assert files == ["p1.py", "p2.py"] and conf is Confidence.EXTRACTED
+
+    # A file with no import binding the name → cross-file fallback: two defs → AMBIGUOUS.
+    files, conf = resolve_name_to_files("Widget", "c.py", "python", imports, defs_by_file,
+                                        defs_by_lang, sfbp)
+    assert sorted(files) == ["p1.py", "p2.py"] and conf is Confidence.AMBIGUOUS
+
+    # The identity cache rebuilds when a *different* imports list is passed.
+    other = [imp("z.py", "p1", "Widget")]
+    assert "z.py" in _imports_by_rel_path(other)
+    assert "a.py" not in _imports_by_rel_path(other)
+
+
 def _parse(language: str, rel_path: str, src: bytes) -> ParsedFile:
     return ParsedFile(
         path=Path(rel_path),
