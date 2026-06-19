@@ -234,8 +234,13 @@ def trace(
         bool, typer.Option("--json", help="Emit plain JSON (machine mode, pipe-safe).")
     ] = False,
 ) -> None:
-    """Trace a cross-stack feature slice — frontend call → Endpoint → handler → tail
-    (DEC-052). A confidence-coloured tree on a TTY; plain JSON with ``--json`` or when piped."""
+    """Trace a cross-stack feature slice: frontend call -> Endpoint -> handler -> tail
+    (DEC-052). A confidence-coloured tree on a TTY; plain JSON with ``--json`` or when piped.
+
+    The help text is kept ASCII-only on purpose: Typer/Click render this docstring through
+    a printer that honours the console code page (cp1252/cp437 on Windows), and a non-ASCII
+    glyph like the arrow would raise UnicodeEncodeError when ``--help`` is piped. The styled
+    runtime output (render_trace) is unaffected — it goes through the pipe-safe Rich console."""
     from forensic_deepdive.cli.style import get_console, render_trace
     from forensic_deepdive.mcp_server.server import trace as trace_query
 
@@ -340,7 +345,7 @@ def list_repos() -> None:
 def serve(
     repo: Annotated[
         Path,
-        typer.Argument(help="Repo with a built `.deepdive/graph.lbug`."),
+        typer.Option("--repo", help="Repo with a built `.deepdive/graph.lbug` (default: cwd)."),
     ] = Path("."),
     graph: Annotated[
         Path | None,

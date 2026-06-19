@@ -4,7 +4,7 @@
 
 `forensic-deepdive` analyzes any codebase (9 languages, polyglot) and produces:
 
-1. **A persistent embedded graph** at `<repo>/.deepdive/graph.lbug` — File, Symbol, Module, Commit, Author nodes plus DEFINES, MEMBER_OF, IMPORTS, CALLS, EXTENDS, IMPLEMENTS, TOUCHED_BY_COMMIT, AUTHORED_BY, CO_CHANGES_WITH edges. **Every edge carries a confidence tag** (`EXTRACTED` / `INFERRED` / `AMBIGUOUS`) — no hidden heuristics.
+1. **A persistent embedded graph** at `<repo>/.deepdive/graph.lbug` — File, Symbol, Module, Commit, Author, **Endpoint**, and **DbTable** nodes plus DEFINES, MEMBER_OF, IMPORTS, CALLS, EXTENDS, IMPLEMENTS, TOUCHED_BY_COMMIT, AUTHORED_BY, CO_CHANGES_WITH, and the cross-boundary HANDLES / CALLS_ENDPOINT / **ROUTES_TO** / INJECTS / PERSISTS_TO edges. **Every edge carries a confidence tag** (`EXTRACTED` / `INFERRED` / `AMBIGUOUS`) — no hidden heuristics. The single `Endpoint` join node unifies **five cross-boundary protocols** (HTTP, MCP tools, registry-dispatch, gRPC, messaging/AMQP), so a frontend call resolves to its backend handler across the stack as one `ROUTES_TO` edge.
 2. **An MCP server** (`forensic serve`) exposing **9 composite tools** (`impact`, `context`, `archaeology`, `flow`, `query`, `record_insight`, `recall_insights`, `visualize`, `trace`) consumable by Claude Code, Cursor, Codex, Continue, Cline, Windsurf — and any other MCP-aware agent.
 3. **Five durable markdown artifacts** under `<repo>/docs/codebase/`, regenerated from the graph on every extract:
    - **`MAP.md`** — what's where, ranked by centrality.
@@ -17,30 +17,38 @@
 
 ## Status
 
-**v0.3.0 "Precision & Speed"** — incremental + parallel parse (Omi cold extract 930 s → 407 s), receiver-type method resolution, Rust (the 9th language), hybrid NL query (FTS5/BM25 + structural + opt-in offline ONNX, RRF-fused), and Mermaid export (the 8th MCP tool). Tagged locally; accepted on six real repos — Apache Superset, ripgrep, Omi, spring-petclinic, fastapi, GitNexus (see [`docs/findings/v0.3/`](docs/findings/v0.3/)).
+**v0.7.0 "Coverage Completion + the CLI Style System"** — the five-protocol cross-boundary graph (HTTP/MCP/registry/gRPC/messaging, all on one `Endpoint` join node), hardened against real-repo findings (Django/JAX-RS/AMQP provider completion), plus lane-(iii) agent memory (opt-in `[semantic]` RRF + recency decay + an explicit shadow-ref push), a `resolve_name_to_files` hot-path index (**49.7×**, byte-identical), and a publish-facing **styled CLI** — a `DEEPDIVE` banner, a registry-driven `forensic info` panel, styled `extract`, and a new `forensic trace` command (all Console-only; artifacts stay byte-identical plain markdown). **779 tests.** The 5-artifact + 9-MCP-tool contract is frozen.
+
+A usability gate closed this release: the [self-guided manual test](docs/v0.7/MANUAL_TEST.md) plus an agent-onboarding test on a fresh repo confirmed it's **usable** and that a real agent **auto-discovers** `AGENT_BRIEF.md` and routes to the right skill unprompted. A grounded [MCP tool review](docs/findings/v0.7/mcp-tool-review.md) found the git-archaeology + curated briefs are the high-trust core, while the call-graph tools are high-recall lead-generators best used with a verify-the-claim discipline. The one open question before a public release — does it make an agent measurably faster on a real **end-to-end** change — is the headline [v0.8 seed](docs/findings/v0.7/DEFERRED.md). Accepted across real repos including Apache Superset, wagtail (Django), spring-petclinic, ripgrep, fastapi, and Iris-Nearby (Flutter/Dart) — see [`docs/findings/`](docs/findings/).
 
 ## Quick start
 
 ```bash
-# install (uv-managed)
-uv tool install forensic-deepdive
+# install (uv-managed; from source during the testing phase — not yet on PyPI)
+git clone https://github.com/Dhevenddra/forensic-deepdive && cd forensic-deepdive
+uv sync --all-extras
+
+# what can it do? (banner + capability panel: artifacts, protocols, MCP tools, confidence legend)
+uv run forensic info
 
 # run on any repo
-cd ~/some/repo
-forensic extract .
+uv run forensic extract /path/to/repo
 
-# graph lands at .deepdive/graph.lbug
-# 5 markdown artifacts at docs/codebase/
-# 10 shims at .claude/, .cursor/, .continue/, root
+# graph lands at <repo>/.deepdive/graph.lbug
+# 5 markdown artifacts at <repo>/docs/codebase/
+# 10 shims at <repo>/.claude/, .cursor/, .continue/, root
 
-# query the graph as an MCP server
-forensic serve
+# trace a cross-stack feature slice (frontend call -> endpoint -> handler -> tail)
+uv run forensic trace <symbol> --repo /path/to/repo
+
+# query the graph as an MCP server (point it at the analyzed repo)
+uv run forensic serve --repo /path/to/repo
 
 # inspect every repo you've analyzed
-forensic list
+uv run forensic list
 ```
 
-## The 8 supported languages
+## The 9 supported languages
 
 Python, C, Dart, Swift, TypeScript, JavaScript, Java, Go, Rust.
 
@@ -93,16 +101,16 @@ HOTPATHS shows a per-row confidence-mix column so at a glance you can tell `Logg
 ## Local development
 
 ```bash
-git clone https://github.com/dhevenddra/forensic-deepdive
+git clone https://github.com/Dhevenddra/forensic-deepdive
 cd forensic-deepdive
-uv sync
+uv sync --all-extras
 uv run forensic --version
-uv run pytest -x          # 471 tests at v0.3.0
+uv run pytest -x          # 779 tests at v0.7.0
 uv run ruff check src/ tests/
 uv run forensic extract tests/fixtures/tiny_fixture
 ```
 
-Read `CLAUDE.md`, `DECISIONS.md` (33 active DECs), and `PROGRESS.md` before making changes. This repo dogfoods its own pattern: every session starts with the protocol in `CLAUDE.md`, every architectural choice is captured as a `DEC-N` entry, and the artifact-name contract (`MAP`, `HOTPATHS`, `ARCHAEOLOGY`, `MENTAL_MODEL`, `AGENT_BRIEF`) is part of the public API.
+Read `CLAUDE.md`, `DECISIONS.md` (81 active DECs), and `PROGRESS.md` before making changes. This repo dogfoods its own pattern: every session starts with the protocol in `CLAUDE.md`, every architectural choice is captured as a `DEC-N` entry, and the artifact-name contract (`MAP`, `HOTPATHS`, `ARCHAEOLOGY`, `MENTAL_MODEL`, `AGENT_BRIEF`) is part of the public API.
 
 ## Acknowledgments
 

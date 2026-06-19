@@ -9,6 +9,16 @@
 > tool never edits your code — it only reads it and writes artifacts under `docs/codebase/`
 > plus agent-onboarding files (listed in §9, all safe/regenerable).
 
+> **Shell note (Windows).** The code blocks use Unix tools (`head`, `cat`, `wc`, `ls`). Run
+> them in **Git Bash** or **WSL**. In **cmd.exe / PowerShell** they fail (e.g. `'head' is not
+> recognized`); substitute:
+> - `… | head` → drop it (the output is short), or PowerShell `… | Select-Object -First 20`
+> - `… | cat` → drop it; for a **pipe-safety** check (§11) redirect to a file instead:
+>   `uv run forensic extract … > out.txt 2>&1` — a redirected stream is the same non-TTY
+>   cp1252 condition a pipe is, so it exercises the exact path we hardened.
+> - `wc -c file` → PowerShell `(Get-Item file).Length`
+> - `NO_COLOR=1 cmd` → PowerShell `$env:NO_COLOR=1; cmd` (then `Remove-Item Env:NO_COLOR`)
+
 ## The four questions we're really answering
 1. **Usable?** Could *you* drive it without me?
 2. **Does it help an agent** find issues, trace flows, and work autonomously?
@@ -19,11 +29,30 @@ Keep these in mind; the scorecard at the end asks you to rate each 1–5.
 
 ---
 
+## What changed since your first run (2026-06-19) — re-test these
+
+Your first pass surfaced four CLI-surface gaps (the usability gate working as intended). All
+are fixed with regression tests; details in `docs/findings/v0.7/manual-test-cli-gaps.md`.
+When you go back through, pay extra attention to:
+
+- **§7 / §8 — `serve --repo`.** `serve` now accepts `--repo` (it was positional-only, which
+  is the error you hit). The §7 command and the §8 MCP config now work as written.
+- **§2 / §11 — `extract` piped/redirected.** The styled summary's `✓` used to crash a Windows
+  cp1252 pipe; it now degrades to ASCII. Re-run `uv run forensic extract … | cat` and confirm
+  clean text + exit 0.
+- **§0 / §5 — `--help` piped.** `forensic --help | cat` and `forensic trace --help | cat` no
+  longer crash on cp1252 (an arrow glyph in trace's help was the culprit).
+- **§9 — onboarding shims now list all 9 MCP tools** (was a stale "five"). **Important:** shims
+  are *write-if-absent* — a re-`extract` will NOT overwrite an existing `CLAUDE.md`/`AGENTS.md`.
+  To regenerate them, delete the old ones first (see the note added to §9).
+
+---
+
 ## 0. Install & smoke  ⏱️ ~2 min
 ```bash
 cd C:/Dev/projects/forensic-deepdive
 uv sync --all-extras
-uv run forensic --version          # → forensic-deepdive 0.6.0
+uv run forensic --version          # → forensic-deepdive 0.7.0
 uv run forensic --help             # the command list
 ```
 - [ ] Version prints. Help lists: `extract update query trace graph list serve info insights version`.
@@ -109,7 +138,7 @@ uv run forensic trace addUser --repo C:/Dev/scratch/spring_react_demo
 # upstream: who calls this handler/endpoint
 uv run forensic trace createUser --upstream --repo C:/Dev/scratch/spring_react_demo
 # machine mode (pipe-safe JSON)
-uv run forensic trace addUser --repo C:/Dev/scratch/spring_react_demo --json | head
+uv run forensic trace addUser --repo C:/Dev/scratch/spring_react_demo --json    # add `| head` only in Git Bash/WSL
 ```
 - [ ] The tree shows `[POST] /api/users via http ● EXTRACTED → …createUser`. Colours + glyphs.
 - [ ] `--json` is plain JSON (no colour codes) — usable by a script/agent.
@@ -150,13 +179,25 @@ uv run forensic serve --ui --repo C:/Dev/scratch/spring_react_demo
 
 ## 8. The MCP server + the 9 tools — "use it the way an agent does"  ⏱️ ~15 min
 This is **how an agent actually consumes Deepdive** (Q2/Q4). Wire the server into Claude Code
-(or Claude Desktop). Add to your MCP config (adjust the path):
+(or Claude Desktop). Add to your MCP config (adjust **both** paths):
 ```json
 { "mcpServers": { "deepdive": {
     "command": "uv",
-    "args": ["run", "forensic", "serve", "--repo", "C:/Dev/scratch/spring_react_demo"]
+    "args": ["run", "--project", "C:/Dev/projects/forensic-deepdive",
+             "forensic", "serve", "--repo", "C:/Dev/scratch/spring_react_demo"]
 } } }
 ```
+> **Two things that trip people up here (both real, both fixed/required):**
+> 1. **`--project` is mandatory.** The MCP server launches with its working directory set to
+>    the *target* repo, where `uv run forensic` can't find the package (`program not found`).
+>    `--project <forensic-deepdive dir>` pins the right environment. (Once Deepdive is
+>    `uv tool install`-ed and on PATH, drop `uv run --project` and just use `"command":
+>    "forensic"`.)
+> 2. **Restart + approve.** MCP servers load at session start, and a project-scoped `.mcp.json`
+>    needs a one-time trust prompt — a mid-session add never exposes the tools. Restart the
+>    agent in the repo dir and approve `deepdive` (or use `/mcp`). Then `mcp__deepdive__*`
+>    (nine tools) appear.
+
 Then, in that agent, exercise the **9 composite tools** by asking for each (the tool names):
 - [ ] **impact** — "what's the blast radius of changing `createUser`?"
 - [ ] **context** — "give me a one-call overview of `UserController`."
@@ -181,6 +222,14 @@ When you ran `extract`, Deepdive wrote **onboarding files into the repo root** (
 ls C:/Dev/scratch/spring_react_demo            # CLAUDE.md, AGENTS.md, .cursor, .continue, .claude*
 cat C:/Dev/scratch/spring_react_demo/CLAUDE.md # points the agent at docs/codebase/AGENT_BRIEF.md
 ```
+> **If you extracted this repo before 2026-06-19**, its `CLAUDE.md`/`AGENTS.md` may still say
+> "five composite tools". Shims are *write-if-absent* (they never clobber hand-edits), so delete
+> the old ones and re-extract to get the corrected nine-tool version:
+> ```bash
+> rm C:/Dev/scratch/spring_react_demo/CLAUDE.md C:/Dev/scratch/spring_react_demo/AGENTS.md
+> uv run forensic extract C:/Dev/scratch/spring_react_demo --force
+> grep "composite tools" C:/Dev/scratch/spring_react_demo/CLAUDE.md   # → "nine composite tools"
+> ```
 **The real test:** open a **fresh** Claude Code session in `C:/Dev/scratch/spring_react_demo`
 and — *without mentioning Deepdive* — give it a real task, e.g.
 *"I need to add an email field to users end-to-end. Where do I touch?"*
@@ -260,24 +309,28 @@ Tick what you actually exercised:
 ## Scorecard — the decision
 Rate 1 (gimmick / unusable) to 5 (genuinely valuable). Add a sentence each.
 
+> Filled 2026-06-19 from the evidence: the solo MANUAL_TEST run, the agent-onboarding A/B/C on
+> Iris-Nearby, and the live MCP test (nine tools, post-restart). Owner can adjust.
+
 | # | Question | 1–5 | One-sentence verdict |
 |---|---|---|---|
-| 1 | **Usable** without help? |  |  |
-| 2 | Helps an agent find issues/flows/work autonomously? |  |  |
-| 3 | Are the 5 artifacts useful (not a gimmick)? |  |  |
-| 4 | Does an agent get properly onboarded (told tool/outputs/capabilities)? |  |  |
+| 1 | **Usable** without help? | **4** | Drove every step solo and confirmed usable; the four CLI gaps (`serve --repo`, two cp1252 pipe crashes, the MCP `--project` launch) were real friction but all found-and-fixed during the run. |
+| 2 | Helps an agent find issues/flows/work autonomously? | **4** | A strong *lead-generator + git-risk lens*: archaeology/Cypher/briefs are high-trust, while `impact()`/`flow()`/NL-`query()` are high-recall but **noisy** (a grounded stress-test caught `impact()` false positives and an NL miss — see `docs/findings/v0.7/mcp-tool-review.md`), so it speeds *finding what to read*, not *deciding what breaks*; full autonomous task-execution remains unproven and deferred. |
+| 3 | Are the 5 artifacts useful (not a gimmick)? | **4** | MAP / HOTPATHS / MENTAL_MODEL clearly earned their keep (agents cited them and beelined to the load-bearing files); ARCHAEOLOGY is the weakest cut on solo/low-history repos and the AGENT_BRIEF Never/Always rules need richer signal. |
+| 4 | Does an agent get properly onboarded (told tool/outputs/capabilities)? | **5** | In a real fresh session the agent auto-read `AGENT_BRIEF` on turn one and auto-routed to the right `codebase-*` skill per task; with the MCP wired it used all nine tools — onboarding is obvious *when CLAUDE.md auto-loads* (CWD = repo). |
 
 **Top 3 painpoints (ranked):**
-> 1.
-> 2.
-> 3.
+> 1. CLI/onboarding-surface gaps that only show under real use: `serve --repo` positional, piped `--help` and `extract` crashing on Windows cp1252, and the MCP `uv run --project` launch requirement (all now fixed).
+> 2. Autonomous usefulness (Q2) is only partially evidenced — the agent *planned* well but didn't execute an end-to-end change; needs a dedicated future test.
+> 3. On a fresh/solo repo the git-driven artifacts thin out — ARCHAEOLOGY ownership is empty (bus factor 1) and the AGENT_BRIEF rules lean on centrality artifacts (e.g. `AppColors`).
 
 **Top 3 delights:**
-> 1.
-> 2.
-> 3.
+> 1. Real-session **skill routing** — the agent picked `codebase-onboarding` / `codebase-impact-analysis` per task unprompted and followed the prescribed artifact order.
+> 2. The MCP `impact()` caught real depth-2/3 ripple the by-hand pass missed (high recall) — though a later stress-test showed the same wide net also returns false positives, so it's a lead-generator to verify, not a source of truth.
+> 3. Four independent agents converged on the same correct findings (read receipts ~90% pre-built, the `chat_screen.dart:124-132` gap, the Hive `typeId:3` collision) — the artifacts didn't mislead any of them.
 
 **Publish-ready? (y/n) — and what's the one thing that must be true first:**
+> **Not yet — "usable" is proven, but publish should wait on a dedicated autonomous-usefulness (Q2) test in a later version.** The one thing that must be true first: an agent completes a real end-to-end change (not just a plan) measurably faster/safer *because of* the artifacts + MCP, on a repo richer than a solo one.
 > 
 
 ---

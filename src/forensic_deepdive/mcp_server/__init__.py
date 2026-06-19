@@ -1,8 +1,10 @@
 """MCP server (DEC-016) — exposes the LadybugDB graph to AI agents.
 
-Five composite tools (per PRD §4.5 / DEC-016): ``impact``, ``context``,
-``archaeology``, ``flow``, ``query``. Each is intentionally rich rather
-than endpoint-mirror so agents can do useful work in one tool call.
+Nine composite tools: the original five (per PRD §4.5 / DEC-016) ``impact``,
+``context``, ``archaeology``, ``flow``, ``query`` plus ``record_insight`` /
+``recall_insights`` (DEC-019), ``visualize`` (DEC-039), and ``trace`` (DEC-052).
+Each is intentionally rich rather than endpoint-mirror so agents can do useful
+work in one tool call.
 
 Public surface::
 

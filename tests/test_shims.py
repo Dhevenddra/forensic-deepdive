@@ -48,6 +48,27 @@ def test_write_shims_creates_all_ten(tmp_path: Path) -> None:
         assert "docs/codebase/AGENT_BRIEF.md" in (tmp_path / rel).read_text(encoding="utf-8")
 
 
+def test_editor_shim_lists_all_nine_mcp_tools(tmp_path: Path) -> None:
+    """The generated CLAUDE.md/AGENTS.md must name all nine MCP tools the server
+    actually exposes (was stale at five: missing record_insight/recall_insights/
+    visualize/trace). An onboarded agent is told what's available."""
+    write_shims(tmp_path, "docs/codebase/AGENT_BRIEF.md")
+    body = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+    for tool in (
+        "impact",
+        "context",
+        "archaeology",
+        "flow",
+        "query",
+        "record_insight",
+        "recall_insights",
+        "visualize",
+        "trace",
+    ):
+        assert f"`{tool}`" in body, f"shim omits MCP tool: {tool}"
+    assert "five composite tools" not in body
+
+
 def test_write_shims_never_overwrites_editor_shim(tmp_path: Path) -> None:
     """Hand-edited CLAUDE.md is preserved; the other 9 targets still written."""
     own = tmp_path / "CLAUDE.md"

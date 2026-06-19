@@ -1,7 +1,7 @@
 [project]
 name = "forensic-deepdive"
-version = "0.6.0"
-description = "Forensic deep-dive of any codebase (9 languages). Persistent code knowledge graph + MCP server (8 composite tools incl. hybrid NL query & Mermaid export) for AI coding agents, with 5 durable markdown artifacts (MAP, HOTPATHS, ARCHAEOLOGY, MENTAL_MODEL, AGENT_BRIEF) as the human-readable projection."
+version = "0.7.0"
+description = "Forensic deep-dive of any codebase (9 languages). Persistent code knowledge graph + MCP server (9 composite tools incl. hybrid NL query, Mermaid export & cross-stack trace) for AI coding agents, with 5 durable markdown artifacts (MAP, HOTPATHS, ARCHAEOLOGY, MENTAL_MODEL, AGENT_BRIEF) as the human-readable projection."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }

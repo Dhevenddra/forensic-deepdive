@@ -33,6 +33,13 @@ def _glyphs_ok(console: Console) -> bool:
     return console.is_terminal and not console.no_color and "utf" in enc
 
 
+def _ok_mark(console: Console) -> str:
+    """The success check ``✓ `` only when the stream can encode it (UTF-8 colour TTY);
+    empty otherwise. A redirected/piped stream on Windows is cp1252 and would raise
+    UnicodeEncodeError on the raw glyph — the trailing words carry the meaning regardless."""
+    return "✓ " if _glyphs_ok(console) else ""
+
+
 def _cross_stack_split(graph_db_path: Path) -> dict[str, int]:
     """``{confidence: count}`` over the cross-stack ROUTES_TO edges, read-only from the
     freshly built graph. Best-effort — any failure yields ``{}`` (the summary still prints)."""
@@ -69,7 +76,7 @@ def print_extract_summary(console: Console, result: ExtractResult) -> None:
     artifacts on disk are unchanged plain markdown."""
     if result.cache_hit:
         console.print(
-            Text("✓ cache hit", style="ok").append(
+            Text(f"{_ok_mark(console)}cache hit", style="ok").append(
                 f" — artifacts already current in {result.output_dir} (use --force).",
                 style="muted",
             )
@@ -88,7 +95,7 @@ def print_extract_summary(console: Console, result: ExtractResult) -> None:
         or "none"
     )
     console.print(
-        Text("✓ forensic extract complete", style="ok").append(
+        Text(f"{_ok_mark(console)}forensic extract complete", style="ok").append(
             f"  {facts.repo_name}", style="brand"
         )
     )

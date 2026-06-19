@@ -4,6 +4,52 @@ All notable changes to `forensic-deepdive`. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 follow [SemVer](https://semver.org/).
 
+## [0.7.0] — 2026-06-19
+
+> v0.7 **"Coverage Completion + the CLI Style System"** — a two-track, publish-prep
+> release (no sixth protocol, no public-surface expansion). **Track A** completes
+> extractor coverage on the **unchanged** five-protocol `Endpoint` spine (Django
+> `include(<variable>)` recursion + CBV verbs + DRF `@action`; JAX-RS `@ApplicationPath`
+> + `@Produces`/`@Consumes`; AMQP literal-key real-repo acceptance), hardens lane-(iii)
+> agent memory (opt-in `[semantic]` RRF + recency decay + explicit shadow-ref push), and
+> indexes the `resolve_name_to_files` hot path (**49.7×**, byte-identical). **Track B** adds
+> the publish-facing **styled CLI** — a `DEEPDIVE` banner, a registry-driven `forensic info`
+> capability panel, and styled `extract` + a new `forensic trace` command — all Console-only,
+> with artifacts staying byte-identical plain markdown and machine streams ANSI-free. Closed
+> the usability gate (MANUAL_TEST run solo + an agent-onboarding A/B/C + a live MCP test on
+> Iris-Nearby): **usable confirmed**; onboarding auto-discovery + skill-routing verified in a
+> real session. DEC-071 → DEC-081; 779 tests. The 5-artifact + 9-MCP-tool contract is frozen.
+
+### Added
+- **Styled CLI (DEC-077/078/079)** — a themed Rich Console (blue/black/white brand chrome;
+  confidence keeps semantic green/yellow/red + glyph, never colour-alone, ASCII `[E]`
+  fallback), a static `DEEPDIVE` banner with a blue vertical gradient, a **data-driven
+  `forensic info`** capability panel (artifacts/protocols/tools read from the live registries,
+  so it can't drift), a styled `extract` summary with a confidence-coded cross-stack split,
+  and a new **`forensic trace <symbol>`** CLI command (confidence-coloured Rich tree;
+  `--json`/non-TTY → plain JSON).
+- **Provider/coverage completion** — Django `include(<variable>)` recursion + class-based-view
+  per-method verbs + DRF `@action` + deep dotted view paths (DEC-072); JAX-RS `@ApplicationPath`
+  app-prefix + `@Produces`/`@Consumes` content-type + single-implementer interface-return
+  locators (DEC-073); AMQP literal-key real-repo acceptance on `pika` (DEC-074).
+- **Memory lane-(iii) follow-ons (DEC-075)** — opt-in `[semantic]` ONNX RRF fusion over
+  insights + a stdlib recency-decay score (no `py-fsrs`) + an explicit `forensic insights push`
+  shadow-ref publish (never automatic).
+
+### Fixed
+- **`serve --repo`** is now an option (was positional), matching `trace`/`graph` and the
+  documented MCP config (DEC-080).
+- **cp1252 pipe-safety** — piped `--help` (an arrow glyph in `trace`'s docstring) and the
+  styled `extract` summary (a `✓`) no longer raise `UnicodeEncodeError` on a Windows console
+  code page; both degrade to ASCII (DEC-080).
+- **Onboarding-shim accuracy** — generated `CLAUDE.md`/`AGENTS.md` (and internal docstrings)
+  now list all **nine** MCP tools, not a stale five (DEC-080).
+
+### Performance
+- **`resolve_name_to_files`** indexed by `rel_path` — **49.7×** on the hot path, byte-identical
+  output (DEC-076). LadybugDB prepared-statement reuse measured (1.28×) but **deferred** (Kuzu
+  deprecates the separate prepare+execute API).
+
 ## [0.6.0] — 2026-06-14
 
 > v0.6 **"Findings-Driven Refinements"** — does **not** add a sixth protocol or expand

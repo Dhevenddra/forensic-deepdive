@@ -168,6 +168,50 @@ def test_extract_summary_cache_hit():
     assert "cache hit" in out and "\x1b[" not in out
 
 
+def _fake_extract_result(cache_hit: bool):
+    """Minimal duck-typed ExtractResult for print_extract_summary (graph_db_path=None
+    skips the live DB read)."""
+    from types import SimpleNamespace
+
+    facts = SimpleNamespace(
+        language_breakdown={"Python": 3},
+        repo_name="demo",
+        symbol_graph=SimpleNamespace(
+            graph=SimpleNamespace(number_of_nodes=lambda: 3, number_of_edges=lambda: 2)
+        ),
+        file_count=3,
+        graph_db_path=None,
+    )
+    return SimpleNamespace(
+        cache_hit=cache_hit,
+        facts=None if cache_hit else facts,
+        output_dir="docs/codebase",
+        artifacts=["MAP.md", "AGENT_BRIEF.md"],
+        shims=SimpleNamespace(written=[]),
+    )
+
+
+def test_extract_summary_is_cp1252_safe_when_piped():
+    """The styled summary's success check (✓, U+2713) used to be emitted unconditionally and
+    crashed a redirected/piped cp1252 stream on Windows (UnicodeEncodeError). On a non-TTY /
+    non-colour console it must degrade to ASCII so the whole output encodes to cp1252."""
+    for cache_hit in (True, False):
+        c, sio = _console(terminal=False, color=False)
+        print_extract_summary(c, _fake_extract_result(cache_hit))
+        out = sio.getvalue()
+        assert "✓" not in out
+        out.encode("cp1252")  # must not raise
+        assert "\x1b[" not in out  # no ANSI on a non-colour stream
+
+
+def test_extract_summary_shows_check_glyph_on_utf8_colour_tty():
+    """The ✓ is still shown where it can be encoded — a UTF-8 colour TTY — so the degrade
+    path didn't simply delete it."""
+    c, sio = _console(terminal=True, color=True)
+    print_extract_summary(c, _fake_extract_result(cache_hit=False))
+    assert "✓" in sio.getvalue()
+
+
 # --- keystone guard: the style layer must never touch emit/ -----------------
 
 

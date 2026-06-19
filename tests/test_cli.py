@@ -51,3 +51,49 @@ def test_cli_query_no_match_is_not_an_error(tmp_path: Path) -> None:
     result = runner.invoke(app, ["query", "missing-term", "--artifacts-dir", str(tmp_path)])
     assert result.exit_code == 0
     assert "No matches" in result.stdout
+
+
+def test_cli_serve_accepts_repo_option(tmp_path: Path) -> None:
+    """`serve --repo <path>` must be accepted (matches trace/graph + MANUAL_TEST §7/§8
+    and the MCP config). A positional-only `repo` previously broke `serve --ui --repo …`
+    with 'No such option --repo'. Regression guard: reach the 'No graph' branch (exit 1),
+    not a usage error (exit 2)."""
+    result = runner.invoke(app, ["serve", "--repo", str(tmp_path), "--ui"])
+    assert result.exit_code == 1, result.stdout
+    assert "No such option" not in result.stdout
+    assert "No graph" in result.stdout
+
+
+def test_cli_serve_repo_option_in_help() -> None:
+    result = runner.invoke(app, ["serve", "--help"])
+    assert result.exit_code == 0
+    assert "--repo" in result.stdout
+
+
+def test_help_text_is_cp1252_safe() -> None:
+    """Typer/Click prints command help text (docstrings + option-help) through a
+    printer that honours the Windows console code page. A non-ASCII glyph — e.g.
+    the arrow that used to be in trace's docstring — raised UnicodeEncodeError when
+    `--help` was piped on cp1252. Guard the text content of every command (the
+    Rich panel *borders* are dropped in the real piped/non-TTY path, so they aren't
+    the concern here — the body text is)."""
+    strings: list[str] = []
+    main_cb = getattr(app, "registered_callback", None)
+    if main_cb is not None and main_cb.callback is not None:
+        strings.append(main_cb.callback.__doc__ or "")
+
+    def _collect(typer_app) -> None:
+        for cmd in typer_app.registered_commands:
+            if cmd.callback is not None:
+                strings.append(cmd.callback.__doc__ or "")
+                ann = getattr(cmd.callback, "__annotations__", {})
+                for meta in ann.values():
+                    for m in getattr(meta, "__metadata__", ()):  # Annotated[...] options
+                        strings.append(getattr(m, "help", "") or "")
+        for group in typer_app.registered_groups:
+            _collect(group.typer_instance)
+
+    _collect(app)
+    for text in strings:
+        # Must encode under the Windows ANSI code page without raising.
+        text.encode("cp1252")
