@@ -1,0 +1,35 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.dhevenddra/forensic-deepdive",
+  "description": "Persistent code knowledge graph + 9 composite MCP tools for AI coding agents.",
+  "version": "0.8.0",
+  "repository": {
+    "url": "https://github.com/dhevenddra/forensic-deepdive",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/dhevenddra/forensic-deepdive",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "forensic-deepdive",
+      "version": "0.8.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "serve",
+          "valueHint": "command"
+        },
+        {
+          "type": "named",
+          "name": "--repo",
+          "value": ".",
+          "valueHint": "repo_path"
+        }
+      ]
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 # forensic-deepdive
 
+<!-- mcp-name: io.github.dhevenddra/forensic-deepdive -->
+
 > A persistent code knowledge graph + MCP server for AI coding agents. Five durable markdown artifacts as the human-readable projection. Apache-2.0.
 
 `forensic-deepdive` analyzes any codebase (9 languages, polyglot) and produces:
@@ -47,6 +49,12 @@ uv run forensic serve --repo /path/to/repo
 # inspect every repo you've analyzed
 uv run forensic list
 ```
+
+Once published (v0.8), install without cloning: `uv tool install forensic-deepdive`
+(puts `forensic` on PATH) or run ephemerally with `uvx forensic-deepdive …`. For the
+MCP server in Claude Code / Cursor / VS Code / Codex, the one-liner is
+`uvx forensic-deepdive serve --repo <repo>` — see **[docs/install.md](docs/install.md)**
+for per-client copy-paste blocks and the Claude Code plugin.
 
 ## The 9 supported languages
 

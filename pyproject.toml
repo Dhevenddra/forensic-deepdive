@@ -70,6 +70,11 @@ all = ["forensic-deepdive[graphiti,mcp,openapi,dev]"]
 
 [project.scripts]
 forensic = "forensic_deepdive.cli:app"
+# DEC-089: a package-name alias so `uvx forensic-deepdive serve --repo .` works
+# directly (uvx resolves a command matching the package name). `forensic` stays
+# the primary/documented binary (DEC-010); this is the MCP-config ergonomic form
+# used uniformly across the registry server.json and every client install block.
+forensic-deepdive = "forensic_deepdive.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/dhevenddra/forensic-deepdive"

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "forensic-deepdive": {
+      "command": "uvx",
+      "args": ["forensic-deepdive", "serve", "--repo", "."],
+      "env": {}
+    }
+  }
+}
