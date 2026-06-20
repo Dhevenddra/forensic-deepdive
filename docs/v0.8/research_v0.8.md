@@ -1,0 +1,132 @@
+# Research Report: Planning Inputs for forensic-deepdive v0.8
+
+## TL;DR
+- **FastContext integration is viable and low-risk: it is MIT-licensed** (repo + 4B/30B weights, "Copyright (c) Microsoft Corporation"), Python 3.12+, exposes a generic list-driven `ToolSet` and an OpenAI-compatible CLI/subprocess/library contract — so deepdive can seed FastContext's first turn with graph context, add itself as a 4th tool, or run alongside it under Mini-SWE-Agent, all without forking.
+- **Publishing forensic-deepdive to PyPI with uv + hatchling is a well-trodden 2026 path**: `uv build` + `uv publish` with PyPI Trusted Publishing (OIDC, no tokens), `[project.scripts]` for the `forensic` binary, hatchling `force-include`/`artifacts` for vendored Sigma.js/CSS/HTML and tree-sitter assets, and `[project.optional-dependencies]` for extras.
+- **MCP distribution has matured**: ship as a uv-installable package so `uvx forensic-deepdive serve --repo …` runs CWD-independently, register in the official MCP Registry (server.json + `mcp-publisher`), and optionally ship a Claude Code plugin (`.claude-plugin/plugin.json`). Obsidian vault emission is a SMALL transform (a few days), not a feature.
+
+## Key Findings
+
+### Thread 1 — Microsoft FastContext
+
+**What it is.** FastContext is a lightweight, trained **repository-exploration subagent** that a main coding agent invokes on demand. It issues parallel read-only tool calls (Read/Glob/Grep) and returns compact file-line citations as focused context, so the solver's window isn't polluted by exploratory reads. Paper: arXiv 2606.14066 (v1 2026-06-12, v3 2026-06-18), "FastContext: Training Efficient Repository Explorer for Coding Agents," Shaoqiu Zhang, Maoquan Wang, Yuling Shi et al. (Microsoft + Shanghai Jiao Tong). Repo github.com/microsoft/fastcontext. Models: microsoft/FastContext-1.0-4B-SFT and -4B-RL (Qwen3-4B-Instruct-2507 backbone), plus FC-30B-SFT (Qwen3-Coder-30B-A3B). Context length up to 262K tokens. Motivation (from the 4B-SFT model card): in GPT-5.4 trajectories, reading and searching account for **56.2% of all tool-use turns and 46.5% of the main agent's total tokens**.
+
+**License (critical).** Repo LICENSE is **MIT, "Copyright (c) Microsoft Corporation."** Model weights on HuggingFace are also **MIT**. Fully compatible with deepdive's Apache-2.0 — MIT code can be vendored/reused into an Apache-2.0 project with attribution. No copyleft risk.
+
+**(a) Architecture / exploration loop.** Four phases: (1) query understanding → search intents; (2) parallel tool calling (multiple Read/Glob/Grep in one turn covering complementary hypotheses); (3) observation-driven refinement; (4) final citations as a `<final_answer>` block. The agent loop (`agent.py`) stops when the model returns a message with NO tool_calls. **Default max-turns = 4** (CLI default). On hitting the limit it injects "Max number of turns reached. Please provide the final answer based on the information you have gathered." The system prompt (`system.md`) opens "You are a codebase exploration specialist focused exclusively on searching and analyzing existing code" and embeds a `## Working Environment` block with `${OS_KIND}`, `${SHELL_NAME}`, `${WORK_DIR}`, and a directory listing `${WORK_DIR_LS}`.
+
+**(b) Exact tool interface.** Tools subclass a base `Tool` whose `.schema()` emits OpenAI function-tool JSON: `{"type":"function","function":{"name","description","parameters"}}`.
+- **Read** (`name="Read"`): params `path` (string, required), `offset` (int, 1-indexed or negative-from-end), `limit` (int). Output is line-numbered, pipe-delimited `LINE_NUMBER|LINE_CONTENT`, wrapped as `` ```{file_path}:{offset}-{end_line}\n{content}``` ``. Caps: MAX_LINE=2000 lines, MAX_LINE_LENGTH=2000 chars/line.
+- **Glob** (`name="Glob"`): params `pattern` (required), `directory` (optional). Runs `rg --files {directory} --glob {pattern}` (10s timeout). Output: newline-joined paths, capped at 100 results.
+- **Grep** (`name="Grep"`): params `pattern` (required), `path`, `glob`, `output_mode` (enum content/files_with_matches/count, default files_with_matches), `-B`/`-A`/`-C`, `-n` (default true), `-i`, `type`, `head_limit`, `multiline`. Built on ripgrep at `/usr/bin/rg`, always appends `--heading --color never`, default context `-C 3`, output capped at 100 lines.
+- **`<final_answer>` format** (verbatim from system.md): "End your response with an optional brief explanation of your findings (no more than 50 words), followed by a `<final_answer>` tag containing the relevant file paths and line ranges." Example:
+```
+<final_answer>
+/absolute/path/to/file_1.py:10-15 (Optional Brief Reason: e.g., "Core logic to modify")
+/absolute/path/to/file_2.js:102-123
+</final_answer>
+```
+
+**(c) Invocation contract.** FastContext expects an **OpenAI-compatible chat completions endpoint** configured via env vars `BASE_URL`, `MODEL`, `API_KEY`. Three usage modes:
+1. **CLI/subprocess**: `fastcontext -q "..." --citation` (returns only the `<final_answer>` block), plus `--max-turns`, `--traj`, `--verbose`. Run from inside the target repo.
+2. **Python library**: `from fastcontext.agent.agent_factory import make_fastcontext_agent; agent = make_fastcontext_agent(trajectory_file=..., work_dir=...); await agent.run(prompt=..., max_turns=6, citation=True)`.
+3. **Mini-SWE-Agent integration**: invoked as a command-line helper in the same container; the main agent calls `fastcontext -q "..." --citation` and the stdout citation block appears as a normal bash tool observation. **It is NOT itself an MCP server** — it is a subprocess/library that *calls* an OpenAI-compatible model endpoint (which you serve via SGLang/vLLM). DISCREPANCY: README/arXiv say `--format concise`, but the shipped code implements only `--citation` (no `--format` flag).
+
+**(d) Training.** Two stages. **SFT**: 2,954 filtered examples from Sonnet 4.6 exploration traces, split into `parallel_toolcalls` (broad first-turn search), `multiturn_traj` (multi-turn evidence), `linerange` (precise citations); assistant-token-only loss; Slime/Megatron stack; 3 epochs; Adam lr 1e-6. **RL**: 400-prompt set from issue-resolution tasks with reference patches parsed into target file/line ranges; GRPO; deterministic reward R = F1(files) + F1(lines) + r_parallel − r_format; rolled out as the actual subagent with bounded turns (8 model turns in RL), 16 trajectories/prompt, temp 1.0, rollout context 65,536 / SGLang context 128K.
+
+**(e) Evaluation.** Benchmarks: SWE-bench Multilingual (300 instances), SWE-bench Pro (fixed 200-instance subset), SWE-QA (repo QA, GPT-5.4 as LLM judge). Harness = **Mini-SWE-Agent** (SWE-agent/mini-swe-agent — the Princeton/Stanford ~100-line bash-only agent). Note the headline accuracy is model-dependent: per the mini-swe-agent README its ">74%" claim is "Nov 19: Gemini 3 Pro reaches 74% on SWE-bench verified with mini-swe-agent!", while the original July 2025 result was 65% (GPT-5); install via `pip/uvx mini-swe-agent`. Main agents tested by FastContext: GPT-5.4, GLM-5.1, Kimi-K2.6. Headline results: **up to +5.5 resolution improvement** (GPT-5.4 SWE-bench Pro 46.0→51.5) and **up to 60.3% fewer main-agent tokens** (GPT-5.4 SWE-QA). Standalone localization on SWE-bench Verified: trained FastContext reaches ~73.7 file-level F1. Reproduce: `uv run --group benchmark python benchmark/evaluation/bench_mini_swe_agent.py --bench swebench-multilingual --agent-config prompts/gpt-multi-fc.yaml --config .env --output preds.json`. Needs Docker, an OpenAI-compatible endpoint for the explorer model (GPU to self-host the 4B/30B via SGLang), and main-agent API credentials. Runtime overhead is small: in the GPT-5.4 SWE-bench Multilingual run the explorer was invoked 162 times across 300 tasks for ~22.6M subagent tokens — only ~2.1% of the augmented total.
+
+**(f) Repo structure.** `src/fastcontext/` with `cli.py`, `agent/{agent.py, agent_factory.py, context.py, llm.py, system.md, tool/{read,glob,grep,tool}.py}`; plus `benchmark/`, `prompts/`, `training/`, `serving/`, `tests/`. **pyproject.toml**: `requires-python = ">=3.12,<4.0"`; build backend `uv_build` (`requires = ["uv_build>=0.9.2,<0.10.0"]`); entry `fastcontext = "fastcontext.cli:main"`; runtime deps: aiofiles, asyncio, azure-core, azure-identity, jinja2, openai>=2.15.0, pydantic>=2.12.5. ripgrep is shelled out to (`/usr/bin/rg`), not a Python dep. Install: `uv tool install .`; dev `uv sync --all-groups`; build `uv build`.
+
+**(g) Extension points.** `ToolSet.__init__(self, tools: list[Tool], work_dir)` is generic and list-driven — nothing hard-codes three tools. `agent_factory.make_fastcontext_agent` constructs `ToolSet([ReadTool(), GlobTool(), GrepTool()], work_dir=work_dir)`. **To add a 4th tool**: subclass `Tool` (set `name`/`description`/`parameters`, implement `async def call`), then add it to that list (no plugin registry; it's a hard-coded list in the factory). `make_fastcontext_agent` accepts a `system_prompt` kwarg override. First-turn seeding seams: (a) the query string, (b) overriding `system_prompt` / the `${WORK_DIR_LS}` listing. There is NO dedicated external-context injection slot or first-turn tool-observation pre-seed in the shipped loop. NOTE: the shipped `ToolSet.call` runs tool_calls sequentially (the `asyncio.create_task` line is commented out) — "parallel" is a trained model behavior + accounting concept, not literal runtime concurrency.
+
+### Thread 2 — Publishing to PyPI with uv + hatchling
+
+**(a) Flow.** `uv build` (creates sdist + wheel in `dist/`), then `uv publish`. GitHub Actions release pipeline triggers on tag push `v*`, sets `environment: pypi` + `permissions: id-token: write`, uses `astral-sh/setup-uv`, runs `uv build` then `uv publish`.
+
+**(b) Trusted Publishing (2026 best practice).** Use OIDC, not API tokens. On PyPI: Settings → Publishing → add a pending publisher (package name must exactly match pyproject `name`, with hyphen/underscore normalization). In the workflow add `permissions: id-token: write`; `uv publish` then authenticates via a short-lived OIDC token. Tokens can leak; trusted publishers are scoped per-workflow and produce provenance attestations. Reusable workflows are NOT supported as the trusted workflow — the file calling `uv publish` must be defined directly in the repo.
+
+**(c) Console script.** `[project.scripts]` table: `forensic = "forensic_deepdive.cli:app"` (typer entrypoint). After `pip install` / `uv tool install` / `pipx install`, this puts `forensic` on PATH via a generated wrapper in the env's bin/. `[project.scripts]` only works for installed (non-editable-dev) packages; use `uv run forensic` during development.
+
+**(d) Vendored data files (hatchling).** Use `[tool.hatch.build.targets.wheel.force-include]` to map external asset dirs into the package (e.g. `"src/forensic_deepdive/ui" = "forensic_deepdive/ui"`), or the `artifacts` option (semantically equivalent to `include`, NOT affected by `exclude` — good for VCS-ignored build outputs). Access at runtime via `importlib.resources.files("forensic_deepdive") / "ui" / "index.html"`. Gotcha: hatchling ≥1.19 had a force-include regression (pypa/hatch #1130) — use a current hatchling and validate the *built wheel* contents (`uv build`, then inspect; don't trust editable installs which mask packaging bugs).
+
+**(e) Extras.** `[project.optional-dependencies]` with keys `graphiti`, `semantic`, `openapi`, `dev`; users install `pip install forensic-deepdive[semantic]` or `uv tool install "forensic-deepdive[semantic]"`.
+
+**(f) Versioning.** Static version OR dynamic from git tags via `hatch-vcs`/`uv-dynamic-versioning` (tag `v1.2.3` → version 1.2.3). Use SemVer, git tags, a CHANGELOG, and a TestPyPI dry run (`uv publish --publish-url https://test.pypi.org/legacy/`, then `uv run --index https://test.pypi.org/simple --with forensic-deepdive --no-project -- python -c "import forensic_deepdive"`).
+
+**(g) Native-wheel gotchas.** `tree-sitter-language-pack` ships cp310-abi3 wheels for manylinux (x86_64 + aarch64), macOS (arm64 + x86_64), and Windows (amd64 + arm64) — broad coverage; depend on it rather than vendoring grammar binaries. `tree-sitter` core ships cp310–cp314 wheels across the same platforms. **Kuzu** ships manylinux/macOS-arm64/Windows wheels and is MIT, BUT **Kuzu's GitHub repo was archived October 10, 2025**; Apple's acqui-hire (all shares + select employees of the ~10-person Waterloo, Ontario startup) was confirmed via an EU Digital Markets Act filing reported Feb 2026 (The Verge/AppleInsider/9to5Mac). That is exactly why deepdive uses the **LadybugDB** fork — a community-driven Kuzu fork (MIT) retaining the Cypher dialect, columnar storage, and full-text+vector indices, and adding multi-label nodes (e.g. `CREATE (p:Person:Employee:Manager {name:"Alice", id:123})`, lifting Kuzu's one-label-per-node-table constraint); v0.15 also adds SQLite/Arrow/Parquet attach. **Verify LadybugDB publishes wheels for all three target platforms before hard-depending on it on PyPI.**
+
+### Thread 3 — MCP server distribution & discovery (mid-2026)
+
+**(a) Client config formats.** The `mcpServers` JSON object is the de-facto standard, identical across Claude Desktop, Claude Code, and Cursor. A stdio entry:
+```json
+{ "mcpServers": { "forensic-deepdive": {
+  "command": "uvx", "args": ["forensic-deepdive", "serve", "--repo", "."],
+  "env": {} } } }
+```
+- **Claude Code**: `~/.claude.json`/user settings or project `.mcp.json` (`type: "stdio"`; `streamable-http` is an alias for http); CLI `claude mcp add --transport stdio <name> -- <cmd>`; project-scoped `.mcp.json` servers require approval.
+- **Cursor**: `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global); same `mcpServers` shape; picks up changes without restart.
+- **VS Code/Copilot**: native MCP since 1.99; uses a `servers` key.
+- **Codex**: no registry; `codex mcp add` or a `config.toml` snippet.
+- **Windsurf/Cline/Continue**: same `mcpServers` JSON.
+
+**(b) Registry.** The **official MCP Registry** (registry.modelcontextprotocol.io) **launched in preview September 8, 2025** (blog.modelcontextprotocol.io), backed by Anthropic/GitHub/PulseMCP/Microsoft; the API entered a v0.1 freeze Oct 24, 2025, and by late Nov 2025 it held close to two thousand entries (~407% growth since launch). It hosts *metadata* pointing at package registries (PyPI/npm/Docker), not code. Publish via the `mcp-publisher` CLI: `mcp-publisher init` → edit `server.json` (`name: "io.github.<user>/forensic-deepdive"`, `packages: [{registryType:"pypi", identifier:"forensic-deepdive", version, transport:{type:"stdio"}}]`) → `mcp-publisher login github` → `mcp-publisher publish`. PyPI ownership is proven by an `mcp-name: io.github.<user>/forensic-deepdive` line in the README (can be an HTML comment). GitHub OIDC works in CI (`id-token: write`). Downstream consumers (GitHub MCP Registry → native in VS Code `@mcp`, Smithery, PulseMCP, mcp.so) ingest automatically. CAVEAT: Claude Code's `/mcp` does not browse the registry; most clients still need manual JSON.
+
+**(c) CWD-independent run command.** Ship as a PyPI package with a `[project.scripts]` console entry. `uv tool install forensic-deepdive` puts `forensic` in `~/.local/bin` (must be on PATH); `uvx forensic-deepdive` runs ephemerally (resolves+caches on first run). For MCP configs, `command: "uvx"` is the cleanest CWD-independent pattern, and `--repo <path>` makes the target explicit so CWD doesn't matter. Document the absolute-path fallback for GUI apps (Claude Desktop) that don't inherit shell PATH — a common ENOENT cause.
+
+**(d) Self-describe / plugin manifest.** Claude Code plugins use `.claude-plugin/plugin.json` (only `name` required; `version`/`description`/`author`/`repository`/`license`/`keywords` optional) at the plugin root, with component dirs (`commands/`, `agents/`, `skills/`, `.mcp.json`) as siblings — NOT inside `.claude-plugin/`. A plugin can bundle the MCP server via a separate `.mcp.json` (inline `mcpServers` in plugin.json is documented but has a known bug, anthropics/claude-code #16143). Distribute via a marketplace repo (`.claude-plugin/marketplace.json`); users run `/plugin marketplace add <user>/<repo>` then `/plugin install forensic-deepdive@<marketplace>`. Submit to Anthropic's canonical marketplace at claude.ai/settings/plugins/submit.
+
+**(e) Install docs.** Provide copy-paste blocks per client (Claude Code CLI command + `.mcp.json`, Cursor `.cursor/mcp.json`, VS Code `servers`, Codex `config.toml`), all using `uvx forensic-deepdive serve --repo <path>`.
+
+### Thread 4 — Obsidian vault emission (scoping)
+
+**(a) Why pair Obsidian with AI agents.** Local-first plain-markdown "second brain" the agent reads/writes directly (no proprietary DB), backlinks + graph view surface non-obvious connections, and the vault gives agents **persistent memory across sessions**. The canonical workflow is **Andrej Karpathy's "LLM wiki" pattern**, published via a GitHub Gist (gist.github.com/karpathy) on/around April 2, 2026; the announcing X post reached ~19.6M views / ~55.4K likes, with Karpathy's framing "Obsidian is the IDE; the LLM is the programmer; the wiki is the codebase" — the agent compiles raw sources into an interconnected wikilinked vault once, then queries it forever. Tooling momentum: **kepano/obsidian-skills** (by Steph Ango, Obsidian's CEO) was published January 2026, hit 14,900 stars in under three months, and has since grown to 35.9k+ (MIT, 5 skills) — it teaches agents wikilinks/frontmatter/callouts/Canvas.
+
+**(b) Vault conventions.** `[[wikilink]]` syntax (enable "Use [[Wikilinks]]"); YAML frontmatter (`summary:`, `tags:`, `status:`, custom properties — Dataview queries them and values are case-sensitive); `#tags`; the `.obsidian/` config folder; `.canvas` files (intentional visual maps); auto-generated graph view (from wikilinks); MOC (map-of-content) index pages. A Git-versioned vault is standard practice.
+
+**(c) Existing code/repo→vault tools.** Several "code-to-Obsidian" projects exist: `obsidian-wiki` (Ar9av) and `claude-obsidian` — agent frameworks that ingest sources into a wikilinked vault with `summary:` frontmatter, `.manifest.json` delta tracking, and `[[wikilink]]` cross-refs; both target Claude Code/Cursor/Codex. None is specifically a *static repo-graph → vault* emitter, so deepdive's MAP/HOTPATHS/ARCHAEOLOGY/MENTAL_MODEL/AGENT_BRIEF → vault would be differentiated.
+
+**(d) Agent-friendly vs human-friendly.** Agent-friendly adds: a `summary:` frontmatter field on every page (preview/retrieval without opening the file), consistent machine-parseable frontmatter (status/tags spelled identically), one canonical page per concept (dedupe/merge rather than append), provenance links back to source files/line ranges, and an index/MOC the agent can traverse. Human-friendly is the graph view + callouts + visual polish.
+
+**(e) Effort.** deepdive already emits markdown artifacts, already uses `[[wikilink]]` syntax in places, and has a JSONL insight layer. Emitting an Obsidian vault is a **SMALL transform, not a large feature**: add a `.obsidian/` folder (default config), ensure every artifact has YAML frontmatter with `summary:`/`tags:`, normalize existing wikilinks to real page names, generate a MOC index page, and optionally a `.canvas`. Mostly a serialization/formatting pass over existing outputs — estimate a few days for a v0.8 optional `--emit-vault` flag.
+
+## Details
+
+**FastContext integration design options (the user wants to integrate, not reverse-engineer).** Three concrete paths, in increasing effort:
+1. **Seed FastContext's first turn with deepdive context (lowest effort).** Because the only first-turn seams are the query string and the system prompt, deepdive can generate a *richer query* (or pass a `system_prompt` override via `make_fastcontext_agent`) that embeds graph-derived hints — hotpaths, candidate files, symbol locations from the persistent graph — turning deepdive's graph into FastContext's starting prior. Pure string construction; no FastContext code change.
+2. **Add deepdive as a 4th FastContext tool (medium effort).** Subclass `Tool` (e.g. `DeepdiveQueryTool` exposing graph queries / impact / flow) and add it to the `ToolSet([...])` list in a thin wrapper of `make_fastcontext_agent`. The explorer could then call deepdive's graph alongside Read/Glob/Grep. MIT permits this; the clean seam is the hard-coded factory list.
+3. **Orchestrate both under Mini-SWE-Agent (highest leverage).** Keep FastContext as the trained search policy and expose deepdive's MCP tools (impact/context/flow) as structured priors; the main agent uses both. Orchestration, not a code merge.
+
+Because FastContext calls an OpenAI-compatible endpoint (not an MCP server) while deepdive *is* an MCP server, the two are complementary layers: FastContext = trained search policy; deepdive = durable structured-knowledge layer. The most natural v0.8 story is "deepdive's graph seeds/augments FastContext's exploration, and both feed a Mini-SWE-Agent-style main agent."
+
+**uv/hatchling build wiring for deepdive specifically.** Recommended pyproject skeleton: `[build-system] requires=["hatchling"]`, `build-backend="hatchling.build"`; `[project.scripts] forensic="forensic_deepdive.cli:app"`; `[tool.hatch.build.targets.wheel] packages=["src/forensic_deepdive"]`; plus `[tool.hatch.build.targets.wheel.force-include] "src/forensic_deepdive/ui"="forensic_deepdive/ui"` for the Sigma.js/graphology JS/CSS/HTML. Load at runtime with `importlib.resources.files()`. Prefer depending on `tree-sitter-language-pack` (prebuilt grammars) over shipping grammar binaries — that sidesteps the hardest cross-platform packaging problem. Validate the built wheel on Linux/macOS-arm64/Windows in CI before publishing.
+
+**MCP registry + plugin specifics for deepdive.** Add `<!-- mcp-name: io.github.<user>/forensic-deepdive -->` to README, publish to PyPI first, then `mcp-publisher publish` the `server.json`. Optionally ship a Claude Code plugin repo with `.claude-plugin/plugin.json` + `.mcp.json` referencing `uvx forensic-deepdive serve --repo .`, so Claude Code users get one-command install with all 9 composite tools (impact/context/archaeology/flow/query/record_insight/recall_insights/visualize/trace) auto-registered.
+
+## Recommendations
+
+**Stage 1 — Ship the public PyPI release (the v0.8 "USEFUL → public" north star).**
+1. Add `[project.scripts] forensic = "forensic_deepdive.cli:app"`, `[project.optional-dependencies]` for graphiti/semantic/openapi/dev, and hatchling `force-include` for the UI assets. Validate the wheel on Linux/macOS-arm64/Windows in CI.
+2. Set up PyPI Trusted Publishing (OIDC) with a tag-triggered GitHub Actions release workflow; dry-run on TestPyPI first.
+3. Confirm LadybugDB and tree-sitter-language-pack both ship wheels for the three target platforms. **Threshold to change plan:** if LadybugDB has no macOS-arm64 or Windows wheel, make the graph engine an optional extra and default to a degraded pure-markdown mode so `pip install forensic-deepdive` never fails on a platform.
+
+**Stage 2 — MCP discoverability.**
+4. Publish to the official MCP Registry (server.json + `mcp-publisher`, README `mcp-name` marker, GitHub OIDC in CI). Write copy-paste install docs for Claude Code, Cursor, VS Code, and Codex using `uvx forensic-deepdive serve --repo <path>`.
+5. Ship a Claude Code plugin (`.claude-plugin/plugin.json` + separate `.mcp.json`) and submit to Anthropic's marketplace.
+
+**Stage 3 — FastContext integration (the "prove it's USEFUL" experiment).**
+6. Start with **Option 1 (seed the query/system-prompt with deepdive graph hints)** — lowest effort, no fork, directly tests whether deepdive priors improve FastContext localization. Measure on FastContext's own harness: Mini-SWE-Agent + SWE-bench Multilingual/Pro, tracking resolution rate and main-agent token consumption (their +5.5 / −60.3% are the figures to beat or complement). **Threshold:** if seeding measurably improves file-level localization F1 or end-to-end resolution over FastContext-alone, graduate to Option 2 (4th tool).
+7. Stand up an OpenAI-compatible endpoint for FC-4B-RL (SGLang/vLLM, `--tool-call-parser qwen --context-length 262144 --dtype bfloat16`) for experiments; the 4B model is the intended deployment target, and FC-4B-RL ties or beats FC-4B-SFT across all reported end-to-end settings.
+
+**Stage 4 — Obsidian vault (optional, low priority).**
+8. Add a `--emit-vault` flag that wraps existing artifacts with `summary:`/`tags:` frontmatter, normalizes wikilinks, and adds `.obsidian/` + a MOC. Small effort; defer if Stages 1–3 consume the cycle.
+
+## Caveats
+- **Doc-vs-code discrepancy in FastContext**: README/arXiv reference `--format concise`, but the shipped CLI implements only `--citation`. Build any integration against `--citation`.
+- **"Parallel" tool calls** in FastContext are a trained behavior + token-accounting concept; the shipped `ToolSet.call` runs sequentially. Don't assume literal concurrency.
+- **FastContext is not an MCP server** — it's a subprocess/library that calls an OpenAI-compatible model endpoint. Integration is orchestration, not MCP-to-MCP.
+- **Kuzu is archived (Oct 2025, Apple acqui-hire confirmed via EU DMA filing Feb 2026)**; LadybugDB is the actively maintained fork but is young (v0.15) — verify wheel availability and long-term maintenance before hard-depending.
+- The benchmark numbers (+5.5 / −60.3%) are from Microsoft's own paper on strong main agents (GPT-5.4/GLM-5.1/Kimi-K2.6); the paper's Limitations note results are "controlled benchmark evidence rather than deployment guarantees" and that integration so far is only with Mini-SWE-Agent.
+- Obsidian user/star/market figures come from secondary blog posts and third-party compilations; Obsidian publishes no official analytics (CEO Steph Ango: "No one knows how many users Obsidian has"). Treat ~1.5M users / 22% YoY as directional.
+- The official MCP Registry is still labeled preview with possible breaking changes/data resets; the `.well-known/mcp.json` client-discovery standard remains proposed/unshipped as of mid-2026.
+- The hatchling force-include regression (#1130) affected specific versions; pin a current hatchling and test the actual built wheel, not an editable install.
