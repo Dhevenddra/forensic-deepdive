@@ -178,7 +178,16 @@ def _derive_rules(
     always.extend(graph_route_rules)
     always.extend(graph_co_change_rules)
 
-    if facts.history.is_git_repo and facts.history.churn:
+    # DEC-086: gate the churn-based rule on real signal. A shallow clone
+    # collapses churn to 1, and a hottest-file commit count below the floor is
+    # too thin to assert instability — both produced near-empty "Never" rules on
+    # low-history repos. Skip rather than dress up degenerate signal as a fact.
+    if (
+        facts.history.is_git_repo
+        and facts.history.churn
+        and not facts.history.is_shallow
+        and facts.history.churn[0].commits >= _MIN_CHURN_SIGNAL
+    ):
         hottest = facts.history.churn[0]
         never.append(
             (
@@ -206,10 +215,47 @@ def _derive_rules(
     return always, never
 
 
+# DEC-086: leaf-name signals for a "theme / constant table" hub — a colour,
+# style, dimension, or string-constant container that is highly depended-on by
+# in-degree but low-insight as a "load-bearing logic" headline (the Iris-Nearby
+# `AppColors` artifact: 383 inbound, but a colour table). Matched case-
+# insensitively as a substring of the leaf identifier.
+_CONSTANT_HUB_MARKERS = (
+    "color",
+    "colour",
+    "theme",
+    "palette",
+    "style",
+    "dimens",
+    "spacing",
+    "typography",
+    "fonts",
+    "constant",
+    "strings",
+    "assets",
+    "tokens",
+)
+
+# DEC-086: a churn count below this is too thin to assert "this file is unstable"
+# (the near-empty git-signal failure on low-history repos).
+_MIN_CHURN_SIGNAL = 2
+
+
+def _is_constant_hub(qualified_name: str) -> bool:
+    """DEC-086: True when a symbol's leaf name looks like a colour/constant/theme
+    table — high in-degree but low-insight as the headline 'load-bearing' rule."""
+    leaf = qualified_name.rsplit("::", 1)[-1].rsplit(".", 1)[-1].lower()
+    return any(marker in leaf for marker in _CONSTANT_HUB_MARKERS)
+
+
 def _graph_call_rules(facts: RepoFacts) -> list[tuple[str, str]]:
-    """DEC-029 + DEC-015. Top-called symbol from the LadybugDB CALLS graph.
-    Returned as an INFERRED rule — the count is EXTRACTED but the
-    "load-bearing" framing is a ranking interpretation."""
+    """DEC-029 + DEC-015. The most-called *business-logic* symbol from the
+    LadybugDB CALLS graph. Returned as an INFERRED rule — the count is EXTRACTED
+    but the "load-bearing" framing is a ranking interpretation.
+
+    DEC-086: rank by **distinct callers** (DEC-085, not raw edge count) and skip
+    theme/constant-table hubs so a colour table (`AppColors`-class) never becomes
+    the headline rule on a repo whose real load-bearing logic is elsewhere."""
     if facts.graph_db_path is None:
         return []
     from forensic_deepdive.graph import LadybugStore
@@ -219,24 +265,29 @@ def _graph_call_rules(facts: RepoFacts) -> list[tuple[str, str]]:
             rows = list(
                 store.query(
                     "MATCH (caller:Symbol)-[r:CALLS]->(callee:Symbol) "
-                    "RETURN callee.qualified_name, count(r) AS inbound "
-                    "ORDER BY inbound DESC, callee.qualified_name LIMIT 1"
+                    "RETURN callee.qualified_name, count(DISTINCT caller) AS callers "
+                    "ORDER BY callers DESC, callee.qualified_name LIMIT 12"
                 )
             )
     except Exception:  # pragma: no cover
         return []
-    if not rows or int(rows[0][1]) < 2:
-        return []
-    qn, inbound = rows[0]
-    short = qn.rsplit("::", 1)[-1]
-    return [
-        (
-            f"Treat `{short}` as the most-called symbol "
-            f"({int(inbound)} inbound calls per the DEC-025 resolver) — "
-            "signature changes touch every caller",
-            INFERRED,
-        )
-    ]
+    # Rows are sorted by distinct-callers desc; take the first business-logic
+    # symbol with a meaningful caller count, skipping constant/theme hubs.
+    for qn, callers in rows:
+        if int(callers) < 2:
+            break  # nothing below this is meaningful either
+        if _is_constant_hub(qn):
+            continue
+        short = qn.rsplit("::", 1)[-1]
+        return [
+            (
+                f"Treat `{short}` as the most-called symbol "
+                f"({int(callers)} distinct callers per the DEC-025 resolver) — "
+                "signature changes touch every caller",
+                INFERRED,
+            )
+        ]
+    return []
 
 
 def _graph_co_change_rules(facts: RepoFacts) -> list[tuple[str, str]]:

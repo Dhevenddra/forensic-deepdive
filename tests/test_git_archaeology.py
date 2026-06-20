@@ -116,6 +116,23 @@ def test_empty_git_repo(tmp_path: Path) -> None:
     assert result.first_commit is None
 
 
+def test_dec086_full_clone_is_not_shallow(sample_repo: Path) -> None:
+    """DEC-086: a normal repo is reported as not shallow."""
+    assert analyze_history(sample_repo).is_shallow is False
+
+
+def test_dec086_shallow_clone_is_detected(sample_repo: Path, tmp_path: Path) -> None:
+    """DEC-086: a `--depth 1` clone is detected as shallow so ARCHAEOLOGY can
+    warn that the history below is an incomplete slice."""
+    shallow = tmp_path / "shallow"
+    # file:// + --depth 1 yields a genuinely shallow clone (the .git/shallow marker).
+    _git(tmp_path, "clone", "--depth", "1", sample_repo.as_uri(), str(shallow))
+    result = analyze_history(shallow)
+    assert result.is_git_repo is True
+    assert result.is_shallow is True
+    assert result.total_commits == 1  # only the tip was fetched
+
+
 def test_basic_stats(sample_repo: Path) -> None:
     result = analyze_history(sample_repo)
     assert result.is_git_repo is True

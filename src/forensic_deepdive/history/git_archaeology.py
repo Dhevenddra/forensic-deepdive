@@ -117,6 +117,11 @@ class GitHistory:
     # Populated only when ``analyze_history(include_commit_files=True)``
     # — empty otherwise.
     commits: list[CommitRecord] = field(default_factory=list)
+    # DEC-086: True when the work tree is a shallow clone (``git clone --depth N``).
+    # Shallow history collapses commit counts, churn, and contributor shares to the
+    # fetched slice — the artifact must say so rather than report the degenerate
+    # signal as fact. Default False (full clones + the non-git path).
+    is_shallow: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +213,7 @@ def analyze_history(
         github=github,
         bots=bots,
         commits=commit_records,
+        is_shallow=_is_shallow(repo_path),
     )
 
 
@@ -294,6 +300,15 @@ def _is_git_repo(repo_path: Path) -> bool:
     if not repo_path.is_dir():
         return False
     proc = _run_git(repo_path, ["rev-parse", "--is-inside-work-tree"], check=False)
+    return proc.returncode == 0 and proc.stdout.strip() == "true"
+
+
+def _is_shallow(repo_path: Path) -> bool:
+    """True if *repo_path* is a shallow clone (DEC-086). ``git rev-parse
+    --is-shallow-repository`` prints ``true``/``false`` (git ≥2.15); any error
+    is treated as not-shallow (the conservative default — we only *warn* on a
+    positive)."""
+    proc = _run_git(repo_path, ["rev-parse", "--is-shallow-repository"], check=False)
     return proc.returncode == 0 and proc.stdout.strip() == "true"
 
 

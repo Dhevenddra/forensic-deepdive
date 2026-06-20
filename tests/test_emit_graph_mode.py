@@ -168,6 +168,36 @@ def test_agent_brief_includes_top_called_symbol_rule(tmp_path):
     assert "format_message" in brief
 
 
+def test_dec086_brief_demotes_theme_constant_hub_from_headline(tmp_path):
+    """DEC-086: a colour/constant table with the highest in-degree must NOT be
+    the headline most-called rule (the Iris-Nearby AppColors artifact). The
+    brief picks the most-called *business-logic* symbol instead."""
+    repo = tmp_path / "themed"
+    repo.mkdir()
+    # theme_color() is called by every screen (the HIGHEST distinct-caller count),
+    # but its name marks it a colour/theme hub; process_payment() is the real
+    # load-bearing logic with the next-highest count.
+    (repo / "theme.py").write_text("def theme_color():\n    return 1\n")
+    (repo / "pay.py").write_text("def process_payment():\n    return 1\n")
+    for screen in ("a", "b", "c"):
+        (repo / f"{screen}.py").write_text(
+            "from theme import theme_color\nfrom pay import process_payment\n"
+            f"def screen_{screen}():\n    theme_color()\n    process_payment()\n"
+        )
+    # One extra caller of theme_color only → it strictly outranks process_payment,
+    # so demotion (not tie-break ordering) is what surfaces process_payment.
+    (repo / "d.py").write_text(
+        "from theme import theme_color\ndef screen_d():\n    theme_color()\n"
+    )
+    artifacts = _run_with_graph(repo, tmp_path / "graph.lbug")
+    brief = artifacts["AGENT_BRIEF.md"].read_text(encoding="utf-8")
+    # The most-called rule names the business-logic symbol, not the colour table.
+    rule_lines = [ln for ln in brief.splitlines() if "most-called symbol" in ln]
+    assert rule_lines, "expected a most-called-symbol rule"
+    assert any("process_payment" in ln for ln in rule_lines)
+    assert not any("AppColors" in ln for ln in rule_lines)
+
+
 def test_agent_brief_stays_under_5kb_with_graph_sections(tmp_path):
     """DEC-029 + existing AGENT_BRIEF cap: the extra graph-mode rules
     must not push the brief over the 5 KB hard cap. Overflow goes

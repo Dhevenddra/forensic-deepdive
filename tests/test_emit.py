@@ -35,6 +35,10 @@ def _build_facts(
     github: GitHubStats | None = None,
     test_files: int = 0,
     fixture_files: int = 0,
+    contributors: list[Contributor] | None = None,
+    churn: list[FileChurn] | None = None,
+    total_commits: int = 10,
+    is_shallow: bool = False,
 ) -> RepoFacts:
     """Build a RepoFacts from the python_sample fixture plus synthetic history."""
     tags = []
@@ -49,15 +53,22 @@ def _build_facts(
         history = GitHistory(
             repo_path=Path("python_sample"),
             is_git_repo=True,
-            total_commits=10,
+            total_commits=total_commits,
             first_commit=datetime(2020, 1, 1, tzinfo=UTC),
             last_commit=datetime(2024, 6, 1, tzinfo=UTC),
-            contributors=[
-                Contributor("Alice", "alice@example.com", 7),
-                Contributor("Bob", "bob@example.com", 3),
-            ],
-            churn=[FileChurn("greeter.py", 9), FileChurn("app.py", 2)],
+            contributors=(
+                contributors
+                if contributors is not None
+                else [
+                    Contributor("Alice", "alice@example.com", 7),
+                    Contributor("Bob", "bob@example.com", 3),
+                ]
+            ),
+            churn=(
+                churn if churn is not None else [FileChurn("greeter.py", 9), FileChurn("app.py", 2)]
+            ),
             github=github,
+            is_shallow=is_shallow,
         )
     else:
         history = GitHistory(
@@ -131,6 +142,32 @@ def test_render_archaeology() -> None:
     assert "## Timeline" in out
     assert "Alice" in out
     assert "## GitHub" in out
+
+
+def test_dec086_archaeology_shallow_clone_warning() -> None:
+    """DEC-086: a shallow clone surfaces an explicit warning so degenerate
+    counts aren't mistaken for full history; a full clone shows no warning."""
+    shallow = render_archaeology(_build_facts(is_shallow=True))
+    assert "Shallow clone" in shallow
+    assert "fetched slice" in shallow
+    full = render_archaeology(_build_facts(is_shallow=False))
+    assert "Shallow clone" not in full
+
+
+def test_dec086_archaeology_bus_factor_one_suppresses_ownership_table() -> None:
+    """DEC-086: a single-author repo states bus factor 1 honestly instead of a
+    vacuous one-row 100%% ownership table."""
+    out = render_archaeology(
+        _build_facts(
+            contributors=[Contributor("Solo Dev", "solo@example.com", 28)],
+            total_commits=28,
+        )
+    )
+    assert "bus factor 1" in out
+    assert "Solo Dev" in out
+    # No ownership distribution table header/percentage when there's nothing to own.
+    assert "| Contributor | Commits | Share |" not in out
+    assert "100.0%" not in out
 
 
 def test_render_archaeology_without_git() -> None:
@@ -339,6 +376,23 @@ def test_agent_brief_churn_point_rule_is_extracted() -> None:
             break
     else:
         raise AssertionError("expected a churn-point rule in the brief")
+
+
+def test_dec086_brief_skips_churn_rule_on_shallow_or_thin_signal() -> None:
+    """DEC-086: the churn-based "Never" rule is gated on real signal — a shallow
+    clone (churn collapsed) or a hottest file below the floor produces no rule
+    rather than dressing up degenerate git signal as a fact."""
+    # Shallow → no churn rule even with a high (untrustworthy) count.
+    shallow_brief, _ = render_agent_brief(_build_facts(is_shallow=True))
+    assert "biggest churn point" not in shallow_brief
+    # Thin signal (hottest file = 1 commit) → no churn rule.
+    thin_brief, _ = render_agent_brief(
+        _build_facts(churn=[FileChurn("only.py", 1)], total_commits=1)
+    )
+    assert "biggest churn point" not in thin_brief
+    # Healthy signal still emits it (regression guard for the default fixture).
+    healthy_brief, _ = render_agent_brief(_build_facts())
+    assert "biggest churn point" in healthy_brief
 
 
 def test_agent_brief_not_a_git_repo_rule_is_extracted() -> None:

@@ -37,6 +37,7 @@ def render_archaeology(facts: RepoFacts) -> str:
         ]
     else:
         body = [
+            *_shallow_warning(facts),
             *_timeline(facts),
             *_contributors(facts),
             *_automation(facts),
@@ -44,6 +45,24 @@ def render_archaeology(facts: RepoFacts) -> str:
             *_github(facts),
         ]
     return "\n".join([*head, *body, footer(facts)]) + "\n"
+
+
+def _shallow_warning(facts: RepoFacts) -> list[str]:
+    """DEC-086. A shallow clone (``git clone --depth N``) collapses commit
+    counts, churn, and contributor shares to the fetched slice. Warn explicitly
+    so a reader does not mistake the degenerate signal below for full history."""
+    if not facts.history.is_shallow:
+        return []
+    return [
+        "## Shallow clone — history is incomplete",
+        "",
+        "> **Heads-up:** this repository is a **shallow clone** "
+        "(`git clone --depth N`). The commit totals, churn counts, and "
+        "contributor shares below reflect only the fetched slice of history, "
+        "**not** the full project. Re-run on a full clone "
+        "(`git fetch --unshallow`) for trustworthy archaeology.",
+        "",
+    ]
 
 
 def _timeline(facts: RepoFacts) -> list[str]:
@@ -61,6 +80,21 @@ def _timeline(facts: RepoFacts) -> list[str]:
 
 def _contributors(facts: RepoFacts, limit: int = 15) -> list[str]:
     history = facts.history
+    # DEC-086: at bus factor 1 (a single human contributor) an
+    # ownership/share table is vacuous — there is no distribution and no "who
+    # else to ask". Say so honestly in one line instead of a one-row "100%"
+    # table that implies an ownership signal that does not exist.
+    if len(history.contributors) <= 1:
+        sole = history.contributors[0].name if history.contributors else "unknown"
+        commits = history.contributors[0].commits if history.contributors else history.total_commits
+        return [
+            "## Contributors",
+            "",
+            f"**Single-author repository (bus factor 1).** All {humanize_int(commits)} "
+            f"attributed commit(s) are by **{sole}** — there is no ownership "
+            "distribution to surface, and no second maintainer to consult.",
+            "",
+        ]
     total = history.total_commits or 1
     rows: list[list[str]] = []
     for contributor in history.contributors[:limit]:
