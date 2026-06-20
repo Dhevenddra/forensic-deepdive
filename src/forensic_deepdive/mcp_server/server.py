@@ -75,6 +75,22 @@ def _passes_min_confidence(level: str, minimum: str) -> bool:
     return _conf_rank(level) >= _conf_rank(minimum)
 
 
+def _dedupe_calls_by_qn(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """DEC-085: collapse multiple CALLS edges to/from the same symbol into a
+    single row, keeping the highest-confidence edge. CALLS edges are stored one
+    per resolved call-site/channel (DEC-025), so a caller/callee otherwise
+    appears once per edge (the NearbyService-×4 duplication). Returned in
+    ``qualified_name`` order for determinism. Each row carries at least
+    ``qualified_name`` and ``confidence``."""
+    best: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        qn = row["qualified_name"]
+        current = best.get(qn)
+        if current is None or _conf_rank(row["confidence"]) > _conf_rank(current["confidence"]):
+            best[qn] = row
+    return sorted(best.values(), key=lambda r: r["qualified_name"])
+
+
 def _resolve_symbol_query(store: LadybugStore, query: str) -> list[dict[str, Any]]:
     """Find Symbols matching *query*. Tries exact qualified_name match
     first, then exact bare-name match, then substring."""
@@ -153,7 +169,11 @@ def impact(
         if not matches:
             return {"matches": [], "depth_buckets": [], "summary": {"unresolved": True}}
         # BFS from each match. Aggregate buckets across all matches.
-        buckets: list[set[tuple[str, str, str]]] = [set() for _ in range(depth)]
+        # DEC-085: each bucket is keyed by node_id (qualified_name) so a symbol
+        # reachable via several CALLS edges (multiple call-sites/channels, or
+        # mixed-confidence edges) appears ONCE — collapsing the NearbyService-×4
+        # duplication — with its highest-confidence edge.
+        buckets: list[dict[str, tuple[str, str]]] = [{} for _ in range(depth)]  # qn -> (kind, conf)
         visited: set[str] = {m["qualified_name"] for m in matches}
         frontier: set[str] = set(visited)
         for hop in range(depth):
@@ -175,13 +195,15 @@ def impact(
                     continue
                 if qn in visited:
                     continue
-                buckets[hop].add((qn, kind, conf))
+                existing = buckets[hop].get(qn)
+                if existing is None or _conf_rank(conf) > _conf_rank(existing[1]):
+                    buckets[hop][qn] = (kind, conf)
                 next_frontier.add(qn)
             visited.update(next_frontier)
             frontier = next_frontier
         depth_buckets = [
             sorted(
-                [{"qualified_name": qn, "kind": k, "confidence": c} for qn, k, c in b],
+                [{"qualified_name": qn, "kind": k, "confidence": c} for qn, (k, c) in b.items()],
                 key=lambda r: r["qualified_name"],
             )
             for b in buckets
@@ -195,7 +217,7 @@ def impact(
             "depth_buckets": depth_buckets,
             "summary": {
                 "total_reached": total,
-                "by_confidence": dict(Counter(c for b in buckets for _, _, c in b)),
+                "by_confidence": dict(Counter(c for b in buckets for (_, c) in b.values())),
             },
         }
 
@@ -219,36 +241,41 @@ def context(db_path: Path, symbol: str) -> dict[str, Any]:
             return {"matches": [], "unresolved": True}
         target = matches[0]
         qn = target["qualified_name"]
-        # Callers (incoming CALLS).
-        callers = [
-            {
-                "qualified_name": qn_,
-                "kind": kind,
-                "file_path": fp,
-                "confidence": conf,
-            }
-            for qn_, kind, fp, conf in store.query(
-                "MATCH (caller:Symbol)-[r:CALLS]->(:Symbol {qualified_name: $q}) "
-                "RETURN caller.qualified_name, caller.kind, caller.file_path, r.confidence "
-                "ORDER BY caller.qualified_name LIMIT 50",
-                {"q": qn},
-            )
-        ]
-        # Callees (outgoing CALLS).
-        callees = [
-            {
-                "qualified_name": qn_,
-                "kind": kind,
-                "file_path": fp,
-                "confidence": conf,
-            }
-            for qn_, kind, fp, conf in store.query(
-                "MATCH (:Symbol {qualified_name: $q})-[r:CALLS]->(callee:Symbol) "
-                "RETURN callee.qualified_name, callee.kind, callee.file_path, r.confidence "
-                "ORDER BY callee.qualified_name LIMIT 50",
-                {"q": qn},
-            )
-        ]
+        # Callers (incoming CALLS). DEC-085: dedupe by node_id (keep highest
+        # confidence) so a caller with several call-sites appears once.
+        callers = _dedupe_calls_by_qn(
+            [
+                {
+                    "qualified_name": qn_,
+                    "kind": kind,
+                    "file_path": fp,
+                    "confidence": conf,
+                }
+                for qn_, kind, fp, conf in store.query(
+                    "MATCH (caller:Symbol)-[r:CALLS]->(:Symbol {qualified_name: $q}) "
+                    "RETURN caller.qualified_name, caller.kind, caller.file_path, r.confidence "
+                    "ORDER BY caller.qualified_name LIMIT 50",
+                    {"q": qn},
+                )
+            ]
+        )
+        # Callees (outgoing CALLS). DEC-085: same node_id dedupe.
+        callees = _dedupe_calls_by_qn(
+            [
+                {
+                    "qualified_name": qn_,
+                    "kind": kind,
+                    "file_path": fp,
+                    "confidence": conf,
+                }
+                for qn_, kind, fp, conf in store.query(
+                    "MATCH (:Symbol {qualified_name: $q})-[r:CALLS]->(callee:Symbol) "
+                    "RETURN callee.qualified_name, callee.kind, callee.file_path, r.confidence "
+                    "ORDER BY callee.qualified_name LIMIT 50",
+                    {"q": qn},
+                )
+            ]
+        )
         # Parent (MEMBER_OF) + siblings.
         parent_row = list(
             store.query(
@@ -512,9 +539,14 @@ def _walk_flow(
             results.append(path)
             continue
         last_qn = path[-1]["symbol"]
+        # DEC-085: exclude trivial self-cycles (X→X). A self CALLS edge — a
+        # constructor referencing its own class, a name-fallback self-loop, or
+        # plain self-recursion — adds no execution-path information (you are
+        # already at X) and surfaced as the noisy ``Message→Message`` artifact.
         callees = list(
             store.query(
                 "MATCH (:Symbol {qualified_name: $q})-[r:CALLS]->(c:Symbol) "
+                "WHERE c.qualified_name <> $q "
                 "RETURN c.qualified_name, c.file_path, r.confidence "
                 "ORDER BY c.qualified_name LIMIT 5",
                 {"q": last_qn},

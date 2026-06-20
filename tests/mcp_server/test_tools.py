@@ -124,6 +124,67 @@ def test_context_unresolved(populated_db: Path) -> None:
     assert out.get("unresolved") is True
 
 
+def test_dec085_dedupe_calls_by_qn_keeps_highest_confidence() -> None:
+    """DEC-085 helper: collapse rows sharing a node_id, keeping the highest
+    confidence; output ordered by qualified_name."""
+    rows = [
+        {"qualified_name": "b.py::svc", "confidence": "AMBIGUOUS"},
+        {"qualified_name": "a.py::svc", "confidence": "INFERRED"},
+        {"qualified_name": "b.py::svc", "confidence": "EXTRACTED"},  # wins for b
+        {"qualified_name": "b.py::svc", "confidence": "INFERRED"},
+    ]
+    out = srv._dedupe_calls_by_qn(rows)
+    assert [r["qualified_name"] for r in out] == ["a.py::svc", "b.py::svc"]
+    assert out[1]["confidence"] == "EXTRACTED"  # highest of b.py::svc's edges
+
+
+def test_dec085_context_dedupes_callers_by_node_id(tmp_path: Path) -> None:
+    """DEC-085: a caller with multiple call-sites appears ONCE in context()
+    callers (the NearbyService-×4 fix), not once per CALLS edge."""
+    repo = tmp_path / "dup"
+    repo.mkdir()
+    (repo / "m.py").write_text(
+        "def target():\n    return 1\n\n\ndef caller():\n    target()\n    target()\n"
+    )
+    db_path = tmp_path / "graph.lbug"
+    cfg = ExtractConfig(
+        repo_path=repo.resolve(),
+        output_dir=repo / "out",
+        flatten=False,
+        write_editor_shims=False,
+        build_graph_db=True,
+        graph_db_path=db_path,
+    )
+    PipelineRunner(default_phases()).run(cfg)
+    out = srv.context(db_path, "target")
+    caller_qns = [c["qualified_name"] for c in out["callers"]]
+    assert caller_qns.count("m.py::caller") == 1, f"expected one row, got {caller_qns}"
+
+
+def test_dec085_flow_collapses_trivial_self_cycle(tmp_path: Path) -> None:
+    """DEC-085: a self-recursive function (a trivial X→X CALLS self-edge) no
+    longer surfaces a degenerate self-cycle path in flow()."""
+    repo = tmp_path / "rec"
+    repo.mkdir()
+    (repo / "m.py").write_text("def fact(n):\n    return fact(n - 1) if n > 1 else 1\n")
+    db_path = tmp_path / "graph.lbug"
+    cfg = ExtractConfig(
+        repo_path=repo.resolve(),
+        output_dir=repo / "out",
+        flatten=False,
+        write_editor_shims=False,
+        build_graph_db=True,
+        graph_db_path=db_path,
+    )
+    PipelineRunner(default_phases()).run(cfg)
+    out = srv.flow(db_path, "fact")
+    assert out["entry_points"], "fact should resolve"
+    for path in out["paths"]:
+        assert not any(step.get("cycle") for step in path), f"trivial self-cycle leaked: {path}"
+        symbols = [step["symbol"] for step in path]
+        assert symbols.count("m.py::fact") <= 1, f"fact repeats in path: {symbols}"
+
+
 # ---------------------------------------------------------------------------
 # archaeology
 # ---------------------------------------------------------------------------

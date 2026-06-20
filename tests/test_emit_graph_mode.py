@@ -71,6 +71,29 @@ def test_hotpaths_dependency_hotspots_use_graph_in_graph_mode(tmp_path):
     assert "EXTRACTED" in hot
 
 
+def test_dec085_dependency_hotspots_count_distinct_callers(tmp_path):
+    """DEC-085 (metric honesty): the "Callers" number is **distinct caller
+    symbols**, not raw CALLS-edge count. A callee called twice from the SAME
+    caller is 1 caller (verifiable by listing callers), even though there are 2
+    edges — the inflation behind "383 inbound vs 271 grep". The per-edge
+    confidence mix stays edge-based on purpose."""
+    repo = tmp_path / "dup"
+    repo.mkdir()
+    (repo / "m.py").write_text(
+        "def target():\n    return 1\n\n\ndef caller():\n    target()\n    target()\n"
+    )
+    artifacts = _run_with_graph(repo, tmp_path / "graph.lbug")
+    hot = artifacts["HOTPATHS.md"].read_text(encoding="utf-8")
+    # The reconciled definition is stated at the point of use.
+    assert "distinct callers" in hot
+    row = next(line for line in hot.splitlines() if "`target`" in line and "|" in line)
+    cells = [c.strip() for c in row.split("|")]
+    # | Symbol | Defined in | Callers | Confidence mix |
+    assert cells[3] == "1", f"expected 1 distinct caller, got: {row}"
+    # ...while the confidence mix remains edge-based (2 EXTRACTED edges).
+    assert "2 `EXTRACTED`" in row
+
+
 def test_hotpaths_cross_stack_routes_section_in_graph_mode(tmp_path):
     """DEC-052: in graph mode on a cross-stack repo, HOTPATHS grows a
     ``## Cross-stack routes`` section listing ROUTES_TO joins with confidence."""

@@ -60,8 +60,11 @@ def _dependency_hotspots(facts: RepoFacts, limit: int = 15) -> list[str]:
         return [
             "## Dependency hot spots",
             "",
-            "Symbols with the most inbound `CALLS` edges (DEC-025 resolver). "
-            "The load-bearing callees — signature changes touch every caller.",
+            "Symbols ranked by **distinct callers** — the count of distinct "
+            "symbols with a `CALLS` edge into them (structural in-degree; "
+            "DEC-025 resolver). The load-bearing callees — signature changes "
+            "touch every caller. The confidence mix is over the underlying "
+            "call edges (a callee may have more edges than callers).",
             "",
             md_table(["Symbol", "Defined in", "Callers", "Confidence mix"], graph_rows),
             "",
@@ -98,11 +101,21 @@ def _graph_dependency_hotspots(facts: RepoFacts, limit: int) -> list[list[str]] 
             # breakdown so we can label honestly per DEC-015. Aggregating
             # both in one Cypher pass would need GROUP_CONCAT — keep
             # simple with two passes joined in Python.
+            # DEC-085 (metric honesty): rank by **distinct caller symbols**
+            # (count(DISTINCT caller)), not raw edge count. CALLS edges are
+            # CREATE-d one per resolved call-site/channel (DEC-025), so
+            # count(caller) over-counts a callee that one symbol calls several
+            # times or via several channels — the "383 inbound vs 271 grep"
+            # inflation. ``count(DISTINCT caller)`` is the verifiable, quotable
+            # number the "Callers" header actually promises: how many symbols
+            # depend on this one. The per-edge confidence mix is reported
+            # separately below (it remains edge-based on purpose — it answers
+            # "how trustworthy are these call edges").
             counts = list(
                 store.query(
                     "MATCH (caller:Symbol)-[:CALLS]->(callee:Symbol) "
                     "RETURN callee.qualified_name, callee.file_path, "
-                    "count(caller) AS inbound "
+                    "count(DISTINCT caller) AS inbound "
                     "ORDER BY inbound DESC, callee.qualified_name "
                     f"LIMIT {limit}"
                 )
