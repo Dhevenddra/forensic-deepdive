@@ -79,13 +79,15 @@ def test_resolve_name_to_files_indexed_preserves_order_and_tiers() -> None:
     assert [i.module_path for i in grouped["b.py"]] == ["p1"]
 
     # Both a.py imports bind Widget → collected in list order (EXTRACTED).
-    files, conf = resolve_name_to_files("Widget", "a.py", "python", imports, defs_by_file,
-                                        defs_by_lang, sfbp)
+    files, conf = resolve_name_to_files(
+        "Widget", "a.py", "python", imports, defs_by_file, defs_by_lang, sfbp
+    )
     assert files == ["p1.py", "p2.py"] and conf is Confidence.EXTRACTED
 
     # A file with no import binding the name → cross-file fallback: two defs → AMBIGUOUS.
-    files, conf = resolve_name_to_files("Widget", "c.py", "python", imports, defs_by_file,
-                                        defs_by_lang, sfbp)
+    files, conf = resolve_name_to_files(
+        "Widget", "c.py", "python", imports, defs_by_file, defs_by_lang, sfbp
+    )
     assert sorted(files) == ["p1.py", "p2.py"] and conf is Confidence.AMBIGUOUS
 
     # The identity cache rebuilds when a *different* imports list is passed.
@@ -346,16 +348,24 @@ def test_external_import_does_not_resolve() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_cross_file_fallback_inferred_when_unique() -> None:
-    """When step 1 and 2 don't resolve and exactly ONE same-language
-    file elsewhere defines a top-level symbol with the matching name,
-    the resolver emits an INFERRED edge."""
+def test_cross_file_fallback_ambiguous_even_when_unique() -> None:
+    """DEC-083: cross-file same-name fallback is ALWAYS ``AMBIGUOUS``, even
+    when exactly one same-language file elsewhere defines the matching name.
+    With no same-file scope (step 1) and no import (step 2) linking the ref
+    to the target, a shared bare name is pure name-coincidence — a reference
+    *candidate*, not a proven call. Keeping it AMBIGUOUS holds it out of the
+    default ``min_confidence=INFERRED`` precise set (impact()/context()) while
+    leaving it recoverable at the AMBIGUOUS floor (recall preserved)."""
     files = {
         "a.py": ("python", b"def helper(): pass\n"),
         "b.py": ("python", b"def use(): helper()\n"),  # no import
     }
     resolved = _resolve(files)
-    assert ("b.py::use", "a.py::helper", "INFERRED") in _calls(resolved)
+    calls = _calls(resolved)
+    assert ("b.py::use", "a.py::helper", "AMBIGUOUS") in calls
+    # The pre-DEC-083 INFERRED edge is gone — name-coincidence never reaches
+    # the precise tier.
+    assert ("b.py::use", "a.py::helper", "INFERRED") not in calls
 
 
 def test_cross_file_fallback_ambiguous_when_multiple() -> None:
@@ -370,6 +380,46 @@ def test_cross_file_fallback_ambiguous_when_multiple() -> None:
     calls = _calls(resolved)
     assert ("c.py::use", "a.py::helper", "AMBIGUOUS") in calls
     assert ("c.py::use", "b.py::helper", "AMBIGUOUS") in calls
+
+
+def test_dec083_name_coincidence_excluded_from_precise_set_recoverable_below() -> None:
+    """DEC-083 regression — the Iris-Nearby ``impact(Message)`` false-positive class.
+
+    A distilled reproduction of the over-scoping pattern: a function in an
+    unrelated file (``settings_screen``) makes a bare call whose name *coincides*
+    with a top-level symbol elsewhere, with no import and no same-file def linking
+    them. Pre-DEC-083 that produced an INFERRED CALLS edge, so it leaked into the
+    default ``min_confidence=INFERRED`` blast radius even though there is no real
+    call. After DEC-083 it is AMBIGUOUS: filtered from the precise set, recoverable
+    at the AMBIGUOUS floor. A genuine same-file call stays EXTRACTED throughout.
+    """
+    files = {
+        # The real model + its real same-file serializer (a true EXTRACTED call).
+        "message.dart": (
+            "dart",
+            b"class Message {}\n"
+            b"String encode() { return decode(); }\n"
+            b"String decode() { return ''; }\n",
+        ),
+        # An unrelated screen that calls a bare ``decode()`` — name-coincidence with
+        # message.dart's top-level decode(); no import, no same-file decode def.
+        "settings_screen.dart": ("dart", b"void build() { decode(); }\n"),
+    }
+    resolved = _resolve(files)
+
+    def precise(min_rank: int) -> set[tuple[str, str]]:
+        rank = {"EXTRACTED": 3, "INFERRED": 2, "AMBIGUOUS": 1}
+        return {(r.caller_qn, r.callee_qn) for r in resolved if rank[str(r.confidence)] >= min_rank}
+
+    coincidence = ("settings_screen.dart::build", "message.dart::decode")
+    real_call = ("message.dart::encode", "message.dart::decode")
+
+    # The real same-file call is EXTRACTED — present at every floor.
+    assert real_call in precise(3)
+    # At the default INFERRED floor (rank 2) the name-coincidence is GONE...
+    assert coincidence not in precise(2)
+    # ...but recoverable at the AMBIGUOUS floor (rank 1) — recall preserved.
+    assert coincidence in precise(1)
 
 
 def test_cross_file_fallback_is_language_scoped() -> None:

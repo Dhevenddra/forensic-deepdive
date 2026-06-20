@@ -32,10 +32,14 @@ Algorithm (per ref Tag ``r`` in file ``F``):
 4. **Cross-file same-name fallback.** When 1-2 don't resolve and at
    least one *same-language* file elsewhere in the repo defines a
    top-level symbol matching ``r.name``: emit an edge per candidate.
-   Confidence: ``INFERRED`` when exactly one same-language candidate
-   exists, ``AMBIGUOUS`` (with every candidate surfaced) otherwise.
-   Matches DEC-012's same-language scoping and DEC-015's AMBIGUOUS
-   surfacing semantics.
+   Confidence: **always ``AMBIGUOUS``** (DEC-083). With no same-file
+   scope and no import linking the ref to the target, the only evidence
+   is a shared bare name — pure name-coincidence, a *reference candidate*
+   rather than a proven call (even when exactly one candidate exists).
+   Keeping this tier AMBIGUOUS holds name-coincidence out of the default
+   ``min_confidence=INFERRED`` precise set while leaving it recoverable
+   at the AMBIGUOUS floor. Matches DEC-012's same-language scoping and
+   DEC-015's AMBIGUOUS surfacing semantics.
 
 Caller attribution:
 - ``r.enclosing_scope`` (from :func:`tags._enclosing_scope_qn`) provides
@@ -176,16 +180,27 @@ def resolve_calls(
                 )
             continue
 
-        # Step 4: cross-file same-name fallback.
+        # Step 4: cross-file same-name fallback — pure name-coincidence (DEC-083).
+        # Neither step 1 (a same-file lexical scope) nor step 2 (an import) links
+        # this ref to the target; the only evidence is that a same-language
+        # top-level symbol *elsewhere* shares the bare name. That is a *reference
+        # candidate*, not a proven call — so it is the speculative tier and is
+        # always AMBIGUOUS (previously INFERRED when the candidate was unique).
+        # Reclassifying it keeps name-coincidence out of the default
+        # ``min_confidence=INFERRED`` "precise set" that impact()/context() surface,
+        # while the wide candidate set stays recoverable at
+        # ``min_confidence=AMBIGUOUS`` (recall preserved, precision recoverable —
+        # DEFERRED 7a). Especially load-bearing on dynamic-dispatch languages
+        # (Dart), where bare-name fallback dominated the INFERRED noise that
+        # over-scoped impact() with settings_screen-class false positives.
         fallback = _resolve_cross_file_fallback(tag, defs_by_lang_bare[tag.language])
         if fallback:
-            conf = Confidence.INFERRED if len(fallback) == 1 else Confidence.AMBIGUOUS
             for callee_qn in fallback:
                 resolved.append(
                     ResolvedCall(
                         caller_qn=caller_qn,
                         callee_qn=callee_qn,
-                        confidence=conf,
+                        confidence=Confidence.AMBIGUOUS,
                         evidence="name-fallback",
                         ref_line=tag.line,
                     )
