@@ -1,0 +1,70 @@
+name: build
+
+# DEC-088: validate the wheel on all three target platforms before any release.
+# Builds the sdist + wheel, installs the wheel into a clean environment (NOT
+# editable — editable installs mask packaging bugs, the lesson behind DEC-088),
+# and smoke-tests the console entry point end-to-end (info + a real extract).
+# The release/publish workflow (OIDC trusted publishing) is separate — DEC-092.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --all-extras
+      - run: uv run ruff check src/ tests/
+      - run: uv run ruff format --check src/ tests/
+      - run: uv run pytest -q
+
+  wheel:
+    name: wheel smoke (${{ matrix.os }}, py${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # Build the distributions.
+      - run: uv build
+      # Install the BUILT WHEEL into a clean throwaway env (no project, no
+      # editable) so packaging bugs (missing deps, un-shipped assets, ABI
+      # mismatches) surface here, not in users' installs.
+      - name: clean-env install + smoke (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          WHL=$(ls dist/*.whl)
+          uv venv /tmp/dd
+          VIRTUAL_ENV=/tmp/dd uv pip install "$WHL"
+          /tmp/dd/bin/forensic --version
+          /tmp/dd/bin/forensic info
+          /tmp/dd/bin/forensic extract tests/fixtures/tiny_fixture --output /tmp/dd-out
+          test -f /tmp/dd-out/AGENT_BRIEF.md
+      - name: clean-env install + smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          WHL=$(ls dist/*.whl)
+          uv venv /tmp/dd
+          VIRTUAL_ENV=/tmp/dd uv pip install "$WHL"
+          /tmp/dd/Scripts/forensic.exe --version
+          /tmp/dd/Scripts/forensic.exe info
+          /tmp/dd/Scripts/forensic.exe extract tests/fixtures/tiny_fixture --output /tmp/dd-out
+          test -f /tmp/dd-out/AGENT_BRIEF.md

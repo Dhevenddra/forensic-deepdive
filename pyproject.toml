@@ -18,7 +18,19 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "tree-sitter-language-pack>=1.8.0",
+    # DEC-088: `tree_sitter` is imported directly across ~30 modules
+    # (static/parse.py uses Parser/Tree/Query/QueryCursor — QueryCursor is a
+    # 0.25+ API). It was only ever present transitively in dev; a clean wheel
+    # install of tree-sitter-language-pack 1.9.x does NOT pull it (the pack
+    # declares no tree-sitter dependency and bundles its own native bindings), so
+    # `forensic info`/extract crashed (ModuleNotFoundError, then an ABI mismatch:
+    # the pack's `Language` is rejected by a mismatched standalone `Parser`).
+    # Pin the dev-proven, ABI-compatible PAIR (the 796-test environment): the
+    # 1.8.x pack line against tree-sitter 0.25.x. Both ship broad cp310-abi3
+    # wheels (Linux/macOS-arm64/Windows). Bumping the pair is a deliberate,
+    # re-tested change, not an implicit float.
+    "tree-sitter>=0.25,<0.26",
+    "tree-sitter-language-pack>=1.8,<1.9",
     "networkx>=3.3",
     "typer>=0.12",
     # DEC-077 (v0.7 Track B): rich is the load-bearing dependency for the styled CLI

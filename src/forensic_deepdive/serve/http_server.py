@@ -25,6 +25,7 @@ import json
 import socket
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlparse
@@ -34,7 +35,13 @@ from forensic_deepdive.serve.graph_api import build_graph_payload, build_meta, b
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-ASSETS_DIR = Path(__file__).parent / "assets"
+# DEC-088: resolve the vendored UI assets via importlib.resources, not __file__
+# path math, so they're found whichever way the package is installed (wheel via
+# pip/uv/uvx, editable, or zip). The assets ship through the hatchling wheel
+# ``artifacts`` glob (pyproject). For a normally-installed (unzipped) package this
+# is a concrete directory, so the existing Path-based traversal guard below is
+# unchanged; we never read from a zipimport here.
+ASSETS_DIR = Path(str(files("forensic_deepdive.serve").joinpath("assets")))
 
 _CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
