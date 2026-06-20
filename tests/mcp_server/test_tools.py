@@ -272,6 +272,45 @@ def test_query_natural_language_hybrid(populated_db: Path) -> None:
     assert greet["confidence"] == "EXTRACTED"
 
 
+def test_dec084_hybrid_name_match_outranks_and_states_degraded(tmp_path: Path) -> None:
+    """DEC-084 end-to-end (the Iris-Nearby probe): the NL query for
+    "...messages encoded/decoded" must surface the literal-name hits
+    ``_encode/_decodeMessageWithMedia`` at the TOP (the name-match boost beating
+    unrelated symbols), and the degraded state must be stated in the payload's
+    human-facing note, not only as a flag."""
+    repo = tmp_path / "iris"
+    repo.mkdir()
+    (repo / "nearby.py").write_text(
+        "def _encodeMessageWithMedia(m):\n    return _decodeMessageWithMedia(m)\n\n"
+        "def _decodeMessageWithMedia(m):\n    return m\n"
+    )
+    (repo / "theme.py").write_text(
+        "class ThemeProvider:\n    def toggleTheme(self):\n        pass\n"
+    )
+    (repo / "notif.py").write_text("def registerNotificationChannel():\n    pass\n")
+    db_path = tmp_path / "graph.lbug"
+    cfg = ExtractConfig(
+        repo_path=repo.resolve(),
+        output_dir=repo / "out",
+        flatten=False,
+        write_editor_shims=False,
+        build_graph_db=True,
+        graph_db_path=db_path,
+    )
+    PipelineRunner(default_phases()).run(cfg)
+
+    out = srv.query(db_path, natural_language="where are messages encoded decoded")
+    qns = [r["qualified_name"] for r in out["results"]]
+    # Recall: both real hits are present despite the "encoded"/"decoded" inflection.
+    assert any(qn.endswith("::_encodeMessageWithMedia") for qn in qns)
+    assert any(qn.endswith("::_decodeMessageWithMedia") for qn in qns)
+    # Ranking: the two name hits rank above the unrelated toggleTheme/notification.
+    assert all("Message" in qn for qn in qns[:2])
+    # Degraded honesty at the point of use.
+    assert out["degraded"] is True
+    assert "semantic" in out["note"].lower()
+
+
 def test_visualize_returns_mermaid(populated_db: Path) -> None:
     # DEC-039: the 8th tool. Greeter is a class -> classDiagram auto-pick.
     out = srv.visualize(populated_db, "Greeter")

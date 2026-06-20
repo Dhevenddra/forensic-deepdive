@@ -10,9 +10,11 @@ Schema (DEC-041): a plain ``symbols`` table paired with an external-content
 in ``sorted(qualified_name)`` order so the index — and therefore query ordering
 — is byte-deterministic for a given repo state.
 
-Search ordering: exact (case-insensitive) identifier matches first, then BM25
-prefix matches. Prefix matching (``token*``) is what lets ``greet`` match the
-token ``greeter``.
+Search ordering: exact (case-insensitive) identifier matches first, then
+name-substring matches (DEC-084 — the leaf name *contains* a meaningful query
+stem, bridging inflections like ``encoded`` → ``encode`` that prefix matching
+misses), then BM25 prefix matches. Prefix matching (``token*``) is what lets
+``greet`` match the token ``greeter``.
 """
 
 from __future__ import annotations
@@ -55,7 +57,10 @@ class SymbolRecord:
 class LexicalHit:
     """One lexical match. ``score`` is a relevance score where higher is
     better (BM25 is negated so it composes with the rest of the stack);
-    ``exact`` marks an exact-identifier match (the strongest lexical signal)."""
+    ``exact`` marks an exact-identifier match (the strongest lexical signal);
+    ``name_match`` (DEC-084) marks a symbol whose *name* contains a meaningful
+    query stem as a substring — the next-strongest signal after an exact match,
+    and the one that must outrank unrelated symbols in the fused ranking."""
 
     qualified_name: str
     name: str
@@ -65,6 +70,7 @@ class LexicalHit:
     role: str
     score: float
     exact: bool
+    name_match: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +115,51 @@ def _query_tokens(query: str) -> list[str]:
             seen.add(tok)
             tokens.append(tok)
     return tokens
+
+
+# DEC-084 — the name-match tier. A small stopword set so the tier doesn't fire on
+# the function words that pad a natural-language query ("where are messages encoded"
+# → the load-bearing terms are "messages", "encoded"), plus generic identifier
+# fragments that would match almost anything.
+_NL_STOPWORDS = frozenset(
+    {
+        "the", "a", "an", "of", "to", "in", "and", "or", "for", "how", "what",
+        "where", "when", "why", "who", "which", "is", "are", "was", "were", "be",
+        "do", "does", "did", "this", "that", "these", "those", "with", "on", "by",
+        "at", "as", "it", "its", "from", "into", "we", "you", "get", "set", "use",
+    }
+)  # fmt: skip
+
+# Longest-first within each length class so the most specific suffix strips first.
+_INFLECTION_SUFFIXES = ("ing", "ed", "es", "s", "d")
+
+
+def _destem(token: str) -> str:
+    """Strip one common English inflection suffix, keeping ≥3 chars. Deterministic
+    and dependency-free — just enough to bridge a query term to an identifier stem
+    (``"encoded"`` → ``"encod"`` so it substring-matches ``_encodeMessageWithMedia``;
+    ``"messages"`` → ``"messag"``). Not a real stemmer; it only needs to make the
+    name-match probe robust to plurals/past-tense."""
+    for suf in _INFLECTION_SUFFIXES:
+        if token.endswith(suf) and len(token) - len(suf) >= 3:
+            return token[: -len(suf)]
+    return token
+
+
+def _name_match_terms(tokens: list[str]) -> list[str]:
+    """Substring probes for the name-match tier (DEC-084): drop stopwords and
+    <3-char tokens, then add each surviving token AND its de-inflected stem.
+    Order-preserving and de-duplicated."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for tok in tokens:
+        if len(tok) < 3 or tok in _NL_STOPWORDS:
+            continue
+        for term in (tok, _destem(tok)):
+            if len(term) >= 3 and term not in seen:
+                seen.add(term)
+                out.append(term)
+    return out
 
 
 def _leaf_name(qualified_name: str) -> str:
@@ -302,6 +353,42 @@ class LexicalIndex:
             if len(hits) >= limit:
                 return hits
 
+        # (a2) Name-substring matches (DEC-084). A symbol whose leaf name CONTAINS
+        # a meaningful query stem is a true name hit — ranked right after exact and
+        # before generic BM25, so it outranks unrelated symbols in the fused result.
+        # This is also the recall fix: BM25 prefix matching is one-directional
+        # (``encoded*`` cannot reach the token ``encode``), so the literal-name hit
+        # ``_encodeMessageWithMedia`` for the query "...messages encoded/decoded" was
+        # missed entirely. ``instr`` substring + ``_destem`` bridges that. Scored by
+        # the count of distinct stems matched (more = better), then qualified_name.
+        probes = _name_match_terms(tokens)
+        if probes:
+            where = " OR ".join("instr(lower(name), ?) > 0" for _ in probes)
+            candidates = conn.execute(
+                "SELECT qualified_name, name, file_path, kind, role, line_start "
+                f"FROM symbols WHERE {where}",
+                probes,
+            ).fetchall()
+            scored: list[tuple[int, tuple]] = []
+            for row in candidates:
+                if row[0] in seen:
+                    continue
+                name_lower = row[1].lower()
+                matched = sum(1 for p in probes if p in name_lower)
+                scored.append((matched, row))
+            # More matched stems first, then qualified_name for a total order.
+            scored.sort(key=lambda t: (-t[0], t[1][0]))
+            for matched, row in scored:
+                qn = row[0]
+                if qn in seen:
+                    continue
+                seen.add(qn)
+                hits.append(
+                    _row_to_hit(row, score=0.5 + 0.01 * matched, exact=False, name_match=True)
+                )
+                if len(hits) >= limit:
+                    return hits
+
         # (b) BM25 prefix matches. bm25() is smaller-is-better and negative;
         # negate so higher == better for the rest of the stack. Tie-break by
         # qualified_name for total order.
@@ -326,7 +413,7 @@ class LexicalIndex:
         return hits
 
 
-def _row_to_hit(row: tuple, *, score: float, exact: bool) -> LexicalHit:
+def _row_to_hit(row: tuple, *, score: float, exact: bool, name_match: bool = False) -> LexicalHit:
     qn, name, fp, kind, role, ls = row
     return LexicalHit(
         qualified_name=qn,
@@ -337,4 +424,5 @@ def _row_to_hit(row: tuple, *, score: float, exact: bool) -> LexicalHit:
         role=role,
         score=score,
         exact=exact,
+        name_match=name_match,
     )

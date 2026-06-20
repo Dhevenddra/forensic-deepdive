@@ -69,6 +69,48 @@ def test_camelcase_query_word_matches_identifier(tmp_path: Path) -> None:
     assert hits[0].qualified_name == "ws.py::handleWebsocketReconnect"
 
 
+def test_dec084_name_substring_bridges_inflection_and_outranks_unrelated(tmp_path: Path) -> None:
+    """DEC-084 — the Iris-Nearby "where are messages encoded/decoded" miss.
+
+    BM25 prefix matching is one-directional, so the query term ``encoded`` could
+    never reach the identifier token ``encode``; the literal-name hits
+    ``_encode/_decodeMessageWithMedia`` were missed entirely while theme/toggle
+    junk surfaced. The name-substring tier (with de-inflection) must (a) FIND the
+    real hits and (b) rank them above the unrelated symbols."""
+    records = [
+        _rec("nearby.py::_encodeMessageWithMedia", "_encodeMessageWithMedia"),
+        _rec("nearby.py::_decodeMessageWithMedia", "_decodeMessageWithMedia"),
+        _rec("theme.py::ThemeProvider.toggleTheme", "toggleTheme", kind="method"),
+        _rec("notif.py::registerNotificationChannel", "registerNotificationChannel"),
+    ]
+    idx = _index(tmp_path, records)
+    hits = idx.search("where are messages encoded decoded")
+    names = [h.qualified_name for h in hits]
+    # (a) Recall: both real hits are found despite the "encoded"/"decoded" inflection.
+    assert "nearby.py::_encodeMessageWithMedia" in names
+    assert "nearby.py::_decodeMessageWithMedia" in names
+    # (b) Ranking: the name hits outrank the unrelated symbols (which don't carry
+    # "message"/"encod"/"decod"), and are flagged name_match.
+    top2 = set(names[:2])
+    assert top2 == {"nearby.py::_encodeMessageWithMedia", "nearby.py::_decodeMessageWithMedia"}
+    assert all(h.name_match for h in hits[:2])
+    assert "theme.py::ThemeProvider.toggleTheme" not in names
+
+
+def test_dec084_destem_and_terms() -> None:
+    """The de-inflection helper strips one common suffix (≥3 chars kept) and the
+    term builder drops stopwords / <3-char tokens, keeping token + stem."""
+    from forensic_deepdive.query.lexical import _destem, _name_match_terms, _query_tokens
+
+    assert _destem("encoded") == "encod"
+    assert _destem("messages") == "messag"
+    assert _destem("decoded") == "decod"
+    assert _destem("set") == "set"  # too short to strip below 3
+    terms = _name_match_terms(_query_tokens("where are messages encoded"))
+    assert "where" not in terms and "are" not in terms  # stopwords dropped
+    assert "messag" in terms and "encod" in terms  # stems present
+
+
 def test_no_match_returns_empty(tmp_path: Path) -> None:
     idx = _index(tmp_path, [_rec("a.py::foo", "foo")])
     assert idx.search("zzzznotoken") == []

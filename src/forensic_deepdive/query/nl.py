@@ -62,6 +62,10 @@ def hybrid_query(
             }
         lexical_ranked = [h.qualified_name for h in lex_hits]
         exact_names = {h.qualified_name for h in lex_hits if h.exact}
+        # DEC-084: symbols whose NAME carries a query stem. These (and exact hits)
+        # get an additive ranking boost below so a literal name match outranks
+        # unrelated symbols that only co-occur structurally or via BM25 noise.
+        name_match_names = {h.qualified_name for h in lex_hits if h.name_match}
 
         # Structural (always on). Anchors = exact lexical matches.
         structural_ranked, struct_meta = _structural(store, list(exact_names))
@@ -90,6 +94,12 @@ def hybrid_query(
             m = meta.get(qn)
             if m is None:
                 continue
+            # DEC-084 name-match boost: float exact/name hits above unrelated
+            # symbols. The bonus is large relative to RRF scores (~0.01–0.03) so it
+            # survives the role/kind shaping multiply (0.4–1.05) — a name hit never
+            # sinks below a non-name hit on shaping alone, while exact > name_match
+            # and ordinary RRF still orders everything within each tier.
+            boost = 2.0 if qn in exact_names else (1.0 if qn in name_match_names else 0.0)
             results.append(
                 {
                     "symbol": qn,
@@ -98,7 +108,7 @@ def hybrid_query(
                     "line": m["line"],
                     "kind": m["kind"],
                     "role": m["role"],
-                    "score": fscore,
+                    "score": fscore + boost,
                     "retrievers": sorted(
                         r for r, members in retriever_members.items() if qn in members
                     ),
@@ -107,10 +117,21 @@ def hybrid_query(
             )
         shaped = shape(results)[:limit]
 
+        degraded = "semantic" not in retrievers_active
         return {
             "natural_language": query,
             "retrievers_active": retrievers_active,
-            "degraded": "semantic" not in retrievers_active,
+            "degraded": degraded,
+            # DEC-084: state the degraded condition at the point of use, not just as
+            # a boolean flag, so a caller reading the results knows when to distrust
+            # a thin answer and how to upgrade it.
+            "note": (
+                "semantic tier not installed — results are lexical + structural only "
+                "(no concept-level matching). Install the [semantic] extra for "
+                "embedding search."
+                if degraded
+                else "all retrievers active (lexical + structural + semantic)."
+            ),
             "results": shaped,
         }
 
