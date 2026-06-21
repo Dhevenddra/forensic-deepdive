@@ -38,6 +38,34 @@ def cross_stack_db(tmp_path: Path) -> Path:
     return db_path
 
 
+def test_trace_self_notes_inapplicability_on_non_web_repo(tmp_path: Path) -> None:
+    """DEC-091 (DEFERRED 7d): on a repo with no Endpoints, trace self-notes it is
+    inapplicable instead of returning a bare empty result."""
+    repo = tmp_path / "python_sample"
+    shutil.copytree(FIXTURES / "python_sample", repo)
+    db_path = tmp_path / "graph.lbug"
+    PipelineRunner(default_phases()).run(
+        ExtractConfig(
+            repo_path=repo.resolve(),
+            output_dir=repo / "out",
+            flatten=False,
+            write_editor_shims=False,
+            build_graph_db=True,
+            graph_db_path=db_path,
+        )
+    )
+    out = srv.trace(db_path, "format_message", direction="downstream")
+    assert out.get("applicable") is False
+    assert "No HTTP/MCP/gRPC/messaging endpoints" in out.get("note", "")
+
+
+def test_trace_applicable_note_absent_on_cross_stack_repo(cross_stack_db: Path) -> None:
+    """The self-note appears only when there are no endpoints — a cross-stack repo
+    has them, so no inapplicability note is added."""
+    out = srv.trace(cross_stack_db, "loadItem", direction="downstream")
+    assert "applicable" not in out
+
+
 def test_trace_downstream_component_to_handler(cross_stack_db: Path) -> None:
     """downstream from the frontend caller walks CALLS_ENDPOINT → Endpoint →
     HANDLES → handler."""

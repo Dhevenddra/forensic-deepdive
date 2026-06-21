@@ -48,6 +48,10 @@ class ExtractConfig:
     # the v0.1 Repomix pack.
     flatten: bool = False
     write_editor_shims: bool = True
+    # DEC-091: rewrite STALE Deepdive-generated shims (those carrying the
+    # forensic-deepdive fingerprint) instead of the default write-if-absent skip;
+    # hand-edited / foreign files are never touched. The `--refresh-shims` flag.
+    refresh_shims: bool = False
     fetch_github: bool = False
     github_token: str | None = None
     # DEC-013 / item 8: where the persistent LadybugDB knowledge graph lives.

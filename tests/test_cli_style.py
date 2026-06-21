@@ -187,7 +187,7 @@ def _fake_extract_result(cache_hit: bool):
         facts=None if cache_hit else facts,
         output_dir="docs/codebase",
         artifacts=["MAP.md", "AGENT_BRIEF.md"],
-        shims=SimpleNamespace(written=[]),
+        shims=SimpleNamespace(written=[], refreshed=[]),
     )
 
 

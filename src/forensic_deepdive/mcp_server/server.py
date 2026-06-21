@@ -840,13 +840,24 @@ def trace(
                 chains.extend(_trace_downstream(store, qn, max_depth))
             else:
                 chains.extend(_trace_upstream(store, qn))
-        return {
+        result: dict[str, Any] = {
             "matches": matches,
             "direction": direction,
             "max_depth": max_depth,
             "chains": chains,
             "boundary": _TRACE_BOUNDARY,
         }
+        # DEC-091 (DEFERRED 7d): a per-tool applicability self-note. If the graph
+        # has no Endpoint nodes at all, trace is dead-weight on this repo (a
+        # P2P/CLI/library, no web/RPC/messaging surface) — say so plainly rather
+        # than returning a bare empty result the caller has to interpret.
+        if not list(store.query("MATCH (e:Endpoint) RETURN e.contract_id LIMIT 1")):
+            result["applicable"] = False
+            result["note"] = (
+                "No HTTP/MCP/gRPC/messaging endpoints in this graph — trace targets "
+                "cross-stack repos. Use flow()/impact() for intra-process call chains."
+            )
+        return result
 
 
 def _trace_downstream(store: LadybugStore, qn: str, max_depth: int) -> list[dict[str, Any]]:

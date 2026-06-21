@@ -133,6 +133,12 @@ def print_extract_summary(console: Console, result: ExtractResult) -> None:
                 f"  {', '.join(p.name for p in result.shims.written)}", style="muted"
             )
         )
+    if result.shims.refreshed:  # DEC-091: stale Deepdive shims rewritten on --refresh-shims
+        console.print(
+            Text("Refreshed", style="label").append(
+                f"  {', '.join(p.name for p in result.shims.refreshed)}", style="muted"
+            )
+        )
 
 
 # --- trace -------------------------------------------------------------------

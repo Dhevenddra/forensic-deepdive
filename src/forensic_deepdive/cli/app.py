@@ -101,6 +101,14 @@ def extract(
             help="DEC-017: also run Repomix flatten (demoted to opt-in in v0.2).",
         ),
     ] = False,
+    refresh_shims: Annotated[
+        bool,
+        typer.Option(
+            "--refresh-shims",
+            help="DEC-091: rewrite STALE Deepdive-generated shims (CLAUDE.md etc.); "
+            "hand-edited files are never touched.",
+        ),
+    ] = False,
     semantic: Annotated[
         bool,
         typer.Option(
@@ -136,6 +144,7 @@ def extract(
                 output,
                 force=force,
                 flatten=legacy_repomix,
+                refresh_shims=refresh_shims,
                 workers=workers,
                 semantic=semantic,
             )
@@ -290,6 +299,37 @@ def diagram(
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(architecture_for_db(db_path, repo.resolve().name), encoding="utf-8")
     out.print(f"[ok]ARCHITECTURE.md[/ok] written to {dest}")
+
+
+@app.command(name="mcp-config")
+def mcp_config(
+    repo: Annotated[
+        Path, typer.Option(help="Repo whose graph the server queries (default: cwd).")
+    ] = Path("."),
+    client: Annotated[
+        str, typer.Option(help="claude | cursor | vscode | codex (default: claude).")
+    ] = "claude",
+) -> None:
+    """Print the MCP client config snippet that wires this repo as a server (DEC-091).
+
+    Plain stdout, so it pipes cleanly: `forensic mcp-config --repo . > .mcp.json`.
+    Uses `uvx forensic-deepdive serve --repo <path>` (CWD-independent). Help/output
+    are ASCII-only and markup-free for code-page + redirect safety."""
+    import json as _json
+
+    repo_str = str(repo.resolve())
+    args = ["forensic-deepdive", "serve", "--repo", repo_str]
+    if client == "codex":
+        lines = [
+            "[mcp_servers.forensic-deepdive]",
+            'command = "uvx"',
+            f"args = {_json.dumps(args)}",
+        ]
+        print("\n".join(lines))
+        return
+    key = "servers" if client == "vscode" else "mcpServers"
+    snippet = {key: {"forensic-deepdive": {"command": "uvx", "args": args}}}
+    print(_json.dumps(snippet, indent=2))
 
 
 @app.command()

@@ -32,6 +32,30 @@ def test_cli_extract_missing_dir_exits_nonzero() -> None:
     assert result.exit_code == 1
 
 
+def test_cli_mcp_config_default_is_valid_mcpservers_json(tmp_path: Path) -> None:
+    """DEC-091: `forensic mcp-config` prints a copy-paste mcpServers snippet."""
+    import json
+
+    result = runner.invoke(app, ["mcp-config", "--repo", str(tmp_path)])
+    assert result.exit_code == 0, result.stdout
+    cfg = json.loads(result.stdout)  # pure-stdout JSON, redirectable
+    server = cfg["mcpServers"]["forensic-deepdive"]
+    assert server["command"] == "uvx"
+    assert server["args"][:3] == ["forensic-deepdive", "serve", "--repo"]
+    assert server["args"][3] == str(tmp_path.resolve())  # CWD-independent absolute path
+
+
+def test_cli_mcp_config_client_variants(tmp_path: Path) -> None:
+    """vscode uses the `servers` key; codex emits TOML."""
+    import json
+
+    vscode = runner.invoke(app, ["mcp-config", "--repo", str(tmp_path), "--client", "vscode"])
+    assert "servers" in json.loads(vscode.stdout)
+    codex = runner.invoke(app, ["mcp-config", "--repo", str(tmp_path), "--client", "codex"])
+    assert "[mcp_servers.forensic-deepdive]" in codex.stdout
+    assert 'command = "uvx"' in codex.stdout
+
+
 def test_cli_query_finds_match(tmp_path: Path) -> None:
     artifacts = tmp_path / "docs" / "codebase"
     artifacts.mkdir(parents=True)

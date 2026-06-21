@@ -586,7 +586,7 @@ class EmitPhase(Phase):
             except ValueError:
                 brief_rel = None
             if brief_rel is not None:
-                shims = write_shims(cfg.repo_path, brief_rel)
+                shims = write_shims(cfg.repo_path, brief_rel, refresh=cfg.refresh_shims)
 
         return EmitOutput(facts=facts, artifacts=artifacts, shims=shims)
 

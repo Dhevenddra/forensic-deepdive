@@ -403,11 +403,19 @@ def _build_skills(brief_rel: str, artifacts_dir: str) -> dict[str, str]:
 
 @dataclass
 class ShimResult:
-    """Which shim / skill / manifest files were written and which were
-    left alone (already existed)."""
+    """Which shim / skill / manifest files were written, refreshed, and which
+    were left alone (already existed)."""
 
     written: list[Path] = field(default_factory=list)
     skipped: list[Path] = field(default_factory=list)
+    refreshed: list[Path] = field(default_factory=list)  # DEC-091: stale Deepdive shims rewritten
+
+
+# DEC-091: the ownership fingerprint every Deepdive-generated editor/plugin shim
+# carries. ``--refresh-shims`` rewrites a stale shim only when its current content
+# contains this — so a hand-edited or foreign file (no fingerprint) is never
+# clobbered.
+_SHIM_FINGERPRINT = "forensic-deepdive"
 
 
 def _artifacts_dir_from_brief(brief_rel: str) -> str:
@@ -421,15 +429,19 @@ def _artifacts_dir_from_brief(brief_rel: str) -> str:
     return parent if parent and parent != "." else "."
 
 
-def write_shims(repo_path: Path, brief_rel_path: str) -> ShimResult:
+def write_shims(repo_path: Path, brief_rel_path: str, *, refresh: bool = False) -> ShimResult:
     """Write editor/agent shims, five emitted skills, and the Claude
     plugin manifest for *repo_path*, all pointing at *brief_rel_path*.
 
     *brief_rel_path* is the repo-relative posix path to AGENT_BRIEF.md.
 
-    Every target is write-if-absent — existing files are skipped, never
-    overwritten. The 4 editor shims preserve the v0.1 contract; the 5
-    skills + plugin.json are the DEC-031 additions.
+    Default: write-if-absent — an existing file is skipped, never overwritten
+    (a hand-edited shim is sacred). DEC-091: with ``refresh=True`` a *stale*
+    target is rewritten **iff** its current content still differs from what we'd
+    write AND carries the Deepdive fingerprint (so we refresh our own stale
+    output — e.g. an old "five tools" CLAUDE.md — but never a hand-edited or
+    foreign file). The 4 editor shims preserve the v0.1 contract; the 5 skills +
+    plugin.json are the DEC-031 additions.
     """
     repo_path = Path(repo_path)
     artifacts_dir = _artifacts_dir_from_brief(brief_rel_path)
@@ -451,7 +463,14 @@ def write_shims(repo_path: Path, brief_rel_path: str) -> ShimResult:
     result = ShimResult()
     for path, content in targets.items():
         if path.exists():
-            result.skipped.append(path)
+            existing = path.read_text(encoding="utf-8", errors="ignore")
+            if existing == content:
+                result.skipped.append(path)  # already current — nothing to do
+            elif refresh and _SHIM_FINGERPRINT in existing:
+                path.write_text(content, encoding="utf-8")  # stale Deepdive shim → refresh
+                result.refreshed.append(path)
+            else:
+                result.skipped.append(path)  # hand-edited / foreign, or refresh off → leave it
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
