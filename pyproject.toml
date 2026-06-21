@@ -1,6 +1,6 @@
 [project]
 name = "forensic-deepdive"
-version = "0.7.0"
+version = "0.8.0"
 description = "Forensic deep-dive of any codebase (9 languages). Persistent code knowledge graph + MCP server (9 composite tools incl. hybrid NL query, Mermaid export & cross-stack trace) for AI coding agents, with 5 durable markdown artifacts (MAP, HOTPATHS, ARCHAEOLOGY, MENTAL_MODEL, AGENT_BRIEF) as the human-readable projection."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -80,8 +80,8 @@ forensic = "forensic_deepdive.cli:app"
 forensic-deepdive = "forensic_deepdive.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/dhevenddra/forensic-deepdive"
-Issues = "https://github.com/dhevenddra/forensic-deepdive/issues"
+Homepage = "https://github.com/Dhevenddra/forensic-deepdive"
+Issues = "https://github.com/Dhevenddra/forensic-deepdive/issues"
 
 [build-system]
 requires = ["hatchling"]

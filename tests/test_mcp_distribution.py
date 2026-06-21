@@ -16,7 +16,7 @@ import tomllib
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
-_MCP_NAME = "io.github.dhevenddra/forensic-deepdive"
+_MCP_NAME = "io.github.Dhevenddra/forensic-deepdive"
 _SERVE_CMD = "uvx"
 _SERVE_ARGS = ["forensic-deepdive", "serve", "--repo", "."]
 

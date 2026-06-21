@@ -4,6 +4,51 @@ All notable changes to `forensic-deepdive`. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 follow [SemVer](https://semver.org/).
 
+## [0.8.0] — 2026-06-21
+
+> v0.8 **"USABLE → USEFUL + public release"** — the first public PyPI release.
+> **Framing (honest):** v0.8 ships as an **assisted-analysis** tool. The
+> autonomous end-to-end usefulness question (does deepdive-seeding make an agent
+> *resolve* real issues faster) is **not yet proven**: a model-free localization
+> **pilot** is recorded (`experiments/fastcontext/RESULTS.md` — the static seed is
+> a *weak* prior, recall@10 ≈ 0.44 on an n=8 subset), and the end-to-end
+> measurement is deferred to v0.9 (needs a GPU + frontier main-agent endpoint). No
+> autonomous-execution claims are made here.
+
+### Added
+- **`ARCHITECTURE.md` + `forensic diagram`** — a system-level, confidence-styled
+  Mermaid view of the cross-boundary graph (ROUTES_TO / INJECTS / PERSISTS_TO),
+  a *separate* surface (not a sixth contract artifact); regenerated on extract.
+- **`forensic mcp-config`** — prints a copy-paste MCP client snippet (Claude
+  Code / Cursor / VS Code / Codex), pipe-redirectable to `.mcp.json`.
+- **`--refresh-shims`** — rewrites *stale* Deepdive-generated shims; hand-edited
+  files are never touched.
+- **`--emit-vault`** — opt-in [Obsidian](https://obsidian.md) vault (frontmatter +
+  `[[wikilinks]]` + MOC) under `<output>/vault/`.
+- **Distribution** — schema-valid MCP Registry `server.json`, a Claude Code plugin
+  (`.claude-plugin/` + `.mcp.json`), a `forensic-deepdive` console alias for
+  `uvx`, per-client install docs (`docs/install.md`), and PyPI Trusted-Publishing
+  (OIDC) release CI.
+- **`forensic_deepdive.seed`** — a pure-static, zero-LLM graph-derived context
+  seed (used by the FastContext experiment; reusable on its own).
+
+### Changed
+- **Precision (Track B):** `impact()` cross-file name-coincidence is now AMBIGUOUS
+  (a precise default set, recoverable at the AMBIGUOUS floor); NL `query()` gains a
+  name-substring + de-inflection lexical tier and states degraded mode at the point
+  of use; HOTPATHS "Callers" is now **distinct callers** (not raw edge count);
+  `impact`/`context` dedupe by node_id; `flow` drops trivial self-cycles; AGENT_BRIEF
+  demotes theme/constant hubs and gates thin-signal rules on low-history repos;
+  ARCHAEOLOGY suppresses the bus-factor-1 ownership table and warns on shallow clones.
+- **`trace`** self-notes inapplicability on repos with no cross-boundary endpoints.
+
+### Fixed
+- **Packaging (critical):** declared `tree-sitter` as a core dependency and pinned
+  the ABI-compatible `tree-sitter` / `tree-sitter-language-pack` pair — a clean
+  `pip install` previously crashed (`ModuleNotFoundError`, then a Language/Parser
+  ABI mismatch). Vendored UI assets now resolve via `importlib.resources`. Wheel
+  clean-room-verified; 3-platform build CI added.
+
 ## [0.7.0] — 2026-06-19
 
 > v0.7 **"Coverage Completion + the CLI Style System"** — a two-track, publish-prep

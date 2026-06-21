@@ -49,3 +49,16 @@ Sigma.js / graphology (vendored UI client)
     furnished to do so, subject to the above copyright notice and this permission
     notice being included in all copies or substantial portions of the Software.
     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+Graph engine — real-ladybug (Kùzu fork)
+  The persistent graph store uses `real-ladybug` (DEC-013), a community-maintained
+  fork of Kùzu (https://github.com/kuzudb/kuzu), MIT License. Kùzu's GitHub repo
+  was archived in October 2025; LadybugDB continues it (Cypher dialect, columnar
+  storage, full-text + vector indices) under the MIT License.
+
+FastContext (v0.8 usefulness experiment — NOT part of the distributed package)
+  The wheel ships only `src/forensic_deepdive/`. The experiment harness under
+  `experiments/fastcontext/` (DEC-087) integrates Microsoft FastContext
+  (https://github.com/microsoft/fastcontext), MIT License, and evaluates against
+  the SWE-bench Multilingual dataset. None of this is included in the published
+  package; it is reproducibility tooling only.

@@ -3,7 +3,7 @@
   "version": "0.8.0",
   "description": "Persistent code knowledge graph + 9 composite MCP tools (impact, context, archaeology, flow, query, record_insight, recall_insights, visualize, trace) for AI coding agents.",
   "author": "Dhevenddra",
-  "repository": "https://github.com/dhevenddra/forensic-deepdive",
+  "repository": "https://github.com/Dhevenddra/forensic-deepdive",
   "license": "Apache-2.0",
   "keywords": ["mcp", "codebase-analysis", "knowledge-graph", "onboarding", "tree-sitter"]
 }

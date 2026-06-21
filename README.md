@@ -1,6 +1,6 @@
 # forensic-deepdive
 
-<!-- mcp-name: io.github.dhevenddra/forensic-deepdive -->
+<!-- mcp-name: io.github.Dhevenddra/forensic-deepdive -->
 
 > A persistent code knowledge graph + MCP server for AI coding agents. Five durable markdown artifacts as the human-readable projection. Apache-2.0.
 
@@ -23,14 +23,19 @@ Add **`--emit-vault`** to also write an [Obsidian](https://obsidian.md)-friendly
 
 ## Status
 
-**v0.7.0 "Coverage Completion + the CLI Style System"** — the five-protocol cross-boundary graph (HTTP/MCP/registry/gRPC/messaging, all on one `Endpoint` join node), hardened against real-repo findings (Django/JAX-RS/AMQP provider completion), plus lane-(iii) agent memory (opt-in `[semantic]` RRF + recency decay + an explicit shadow-ref push), a `resolve_name_to_files` hot-path index (**49.7×**, byte-identical), and a publish-facing **styled CLI** — a `DEEPDIVE` banner, a registry-driven `forensic info` panel, styled `extract`, and a new `forensic trace` command (all Console-only; artifacts stay byte-identical plain markdown). **779 tests.** The 5-artifact + 9-MCP-tool contract is frozen.
+**v0.8.0 "USABLE → USEFUL + public release"** — the first public PyPI release. Builds on the frozen five-protocol cross-boundary graph (HTTP/MCP/registry/gRPC/messaging on one `Endpoint` join node) with a precision pass (honest call-graph confidence, distinct-caller counts, low-history/solo-repo guards), a human-validation **`ARCHITECTURE.md`** diagram surface, distribution (PyPI + MCP Registry + a Claude Code plugin), and an opt-in **`--emit-vault`** Obsidian export. The 5-artifact + 9-MCP-tool contract is frozen.
 
-A usability gate closed this release: the [self-guided manual test](docs/v0.7/MANUAL_TEST.md) plus an agent-onboarding test on a fresh repo confirmed it's **usable** and that a real agent **auto-discovers** `AGENT_BRIEF.md` and routes to the right skill unprompted. A grounded [MCP tool review](docs/findings/v0.7/mcp-tool-review.md) found the git-archaeology + curated briefs are the high-trust core, while the call-graph tools are high-recall lead-generators best used with a verify-the-claim discipline. The one open question before a public release — does it make an agent measurably faster on a real **end-to-end** change — is the headline [v0.8 seed](docs/findings/v0.7/DEFERRED.md). Accepted across real repos including Apache Superset, wagtail (Django), spring-petclinic, ripgrep, fastapi, and Iris-Nearby (Flutter/Dart) — see [`docs/findings/`](docs/findings/).
+**What's proven, and what isn't (honest framing).** v0.8 is an **assisted-analysis** tool: a real fresh-agent onboarding test confirmed it's **usable** and that an agent **auto-discovers** `AGENT_BRIEF.md` and routes to the right skill unprompted, and a grounded [MCP tool review](docs/findings/v0.7/mcp-tool-review.md) found the git-archaeology + curated briefs are the high-trust core. The **autonomous end-to-end** question — does deepdive-seeding make an agent *resolve* real issues measurably faster — is **not yet proven**: a model-free localization **pilot** is recorded ([`experiments/fastcontext/RESULTS.md`](experiments/fastcontext/RESULTS.md) — the static seed is a *weak* prior), and the end-to-end measurement is **deferred to v0.9** (it needs a GPU + a frontier main-agent endpoint). No autonomous-execution claims are made. Accepted across real repos including Apache Superset, wagtail (Django), spring-petclinic, ripgrep, fastapi, and Iris-Nearby (Flutter/Dart) — see [`docs/findings/`](docs/findings/).
 
 ## Quick start
 
 ```bash
-# install (uv-managed; from source during the testing phase — not yet on PyPI)
+# install from PyPI (puts `forensic` on PATH); or run ephemerally with uvx
+uv tool install forensic-deepdive
+forensic info            # banner + capability panel
+forensic extract /path/to/repo
+
+# …or from source for development:
 git clone https://github.com/Dhevenddra/forensic-deepdive && cd forensic-deepdive
 uv sync --all-extras
 
