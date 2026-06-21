@@ -19,6 +19,8 @@
 
 Extract also regenerates **`ARCHITECTURE.md`** — a system-level Mermaid view of the cross-boundary graph (ROUTES_TO / INJECTS / PERSISTS_TO, confidence-styled), a *separate human-validation surface* (not one of the five contract artifacts, exactly like `forensic visualize` and `serve --ui`). Regenerate it on its own with `forensic diagram --repo <repo>`. Use it to sanity-check the graph — a wrong edge there is a wrong edge everywhere.
 
+Add **`--emit-vault`** to also write an [Obsidian](https://obsidian.md)-friendly vault under `<output>/vault/` — every artifact gets `summary:`/`tags:` frontmatter, cross-references become `[[wikilinks]]`, and an `INDEX.md` MOC ties them together (with a `.obsidian/` config). A local-first second brain for humans (graph view, backlinks) and agents (triage by `summary:` without opening files, a traversable index). Opt-in; off by default.
+
 ## Status
 
 **v0.7.0 "Coverage Completion + the CLI Style System"** — the five-protocol cross-boundary graph (HTTP/MCP/registry/gRPC/messaging, all on one `Endpoint` join node), hardened against real-repo findings (Django/JAX-RS/AMQP provider completion), plus lane-(iii) agent memory (opt-in `[semantic]` RRF + recency decay + an explicit shadow-ref push), a `resolve_name_to_files` hot-path index (**49.7×**, byte-identical), and a publish-facing **styled CLI** — a `DEEPDIVE` banner, a registry-driven `forensic info` panel, styled `extract`, and a new `forensic trace` command (all Console-only; artifacts stay byte-identical plain markdown). **779 tests.** The 5-artifact + 9-MCP-tool contract is frozen.

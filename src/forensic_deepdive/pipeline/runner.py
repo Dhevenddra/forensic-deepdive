@@ -52,6 +52,10 @@ class ExtractConfig:
     # forensic-deepdive fingerprint) instead of the default write-if-absent skip;
     # hand-edited / foreign files are never touched. The `--refresh-shims` flag.
     refresh_shims: bool = False
+    # DEC-094: opt-in emission of the artifacts as an Obsidian-friendly vault
+    # (frontmatter + wikilinks + MOC + .obsidian/) under `<output_dir>/vault/`.
+    # Default off → byte-identical to today. The `--emit-vault` flag.
+    emit_vault: bool = False
     fetch_github: bool = False
     github_token: str | None = None
     # DEC-013 / item 8: where the persistent LadybugDB knowledge graph lives.

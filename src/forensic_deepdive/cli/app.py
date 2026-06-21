@@ -109,6 +109,14 @@ def extract(
             "hand-edited files are never touched.",
         ),
     ] = False,
+    emit_vault: Annotated[
+        bool,
+        typer.Option(
+            "--emit-vault",
+            help="DEC-094: also emit an Obsidian vault (frontmatter + wikilinks + MOC) "
+            "under <output>/vault/.",
+        ),
+    ] = False,
     semantic: Annotated[
         bool,
         typer.Option(
@@ -145,6 +153,7 @@ def extract(
                 force=force,
                 flatten=legacy_repomix,
                 refresh_shims=refresh_shims,
+                emit_vault=emit_vault,
                 workers=workers,
                 semantic=semantic,
             )

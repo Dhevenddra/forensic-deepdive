@@ -557,10 +557,13 @@ class EmitPhase(Phase):
 
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
         artifacts: dict[str, Path] = {}
+        # Capture content so DEC-094 can transform it into a vault without re-render.
+        vault_content: dict[str, str] = {}
         for filename, content in render_all(facts).items():
             path = cfg.output_dir / filename
             path.write_text(content, encoding="utf-8")
             artifacts[filename] = path
+            vault_content[filename] = content
 
         # DEC-090: ARCHITECTURE.md — a SEPARATE human-validation surface, NOT one
         # of the five contract artifacts (render_all stays the five; their goldens
@@ -574,8 +577,18 @@ class EmitPhase(Phase):
             )
 
             arch_path = cfg.output_dir / ARCHITECTURE_FILENAME
-            arch_path.write_text(render_architecture(facts), encoding="utf-8")
+            arch_content = render_architecture(facts)
+            arch_path.write_text(arch_content, encoding="utf-8")
             artifacts[ARCHITECTURE_FILENAME] = arch_path
+            vault_content[ARCHITECTURE_FILENAME] = arch_content
+
+        # DEC-094: opt-in Obsidian vault — a separate transformed copy under
+        # <output_dir>/vault/. Off by default → the artifacts above are untouched
+        # (byte-identical). Never part of the contract; not added to `artifacts`.
+        if cfg.emit_vault:
+            from forensic_deepdive.emit.vault import VAULT_SUBDIR, emit_vault
+
+            emit_vault(vault_content, cfg.repo_path.name, cfg.output_dir / VAULT_SUBDIR)
 
         shims = ShimResult()
         if cfg.write_editor_shims:
