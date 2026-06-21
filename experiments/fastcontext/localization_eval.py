@@ -15,7 +15,7 @@ checkout + aggregation.
 
     # Real run on a SWE-bench subset (needs `datasets` + repo-clone access):
     uv run --group experiment python experiments/fastcontext/localization_eval.py \
-        --dataset princeton-nlp/SWE-bench_Multilingual --n 50 --seed 0 \
+        --dataset SWE-bench/SWE-bench_Multilingual --n 50 --seed 0 \
         --out experiments/fastcontext/arm_a.json
 """
 
@@ -100,15 +100,31 @@ def run_self_test() -> int:
 
 
 def _checkout(repo_url: str, base_commit: str, dest: Path) -> None:
-    """Clone *repo_url* and check out *base_commit* into *dest* (Arm A real run)."""
-    subprocess.run(["git", "clone", "--quiet", repo_url, str(dest)], check=True)
-    subprocess.run(["git", "-C", str(dest), "checkout", "--quiet", base_commit], check=True)
+    """Fetch ONLY *base_commit*'s tree into *dest* (Arm A real run). A shallow
+    per-commit fetch (`git init` + `fetch --depth 1 <commit>`) avoids cloning the
+    full history of large monorepos — we only need the working tree at that commit
+    to extract + localize. Falls back to a shallow full clone + checkout if the
+    server rejects fetch-by-sha."""
+    dest.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", str(dest)], check=True)
+    try:
+        subprocess.run(
+            ["git", "-C", str(dest), "fetch", "-q", "--depth", "1", repo_url, base_commit],
+            check=True,
+        )
+        subprocess.run(["git", "-C", str(dest), "checkout", "-q", "FETCH_HEAD"], check=True)
+    except subprocess.CalledProcessError:
+        subprocess.run(["git", "clone", "-q", repo_url, str(dest)], check=True)
+        subprocess.run(["git", "-C", str(dest), "checkout", "-q", base_commit], check=True)
 
 
-def run_swebench(dataset: str, n: int, seed: int, out: Path) -> int:
+def run_swebench(dataset: str, n: int, seed: int, out: Path, repos: set[str] | None = None) -> int:
     """Real Arm-A run over a SWE-bench subset. Requires the `datasets` package and
-    network access to clone the target repos. Writes a JSON report and prints the
-    aggregate mean localization F1 — the first honest seed-quality number."""
+    network access to fetch the target repos. Writes a JSON report and prints the
+    aggregate mean localization F1 — the first honest seed-quality number.
+
+    *repos* (optional) restricts to a set of ``owner/name`` repos — useful for a
+    tractable run on smaller repos rather than the large monorepos in the set."""
     try:
         import random
 
@@ -123,6 +139,8 @@ def run_swebench(dataset: str, n: int, seed: int, out: Path) -> int:
         return 2
 
     rows = list(load_dataset(dataset, split="test"))
+    if repos:
+        rows = [r for r in rows if r.get("repo") in repos]
     random.Random(seed).shuffle(rows)
     rows = rows[:n]
     results: list[dict] = []
@@ -158,21 +176,25 @@ def run_swebench(dataset: str, n: int, seed: int, out: Path) -> int:
     }
     out.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"\nmean file-localization F1 = {summary['mean_f1']:.4f} over {len(scored)} instances")
-    print(f"report → {out}")
+    print(f"report -> {out}")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="deepdive seed localization eval (Arm A)")
     parser.add_argument("--self-test", action="store_true", help="run the bundled wiring check")
-    parser.add_argument("--dataset", default="princeton-nlp/SWE-bench_Multilingual")
+    parser.add_argument("--dataset", default="SWE-bench/SWE-bench_Multilingual")
     parser.add_argument("--n", type=int, default=50)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=Path("experiments/fastcontext/arm_a.json"))
+    parser.add_argument(
+        "--repos", default="", help="comma-separated owner/name filter (e.g. tractable small repos)"
+    )
     args = parser.parse_args(argv)
     if args.self_test:
         return run_self_test()
-    return run_swebench(args.dataset, args.n, args.seed, args.out)
+    repos = {r.strip() for r in args.repos.split(",") if r.strip()} or None
+    return run_swebench(args.dataset, args.n, args.seed, args.out, repos)
 
 
 if __name__ == "__main__":

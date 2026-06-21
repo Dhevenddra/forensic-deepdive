@@ -645,9 +645,6 @@ dev = [
     { name = "ruff" },
     { name = "ty" },
 ]
-experiment = [
-    { name = "datasets" },
-]
 graphiti = [
     { name = "graphiti-core" },
 ]
@@ -663,9 +660,13 @@ semantic = [
     { name = "tokenizers" },
 ]
 
+[package.dev-dependencies]
+experiment = [
+    { name = "datasets" },
+]
+
 [package.metadata]
 requires-dist = [
-    { name = "datasets", marker = "extra == 'experiment'", specifier = ">=2.0" },
     { name = "forensic-deepdive", extras = ["graphiti", "mcp", "openapi", "dev"], marker = "extra == 'all'" },
     { name = "graphiti-core", marker = "extra == 'graphiti'", specifier = ">=0.28" },
     { name = "httpx", specifier = ">=0.27" },
@@ -689,7 +690,10 @@ requires-dist = [
     { name = "ty", marker = "extra == 'dev'" },
     { name = "typer", specifier = ">=0.12" },
 ]
-provides-extras = ["graphiti", "mcp", "semantic", "openapi", "dev", "experiment", "all"]
+provides-extras = ["graphiti", "mcp", "semantic", "openapi", "dev", "all"]
+
+[package.metadata.requires-dev]
+experiment = [{ name = "datasets", specifier = ">=2.0" }]
 
 [[package]]
 name = "frozenlist"
