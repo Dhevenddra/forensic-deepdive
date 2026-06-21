@@ -562,6 +562,21 @@ class EmitPhase(Phase):
             path.write_text(content, encoding="utf-8")
             artifacts[filename] = path
 
+        # DEC-090: ARCHITECTURE.md — a SEPARATE human-validation surface, NOT one
+        # of the five contract artifacts (render_all stays the five; their goldens
+        # stay byte-identical). It reads the cross-boundary graph, so it is emitted
+        # only in graph mode, written to the same output dir, and tracked under a
+        # distinct key the CLI lists apart from the contract five.
+        if graph_db_path is not None:
+            from forensic_deepdive.emit.architecture_md import (
+                ARCHITECTURE_FILENAME,
+                render_architecture,
+            )
+
+            arch_path = cfg.output_dir / ARCHITECTURE_FILENAME
+            arch_path.write_text(render_architecture(facts), encoding="utf-8")
+            artifacts[ARCHITECTURE_FILENAME] = arch_path
+
         shims = ShimResult()
         if cfg.write_editor_shims:
             try:

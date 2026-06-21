@@ -114,8 +114,19 @@ def print_extract_summary(console: Console, result: ExtractResult) -> None:
             _confidence_split_text(split, glyphs=_glyphs_ok(console))
         )
     )
-    for name in sorted(result.artifacts):
+    # The five contract artifacts, then ARCHITECTURE.md on its own line — it is a
+    # separate human-validation surface (DEC-090), not a sixth contract artifact.
+    # The filename is held as a local literal (NOT imported from emit/) so the
+    # style layer keeps its presentation-keystone decoupling from emit (DEC-078).
+    arch_name = "ARCHITECTURE.md"
+    for name in sorted(n for n in result.artifacts if n != arch_name):
         console.print(Text(f"    - {name}", style="muted"))
+    if arch_name in result.artifacts:
+        console.print(
+            Text(f"  {'Diagram':>10}  ", style="label").append(
+                f"{arch_name} (cross-boundary view)", style="muted"
+            )
+        )
     if result.shims.written:
         console.print(
             Text("  Shims", style="label").append(

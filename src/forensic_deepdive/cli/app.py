@@ -257,6 +257,42 @@ def trace(
 
 
 @app.command()
+def diagram(
+    repo: Annotated[
+        Path, typer.Option(help="Repo with a built `.deepdive/graph.lbug` (default: cwd).")
+    ] = Path("."),
+    graph_db: Annotated[
+        Path | None,
+        typer.Option(
+            "--graph", help="Explicit .lbug path (overrides <repo>/.deepdive/graph.lbug)."
+        ),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option(help="Where to write ARCHITECTURE.md (default: <repo>/docs/codebase)."),
+    ] = None,
+) -> None:
+    """Regenerate ARCHITECTURE.md: the system-level cross-boundary view (DEC-090).
+
+    A SEPARATE human-validation surface, not one of the five contract artifacts. It
+    renders the ROUTES_TO / INJECTS / PERSISTS_TO graph as a confidence-styled Mermaid
+    diagram so you can sanity-check the graph. `forensic extract` regenerates it too.
+    (Help text is ASCII-only on purpose; the styled output is pipe/code-page safe.)"""
+    from forensic_deepdive.cli.style import get_console
+    from forensic_deepdive.emit.architecture_md import ARCHITECTURE_FILENAME, architecture_for_db
+
+    db_path = graph_db or repo / ".deepdive" / "graph.lbug"
+    out = get_console()
+    if not db_path.exists():
+        out.print(f"[err]No graph at {db_path}.[/err] Run `forensic extract` first to build it.")
+        raise typer.Exit(code=1)
+    dest = output or repo / "docs" / "codebase" / ARCHITECTURE_FILENAME
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(architecture_for_db(db_path, repo.resolve().name), encoding="utf-8")
+    out.print(f"[ok]ARCHITECTURE.md[/ok] written to {dest}")
+
+
+@app.command()
 def graph(
     target: Annotated[
         str,
