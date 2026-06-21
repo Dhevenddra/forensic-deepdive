@@ -39,17 +39,17 @@ def _method(src: str):
 
 
 def test_locator_detection_and_return_type():
-    m, data = _method("class C { @Path(\"items/{id}/\") public Item getItem() {} }")
+    m, data = _method('class C { @Path("items/{id}/") public Item getItem() {} }')
     assert _method_locator(m, data) == "items/{id}/"
     assert _return_type_name(m, data) == "Item"
     # A verb method is not a locator.
-    m, data = _method("class C { @GET @Path(\"x/\") public Item read() {} }")
+    m, data = _method('class C { @GET @Path("x/") public Item read() {} }')
     assert _method_locator(m, data) is None
     # A @Path method returning a non-resource (String/void) is not a locator.
-    m, data = _method("class C { @Path(\"y/\") public String label() {} }")
+    m, data = _method('class C { @Path("y/") public String label() {} }')
     assert _method_locator(m, data) is None
     # Class<Item> → the type argument.
-    m, data = _method("class C { @Path(\"z/\") public Class<Item> locate() {} }")
+    m, data = _method('class C { @Path("z/") public Class<Item> locate() {} }')
     assert _return_type_name(m, data) == "Item"
 
 
@@ -85,8 +85,7 @@ def test_subresource_routes_resolve_across_files(tmp_path):
         }
         endpoints = {r[0] for r in s.query("MATCH (e:Endpoint) RETURN e.contract_id")}
         handled = {
-            r[0]
-            for r in s.query("MATCH (e:Endpoint)<-[:HANDLES]-(:Symbol) RETURN e.contract_id")
+            r[0] for r in s.query("MATCH (e:Endpoint)<-[:HANDLES]-(:Symbol) RETURN e.contract_id")
         }
     # Locator BookStore.getItem -> Item.read, prefix concatenated, resolved cross-file.
     assert ("http::GET::/store/items/{param}", "Item.java::Item.read", "EXTRACTED") in handles

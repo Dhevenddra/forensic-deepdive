@@ -16,6 +16,10 @@ jobs:
   test:
     name: test (ubuntu)
     runs-on: ubuntu-latest
+    # The UNWIND batch-perf test is a wall-clock RELATIVE-speedup assertion that is
+    # flaky on shared CI runners (passes locally); skip it via its built-in env gate.
+    env:
+      FORENSIC_SKIP_BENCH: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

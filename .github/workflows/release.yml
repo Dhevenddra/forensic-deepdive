@@ -14,6 +14,9 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # Manual re-run from the Actions UI — e.g. after adding the PyPI pending
+  # publisher, without deleting/re-pushing the tag. Builds the version in pyproject.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -33,11 +36,11 @@ jobs:
       - name: Sync (all extras)
         run: uv sync --all-extras
       - name: Test
-        # The UNWIND batch-perf test is a wall-clock timing assertion that is flaky
-        # under shared-runner load (passes in isolation) — deselected here, as locally.
-        run: >-
-          uv run pytest -q
-          --deselect "tests/graph/test_batch_perf.py::test_unwind_beats_single_row_by_at_least_5x"
+        # The UNWIND batch-perf test is a wall-clock relative-speedup assertion,
+        # flaky under shared-runner load (passes locally); skip via its env gate.
+        env:
+          FORENSIC_SKIP_BENCH: "1"
+        run: uv run pytest -q
       - name: Build sdist + wheel
         run: uv build
       - name: Publish to PyPI (OIDC Trusted Publishing)

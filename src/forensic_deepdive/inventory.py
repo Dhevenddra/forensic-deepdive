@@ -203,9 +203,7 @@ def classify_role(rel_path: str) -> str:
     # JVM source root, only segments *before* the root may mark an example app.
     jvm = _JVM_SOURCE_ROOT_RE.search(rel_path.lower())
     example_segments = (
-        {seg for seg in rel_path[: jvm.start()].lower().split("/") if seg}
-        if jvm
-        else segments_set
+        {seg for seg in rel_path[: jvm.start()].lower().split("/") if seg} if jvm else segments_set
     )
     if example_segments & _EXAMPLE_SEGMENTS:
         return ROLE_EXAMPLE

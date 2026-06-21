@@ -111,10 +111,7 @@ def test_classify_role_jvm_package_not_example() -> None:
     (petclinic's ``org.springframework.samples.petclinic``; Spring Initializr's
     default ``com.example.demo``). The regression that demoted the entire
     canonical Spring app to ``example``."""
-    assert (
-        classify_role("src/main/java/org/springframework/samples/petclinic/Vet.java")
-        == "source"
-    )
+    assert classify_role("src/main/java/org/springframework/samples/petclinic/Vet.java") == "source"
     assert classify_role("backend/src/main/java/com/example/demo/App.java") == "source"
     assert classify_role("src/main/kotlin/com/acme/demo/Main.kt") == "source"
     # but an actual example *app* (marker dir BEFORE the source root) still counts
