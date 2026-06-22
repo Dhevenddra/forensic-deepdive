@@ -89,9 +89,17 @@ def test_cli_serve_accepts_repo_option(tmp_path: Path) -> None:
 
 
 def test_cli_serve_repo_option_in_help() -> None:
-    result = runner.invoke(app, ["serve", "--help"])
-    assert result.exit_code == 0
-    assert "--repo" in result.stdout
+    """`serve` must expose a `--repo` option (regression for DEC-080 / MANUAL_TEST §7-8).
+    Asserted by introspecting the command's parameters, NOT the rendered `--help` text:
+    Rich wraps the help panel to the terminal width, so on a narrow non-TTY runner the
+    `--repo` token can split across lines, making a substring check on rendered output
+    width-fragile. That fragility kept build.yml's ubuntu test job red from v0.8.0 (help
+    renders ~80 cols there) while it passed on a wider local console."""
+    from typer.main import get_command
+
+    serve = get_command(app).commands["serve"]
+    option_names = [name for param in serve.params for name in param.opts]
+    assert "--repo" in option_names
 
 
 def test_cli_graph_empty_degrades_honestly(tmp_path: Path, monkeypatch) -> None:
