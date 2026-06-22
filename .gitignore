@@ -47,3 +47,6 @@ Thumbs.db
 # Internal coding-process logs — kept local, not part of the published project
 DECISIONS.md
 PROGRESS.md
+
+# v0.8 MANUAL_TEST is a local-only working instrument (run solo; not shipped)
+docs/v0.8/MANUAL_TEST.md

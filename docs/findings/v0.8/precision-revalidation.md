@@ -65,9 +65,12 @@ Verdict: **holds**.
 ## DEC-084 — NL query() name-match
 
 The lexical name-substring tier + de-inflection lives in the **MCP `query` tool** (the CLI
-`query` is substring-grep over artifacts, a different path). Re-validated live over the MCP
-server in the [`../v0.8/MANUAL_TEST.md`](../../v0.8/MANUAL_TEST.md) §8 walkthrough rather than
-here. Noted so a reader doesn't mistake the CLI grep for the ranked NL path.
+`query` is substring-grep over artifacts, a different path). Re-validated live this session by
+calling `hybrid_query` against fastapi's graph: query **"encode"** now returns `jsonable_encoder`,
+`decimal_encoder`, and `generate_encoders_by_class_tuples` — the name-substring tier finds symbols
+whose *name* carries the stem, which is the exact v0.7 miss (the old BM25-only path returned none).
+The degraded-mode note ("semantic tier not installed — lexical + structural only") is present.
+Noted so a reader doesn't mistake the CLI grep for the ranked NL path.
 
 ## AGENT_BRIEF ≤ 5 KB hard cap (sacred invariant)
 
