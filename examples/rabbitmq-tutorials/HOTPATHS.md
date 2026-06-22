@@ -1,26 +1,51 @@
-# HOTPATHS — python
+# HOTPATHS — rabbitmq-tutorials
 
 > The code most other code depends on, and the files that change most.
 > **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise (DEC-015).
 
 ## Dependency hot spots
 
-Symbols with the most inbound `CALLS` edges (DEC-025 resolver). The load-bearing callees — signature changes touch every caller.
+Symbols ranked by **distinct callers** — the count of distinct symbols with a `CALLS` edge into them (structural in-degree; DEC-025 resolver). The load-bearing callees — signature changes touch every caller. The confidence mix is over the underlying call edges (a callee may have more edges than callers).
 
 | Symbol | Defined in | Callers | Confidence mix |
 | --- | --- | --- | --- |
-| `fib` | `rpc_server.py` | 3 | 3 `EXTRACTED` |
-| `main` | `receive.py` | 1 | 1 `EXTRACTED` |
-| `main` | `receive_logs.py` | 1 | 1 `EXTRACTED` |
-| `main` | `receive_logs_direct.py` | 1 | 1 `EXTRACTED` |
-| `main` | `receive_logs_topic.py` | 1 | 1 `EXTRACTED` |
-| `FibonacciRpcClient` | `rpc_client.py` | 1 | 1 `EXTRACTED` |
+| `TutorialSupport.newEnvironment` | `java-amqp/src/main/java/TutorialSupport.java` | 15 | 15 `INFERRED` |
+| `failOnError` | `go/publisher_confirms.go` | 5 | 8 `EXTRACTED` |
+| `PublisherConfirms.createConnection` | `java/PublisherConfirms.java` | 5 | 5 `EXTRACTED` |
+| `openConfirmChannel` | `go/publisher_confirms.go` | 3 | 3 `EXTRACTED` |
+| `failOnError` | `go/rpc_client.go` | 3 | 8 `EXTRACTED` |
+| `RPCClient` | `dart/rpc_client.dart` | 2 | 3 `EXTRACTED` |
+| `fib` | `dart/rpc_server.dart` | 2 | 3 `EXTRACTED` |
+| `fib` | `go-amqp/rpc_server.go` | 2 | 3 `EXTRACTED` |
+| `fib` | `go/rpc_server.go` | 2 | 3 `EXTRACTED` |
+| `RPCServer.fib` | `java-amqp/src/main/java/RPCServer.java` | 2 | 3 `EXTRACTED` |
+| `RPCServer.fib` | `java/RPCServer.java` | 2 | 3 `EXTRACTED` |
+| `fibonacci` | `javascript-nodejs/src/rpc_server.js` | 2 | 3 `EXTRACTED` |
+| `fib` | `python/rpc_server.py` | 2 | 3 `EXTRACTED` |
+| `fib` | `rust-lapin/src/bin/rpc_server.rs` | 2 | 3 `EXTRACTED` |
+| `RabbitAmqpTutorialsRunner` | `spring-amqp-stream/src/main/java/org/springframework/amqp/tutorials/RabbitAmqpTutorialsRunner.java` | 2 | 2 `AMBIGUOUS` |
 
 ## Cross-file dependencies
 
 File-to-file dependencies aggregated from symbol-level `CALLS` edges (DEC-025 resolver). Self-edges (intra-file calls) excluded.
 
-_None._
+| From | To | Calls | Top callee |
+| --- | --- | --- | --- |
+| `java-amqp/src/main/java/PublisherConfirms.java` | `java-amqp/src/main/java/TutorialSupport.java` | 3 | `TutorialSupport.newEnvironment` |
+| `spring-amqp/src/main/java/org/springframework/amqp/tutorials/tut2/Tut2Config.java` | `spring-amqp/src/main/java/org/springframework/amqp/tutorials/tut2/Tut2Receiver.java` | 2 | `Tut2Receiver` |
+| `java-amqp/src/main/java/EmitLog.java` | `java-amqp/src/main/java/TutorialSupport.java` | 1 | `TutorialSupport.newEnvironment` |
+| `java-amqp/src/main/java/EmitLogDirect.java` | `java-amqp/src/main/java/TutorialSupport.java` | 1 | `TutorialSupport.newEnvironment` |
+| `java-amqp/src/main/java/EmitLogTopic.java` | `java-amqp/src/main/java/TutorialSupport.java` | 1 | `TutorialSupport.newEnvironment` |
+| `java-amqp/src/main/java/NewTask.java` | `java-amqp/src/main/java/TutorialSupport.java` | 1 | `TutorialSupport.newEnvironment` |
+| `java-amqp/src/main/java/RPCClient.java` | `java-amqp/src/main/java/TutorialSupport.java` | 1 | `TutorialSupport.newEnvironment` |
+| `java-amqp/src/main/java/RPCServer.java` | `java-amqp/src/main/java/TutorialSupport.java` | 1 | `TutorialSupport.newEnvironment` |
+| `java-amqp/src/main/java/ReceiveLogs.java` | `java-amqp/src/main/java/TutorialSupport.java` | 1 | `TutorialSupport.newEnvironment` |
+| `java-amqp/src/main/java/ReceiveLogsDirect.java` | `java-amqp/src/main/java/TutorialSupport.java` | 1 | `TutorialSupport.newEnvironment` |
+| `java-amqp/src/main/java/ReceiveLogsTopic.java` | `java-amqp/src/main/java/TutorialSupport.java` | 1 | `TutorialSupport.newEnvironment` |
+| `java-amqp/src/main/java/Recv.java` | `java-amqp/src/main/java/TutorialSupport.java` | 1 | `TutorialSupport.newEnvironment` |
+| `java-amqp/src/main/java/Send.java` | `java-amqp/src/main/java/TutorialSupport.java` | 1 | `TutorialSupport.newEnvironment` |
+| `java-amqp/src/main/java/Worker.java` | `java-amqp/src/main/java/TutorialSupport.java` | 1 | `TutorialSupport.newEnvironment` |
+| `spring-amqp-stream/src/main/java/org/springframework/amqp/tutorials/RabbitAmqpTutorialsApplication.java` | `spring-amqp-stream/src/main/java/org/springframework/amqp/tutorials/RabbitAmqpTutorialsRunner.java` | 1 | `RabbitAmqpTutorialsRunner` |
 
 ## Cross-stack routes
 
@@ -30,14 +55,14 @@ Frontend/client call sites joined to the backend handler they hit, via a normali
 
 | Consumer | Handler | Endpoint | Confidence |
 | --- | --- | --- | --- |
-| `rpc_client.py::FibonacciRpcClient.call` | `rpc_server.py::<module>` | `queue::rpc_queue` | `EXTRACTED` |
-| `emit_log_direct.py::<module>` | `receive_logs_direct.py::main` | `amqp::direct_logs` | `INFERRED` |
-| `emit_log.py::<module>` | `receive_logs.py::main` | `amqp::logs` | `INFERRED` |
-| `emit_log_topic.py::<module>` | `receive_logs_topic.py::main` | `amqp::topic_logs` | `INFERRED` |
-| `send.py::<module>` | `receive.py::main` | `queue::hello` | `AMBIGUOUS` |
-| `send.py::<module>` | `send.py::<module>` | `queue::hello` | `AMBIGUOUS` |
-| `new_task.py::<module>` | `new_task.py::<module>` | `queue::task_queue` | `AMBIGUOUS` |
-| `new_task.py::<module>` | `worker.py::<module>` | `queue::task_queue` | `AMBIGUOUS` |
+| `python/rpc_client.py::FibonacciRpcClient.call` | `python/rpc_server.py::<module>` | `queue::rpc_queue` | `EXTRACTED` |
+| `python/emit_log_direct.py::<module>` | `python/receive_logs_direct.py::main` | `amqp::direct_logs` | `INFERRED` |
+| `python/emit_log.py::<module>` | `python/receive_logs.py::main` | `amqp::logs` | `INFERRED` |
+| `python/emit_log_topic.py::<module>` | `python/receive_logs_topic.py::main` | `amqp::topic_logs` | `INFERRED` |
+| `python/send.py::<module>` | `python/receive.py::main` | `queue::hello` | `AMBIGUOUS` |
+| `python/send.py::<module>` | `python/send.py::<module>` | `queue::hello` | `AMBIGUOUS` |
+| `python/new_task.py::<module>` | `python/new_task.py::<module>` | `queue::task_queue` | `AMBIGUOUS` |
+| `python/new_task.py::<module>` | `python/worker.py::<module>` | `queue::task_queue` | `AMBIGUOUS` |
 
 ## Change hot spots
 
@@ -71,4 +96,4 @@ _None._
 
 ---
 
-*Generated by forensic-deepdive 0.6.0 on 2026-06-13. Regenerate with `forensic update` — do not hand-edit.*
+*Generated by forensic-deepdive 0.8.0 on 2026-06-22. Regenerate with `forensic update` — do not hand-edit.*

@@ -45,3 +45,15 @@ it wasn't tuned for.
   `ROUTES_TO`** + 210 `PERSISTS_TO`) + **hermes-agent** (the headline — 22 MCP tools +
   35 registry-dispatch `ROUTES_TO`, vs 1 in v0.4) + **spring-petclinic** (DI/ORM tail)
   + **grpc/rabbitmq/nest/jersey** (Steps 5–6). See [`v0.5/README.md`](v0.5/README.md).
+- [`v0.6/`](v0.6/) — v0.6 "Findings-Driven Refinements": hardened the 5-protocol Endpoint
+  abstraction against the v0.5 findings + Django (wagtail 0→125 Endpoints) + JAX-RS (jersey)
+  + AMQP (rabbitmq) + a 14.7× Superset extract speedup.
+- [`v0.7/`](v0.7/) — v0.7 "Coverage Completion + CLI Style": Django/JAX-RS/AMQP completion,
+  the styled CLI foundation, the usability gate (Iris-Nearby agent-onboarding + live MCP),
+  and the [`DEFERRED.md`](v0.7/DEFERRED.md) ledger that seeded v0.8.
+- [`v0.8/`](v0.8/) — v0.8 "USABLE → USEFUL" precision re-validation. The DEC-083→094 changes
+  proven on real data: AMBIGUOUS route tier is precise (superset A0 vs fastapi A14), distinct
+  caller counts, ARCHITECTURE.md (3 honest modes), `--emit-vault`. Repo set: **superset**
+  (flagship), **fastapi**, **grpc-examples**, **rabbitmq-tutorials**, **hermes-agent**,
+  **spring_react_demo**, **spring-petclinic**, **ripgrep**, **omi** (9-language breadth).
+  See [`v0.8/README.md`](v0.8/README.md).

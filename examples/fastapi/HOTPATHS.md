@@ -5,25 +5,25 @@
 
 ## Dependency hot spots
 
-Symbols with the most inbound `CALLS` edges (DEC-025 resolver). The load-bearing callees — signature changes touch every caller.
+Symbols ranked by **distinct callers** — the count of distinct symbols with a `CALLS` edge into them (structural in-degree; DEC-025 resolver). The load-bearing callees — signature changes touch every caller. The confidence mix is over the underlying call edges (a callee may have more edges than callers).
 
 | Symbol | Defined in | Callers | Confidence mix |
 | --- | --- | --- | --- |
-| `FastAPI` | `fastapi/applications.py` | 331 | 331 `INFERRED` |
-| `Depends` | `fastapi/param_functions.py` | 106 | 106 `AMBIGUOUS` |
-| `Depends` | `fastapi/params.py` | 106 | 106 `AMBIGUOUS` |
-| `HTTPException` | `fastapi/exceptions.py` | 78 | 2 `EXTRACTED`, 76 `INFERRED` |
-| `Default` | `fastapi/datastructures.py` | 77 | 77 `EXTRACTED` |
-| `Path` | `fastapi/param_functions.py` | 60 | 60 `AMBIGUOUS` |
-| `Path` | `fastapi/params.py` | 60 | 60 `AMBIGUOUS` |
+| `FastAPI` | `fastapi/applications.py` | 330 | 331 `AMBIGUOUS` |
+| `Depends` | `fastapi/param_functions.py` | 101 | 106 `AMBIGUOUS` |
+| `Depends` | `fastapi/params.py` | 101 | 106 `AMBIGUOUS` |
+| `HTTPException` | `fastapi/exceptions.py` | 69 | 2 `EXTRACTED`, 76 `AMBIGUOUS` |
 | `Query` | `docs_src/graphql_/tutorial001_py310.py` | 42 | 42 `AMBIGUOUS` |
+| `Path` | `fastapi/param_functions.py` | 42 | 60 `AMBIGUOUS` |
 | `Query` | `fastapi/param_functions.py` | 42 | 42 `AMBIGUOUS` |
+| `Path` | `fastapi/params.py` | 42 | 60 `AMBIGUOUS` |
 | `Query` | `fastapi/params.py` | 42 | 42 `AMBIGUOUS` |
-| `lenient_issubclass` | `fastapi/_compat/shared.py` | 33 | 8 `EXTRACTED`, 25 `INFERRED` |
-| `Body` | `fastapi/param_functions.py` | 31 | 31 `AMBIGUOUS` |
-| `Body` | `fastapi/params.py` | 31 | 31 `AMBIGUOUS` |
+| `Default` | `fastapi/datastructures.py` | 27 | 77 `EXTRACTED` |
 | `Header` | `fastapi/openapi/models.py` | 26 | 26 `AMBIGUOUS` |
 | `Header` | `fastapi/param_functions.py` | 26 | 26 `AMBIGUOUS` |
+| `Header` | `fastapi/params.py` | 26 | 26 `AMBIGUOUS` |
+| `Body` | `fastapi/param_functions.py` | 23 | 31 `AMBIGUOUS` |
+| `Body` | `fastapi/params.py` | 23 | 31 `AMBIGUOUS` |
 
 ## Cross-file dependencies
 
@@ -46,6 +46,30 @@ File-to-file dependencies aggregated from symbol-level `CALLS` edges (DEC-025 re
 | `fastapi/openapi/utils.py` | `fastapi/_compat/v2.py` | 9 | `get_schema_from_model_field` |
 | `fastapi/openapi/utils.py` | `fastapi/dependencies/utils.py` | 9 | `_get_flat_fields_from_params` |
 | `docs_src/security/tutorial005_an_py310.py` | `fastapi/param_functions.py` | 6 | `Depends` |
+
+## Cross-stack routes
+
+_Confidence: `INFERRED` (DEC-015)._
+
+Frontend/client call sites joined to the backend handler they hit, via a normalized HTTP contract (DEC-043 `ROUTES_TO`). `EXTRACTED` = spec-backed or unique literal path+method; `INFERRED` = a templated/normalized match; `AMBIGUOUS` = several candidate handlers (all surfaced, never one picked).
+
+| Consumer | Handler | Endpoint | Confidence |
+| --- | --- | --- | --- |
+| `docs_src/events/tutorial003_py310.py::predict` | `docs_src/events/tutorial003_py310.py::fake_answer_to_everything_ml_model` | `registry::ml_models::answer_to_everything` | `INFERRED` |
+| `scripts/playwright/cookie_param_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts/playwright/cookie_param_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts/playwright/header_param_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts/playwright/header_param_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts/playwright/json_base64_bytes/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts/playwright/json_base64_bytes/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts/playwright/query_param_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts/playwright/query_param_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts/playwright/request_form_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts/playwright/request_form_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts/playwright/sql_databases/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts/playwright/sql_databases/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts/playwright/sql_databases/image02.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts/playwright/sql_databases/image02.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
 
 ## Co-change clusters
 
@@ -96,11 +120,11 @@ Files that are **both** highly depended-on and frequently changed — the riskie
 
 | File | Centrality | Commits |
 | --- | --- | --- |
-| `fastapi/applications.py` | 0.1781 | 103 |
-| `fastapi/openapi/utils.py` | 0.0168 | 84 |
-| `fastapi/dependencies/utils.py` | 0.0050 | 152 |
-| `fastapi/routing.py` | 0.0040 | 167 |
+| `fastapi/applications.py` | 0.1105 | 103 |
+| `fastapi/openapi/utils.py` | 0.0157 | 84 |
+| `fastapi/dependencies/utils.py` | 0.0106 | 152 |
+| `fastapi/routing.py` | 0.0086 | 167 |
 
 ---
 
-*Generated by forensic-deepdive 0.3.0 on 2026-05-30. Regenerate with `forensic update` — do not hand-edit.*
+*Generated by forensic-deepdive 0.8.0 on 2026-06-22. Regenerate with `forensic update` — do not hand-edit.*

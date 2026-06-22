@@ -5,25 +5,25 @@
 
 ## Dependency hot spots
 
-Symbols with the most inbound `CALLS` edges (DEC-025 resolver). The load-bearing callees — signature changes touch every caller.
+Symbols ranked by **distinct callers** — the count of distinct symbols with a `CALLS` edge into them (structural in-degree; DEC-025 resolver). The load-bearing callees — signature changes touch every caller. The confidence mix is over the underlying call edges (a callee may have more edges than callers).
 
 | Symbol | Defined in | Callers | Confidence mix |
 | --- | --- | --- | --- |
-| `log` | `desktop/Desktop/Sources/Logger.swift` | 1580 | 1580 `INFERRED` |
-| `Logger` | `app/lib/utils/logger.dart` | 1462 | 4 `EXTRACTED`, 1458 `INFERRED` |
-| `PlatformManager` | `app/lib/utils/platform/platform_manager.dart` | 463 | 5 `EXTRACTED`, 458 `INFERRED` |
-| `ChatToolResponse` | `plugins/omi-github-app/models.py` | 449 | 449 `AMBIGUOUS` |
-| `ChatToolResponse` | `plugins/omi-google-calendar-app/models.py` | 449 | 449 `AMBIGUOUS` |
-| `ChatToolResponse` | `plugins/omi-hive-app/models.py` | 449 | 449 `AMBIGUOUS` |
-| `ChatToolResponse` | `plugins/omi-linear-app/models.py` | 449 | 449 `AMBIGUOUS` |
-| `ChatToolResponse` | `plugins/omi-notion-app/models.py` | 449 | 449 `AMBIGUOUS` |
-| `ChatToolResponse` | `plugins/omi-shipbob-app/models.py` | 449 | 449 `AMBIGUOUS` |
-| `ChatToolResponse` | `plugins/omi-shopify-app/models.py` | 449 | 449 `AMBIGUOUS` |
-| `ChatToolResponse` | `plugins/omi-twitter-chat-tools-app/models.py` | 449 | 449 `AMBIGUOUS` |
-| `ChatToolResponse` | `plugins/omi-whoop-app/models.py` | 449 | 449 `AMBIGUOUS` |
-| `ChatToolResponse` | `plugins/omi-zomato-app/models.py` | 449 | 449 `AMBIGUOUS` |
-| `SharedPreferencesUtil` | `app/lib/backend/preferences.dart` | 446 | 4 `EXTRACTED`, 442 `INFERRED` |
-| `logError` | `desktop/Desktop/Sources/Logger.swift` | 309 | 309 `INFERRED` |
+| `Logger` | `app/lib/utils/logger.dart` | 778 | 4 `EXTRACTED`, 1458 `AMBIGUOUS` |
+| `log` | `desktop/Desktop/Sources/Logger.swift` | 695 | 1580 `AMBIGUOUS` |
+| `PlatformManager` | `app/lib/utils/platform/platform_manager.dart` | 302 | 5 `EXTRACTED`, 458 `AMBIGUOUS` |
+| `AnalyticsManager.track` | `app/lib/utils/analytics/analytics_manager.dart` | 289 | 289 `EXTRACTED` |
+| `logError` | `desktop/Desktop/Sources/Logger.swift` | 243 | 309 `AMBIGUOUS` |
+| `SharedPreferencesUtil` | `app/lib/backend/preferences.dart` | 227 | 4 `EXTRACTED`, 442 `AMBIGUOUS` |
+| `makeApiCall` | `app/lib/backend/http/shared.dart` | 200 | 200 `AMBIGUOUS` |
+| `Wal` | `app/lib/services/wals/wal.dart` | 116 | 5 `EXTRACTED`, 159 `AMBIGUOUS` |
+| `FirestoreService.build_request` | `desktop/Backend-Rust/src/services/firestore.rs` | 110 | 119 `INFERRED` |
+| `ServerConversation` | `app/lib/backend/schema/conversation.dart` | 97 | 9 `EXTRACTED`, 126 `AMBIGUOUS` |
+| `App` | `app/lib/backend/schema/app.dart` | 89 | 5 `EXTRACTED`, 126 `AMBIGUOUS` |
+| `ServiceManager` | `app/lib/services/services.dart` | 87 | 6 `EXTRACTED`, 88 `AMBIGUOUS` |
+| `BtDevice` | `app/lib/backend/schema/bt_device/bt_device.dart` | 79 | 17 `EXTRACTED`, 91 `AMBIGUOUS` |
+| `get_llm` | `backend/utils/llm/clients.py` | 76 | 76 `EXTRACTED` |
+| `PostHogManager.track` | `desktop/Desktop/Sources/PostHogManager.swift` | 74 | 74 `EXTRACTED` |
 
 ## Cross-file dependencies
 
@@ -46,6 +46,18 @@ File-to-file dependencies aggregated from symbol-level `CALLS` edges (DEC-025 re
 | `plugins/omi-twitter-chat-tools-app/main.py` | `plugins/omi-twitter-chat-tools-app/models.py` | 67 | `ChatToolResponse` |
 | `plugins/omi-twitter-chat-tools-app/main.py` | `plugins/omi-whoop-app/models.py` | 67 | `ChatToolResponse` |
 | `plugins/omi-twitter-chat-tools-app/main.py` | `plugins/omi-zomato-app/models.py` | 67 | `ChatToolResponse` |
+
+## Cross-stack routes
+
+_Confidence: `INFERRED` (DEC-015)._
+
+Frontend/client call sites joined to the backend handler they hit, via a normalized HTTP contract (DEC-043 `ROUTES_TO`). `EXTRACTED` = spec-backed or unique literal path+method; `INFERRED` = a templated/normalized match; `AMBIGUOUS` = several candidate handlers (all surfaced, never one picked).
+
+| Consumer | Handler | Endpoint | Confidence |
+| --- | --- | --- | --- |
+| `backend/utils/retrieval/tools/google_utils.py::refresh_google_token` | `backend/routers/mcp_sse.py::mcp_token` | `http::POST::/token` | `INFERRED` |
+| `plugins/composio/src/notion.py::notion_callback` | `backend/routers/oauth.py::oauth_token` | `http::POST::/v1/oauth/token` | `INFERRED` |
+| `plugins/oauth/client.py::NotionClient.get_access_token` | `backend/routers/oauth.py::oauth_token` | `http::POST::/v1/oauth/token` | `INFERRED` |
 
 ## Co-change clusters
 
@@ -96,7 +108,7 @@ Files that are **both** highly depended-on and frequently changed — the riskie
 
 | File | Centrality | Commits |
 | --- | --- | --- |
-| `app/lib/backend/preferences.dart` | 0.0084 | 161 |
+| `app/lib/backend/preferences.dart` | 0.0085 | 161 |
 | `app/lib/providers/capture_provider.dart` | 0.0033 | 304 |
 | `app/lib/pages/apps/app_detail/app_detail.dart` | 0.0005 | 129 |
 | `app/lib/pages/home/page.dart` | 0.0005 | 334 |
@@ -109,4 +121,4 @@ Files that are **both** highly depended-on and frequently changed — the riskie
 
 ---
 
-*Generated by forensic-deepdive 0.3.0 on 2026-05-30. Regenerate with `forensic update` — do not hand-edit.*
+*Generated by forensic-deepdive 0.8.0 on 2026-06-22. Regenerate with `forensic update` — do not hand-edit.*
