@@ -396,6 +396,15 @@ def graph(
     if result.get("unresolved"):
         console.print(f"[yellow]Could not resolve target '{target}' in the graph.[/yellow]")
         raise typer.Exit(code=1)
+    if result.get("node_count", 0) == 0:
+        # Honest degrade (cf. ARCHITECTURE.md): an empty ```mermaid flowchart``` is
+        # useless to paste, so say why instead of emitting a hollow block.
+        console.print(
+            "[dim]No graph to draw — no nodes matched "
+            "(this repo has no resolved CALLS edges at this scope). "
+            "See MAP.md / HOTPATHS.md for its structure.[/dim]"
+        )
+        return
     # Print the raw fenced block (no Rich markup) so it copies cleanly.
     print(result["mermaid"])
     if result.get("truncated"):

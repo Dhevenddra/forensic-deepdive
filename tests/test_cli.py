@@ -94,6 +94,24 @@ def test_cli_serve_repo_option_in_help() -> None:
     assert "--repo" in result.stdout
 
 
+def test_cli_graph_empty_degrades_honestly(tmp_path: Path, monkeypatch) -> None:
+    """`graph --central` on a repo with no resolved CALLS edges used to emit a hollow
+    ```mermaid flowchart LR``` block with zero nodes (useless to paste). It now degrades
+    honestly with a note and no empty block (cf. ARCHITECTURE.md). v0.8 CLI-usability fix."""
+    db = tmp_path / ".deepdive" / "graph.lbug"
+    db.parent.mkdir(parents=True)
+    db.write_bytes(b"")  # exists, so we reach render_mermaid (which we stub)
+
+    def _fake_render(*_a, **_k):
+        return {"mermaid": "```mermaid\nflowchart LR\n```", "node_count": 0, "truncated": False}
+
+    monkeypatch.setattr("forensic_deepdive.emit.mermaid.render_mermaid", _fake_render)
+    result = runner.invoke(app, ["graph", "--repo", str(tmp_path), "--central"])
+    assert result.exit_code == 0, result.stdout
+    assert "No graph to draw" in result.stdout
+    assert "flowchart LR" not in result.stdout  # no hollow block printed
+
+
 def test_help_text_is_cp1252_safe() -> None:
     """Typer/Click prints command help text (docstrings + option-help) through a
     printer that honours the Windows console code page. A non-ASCII glyph — e.g.
