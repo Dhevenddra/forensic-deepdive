@@ -42,6 +42,9 @@ See [`precision-revalidation.md`](precision-revalidation.md) for the evidence pe
 
 ## Open findings (fed to v0.9 / DEFERRED)
 
+Full v0.9 seed ledger — including the **interactive-CLI** theme (REPL / Textual TUI / onboard
+wizard, before any GUI) — in [`DEFERRED.md`](DEFERRED.md). The two precision findings:
+
 1. **Examples-only repos read as "3 source files"** (grpc-examples) — DEC-049 demotion is
    correct for libraries but the headline is confusing when `examples/` *is* the repo. Fix
    is reporting-side (show graph count / "(N demoted)"), not a re-classification.
