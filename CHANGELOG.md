@@ -4,6 +4,26 @@ All notable changes to `forensic-deepdive`. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+> Post-0.8.0 distribution + docs (no code/version change; 0.8.0 stays published as-is).
+
+### Added
+- **Self-hosted Claude Code plugin marketplace** — `.claude-plugin/marketplace.json`
+  (marketplace `dhevenddra`, plugin source `./`), so the plugin installs straight from
+  GitHub with no clone and no PyPI step: `/plugin marketplace add
+  Dhevenddra/forensic-deepdive` → `/plugin install forensic-deepdive@dhevenddra`.
+- **`CONTRIBUTING.md`** — dev setup, the four-step verification gate, the load-bearing
+  architectural invariants, conventional commits, and inbound=outbound Apache-2.0.
+
+### Changed
+- **README** — added "Install from PyPI" + "Use it as an MCP server" sections (plugin /
+  MCP Registry / manual-config), a Contributing section, and an explicit Apache-2.0 §4
+  attribution note (the LICENSE-appendix boilerplate is a template, not a requirement).
+- **`docs/install.md`** — 0.8.0 is live: dropped the pre-publish caveat (now links the
+  PyPI project + the MCP Registry entry `io.github.Dhevenddra/forensic-deepdive`) and
+  documented the two-command plugin install.
+
 ## [0.8.0] — 2026-06-21
 
 > v0.8 **"USABLE → USEFUL + public release"** — the first public PyPI release.
