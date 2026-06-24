@@ -59,11 +59,56 @@ uv run forensic serve --repo /path/to/repo
 uv run forensic list
 ```
 
-Once published (v0.8), install without cloning: `uv tool install forensic-deepdive`
-(puts `forensic` on PATH) or run ephemerally with `uvx forensic-deepdive …`. For the
-MCP server in Claude Code / Cursor / VS Code / Codex, the one-liner is
-`uvx forensic-deepdive serve --repo <repo>` — see **[docs/install.md](docs/install.md)**
-for per-client copy-paste blocks and the Claude Code plugin.
+## Install from PyPI
+
+Published as **[`forensic-deepdive`](https://pypi.org/project/forensic-deepdive/)** —
+no clone needed:
+
+```bash
+uv tool install forensic-deepdive        # puts `forensic` on PATH
+forensic extract /path/to/repo
+
+# …or run ephemerally, no install:
+uvx forensic-deepdive extract /path/to/repo
+```
+
+Optional extras: `uv tool install "forensic-deepdive[semantic]"` (offline ONNX NL
+query), `[openapi]` (YAML spec parsing), `[graphiti]` (temporal insight backend).
+`pip install forensic-deepdive` works too if you're not on `uv`.
+
+## Use it as an MCP server
+
+`forensic serve` is a stdio MCP server exposing the 9 composite tools to any
+MCP-aware agent (Claude Code, Cursor, VS Code/Copilot, Codex, Continue, Cline,
+Windsurf). First build the graph once (`forensic extract <repo>`), then wire the
+server. Three ways, easiest first:
+
+**1. Claude Code plugin (self-hosted marketplace — no PyPI step):**
+
+```shell
+/plugin marketplace add Dhevenddra/forensic-deepdive
+/plugin install forensic-deepdive@dhevenddra
+```
+
+**2. From the [MCP Registry](https://registry.modelcontextprotocol.io)** — indexed as
+`io.github.Dhevenddra/forensic-deepdive`, so registry-aware clients and discovery hubs
+(PulseMCP, MCPJungle, the VS Code `@mcp` index) can find and install it directly.
+
+**3. Manual config** — generate a client snippet with `forensic mcp-config`, or paste:
+
+```json
+{
+  "mcpServers": {
+    "forensic-deepdive": {
+      "command": "uvx",
+      "args": ["forensic-deepdive", "serve", "--repo", "."]
+    }
+  }
+}
+```
+
+Per-client copy-paste blocks (Cursor, VS Code, Codex, the `uvx`-not-found GUI gotcha)
+are in **[docs/install.md](docs/install.md)**.
 
 ## The 9 supported languages
 
@@ -122,7 +167,7 @@ git clone https://github.com/Dhevenddra/forensic-deepdive
 cd forensic-deepdive
 uv sync --all-extras
 uv run forensic --version
-uv run pytest -x          # 779 tests at v0.7.0
+uv run pytest -x          # 830 tests at v0.8.0
 uv run ruff check src/ tests/
 uv run forensic extract tests/fixtures/tiny_fixture
 ```
@@ -140,6 +185,21 @@ Read `CLAUDE.md`, `DECISIONS.md` (81 active DECs), and `PROGRESS.md` before maki
 - **Astral** for `uv` and `ruff`.
 - **Repomix** (yamadashy) for the original v0.1 flatten-the-repo pattern, now demoted to `--legacy-repomix` (DEC-017) but still available for legacy use cases.
 
+## Contributing
+
+Contributions are welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)** for the dev
+setup, the verification gate, and the architectural invariants (the 5-artifact contract,
+the `Endpoint` keystone, the confidence taxonomy). By contributing you agree your work
+is licensed under Apache-2.0.
+
 ## License
 
-Apache-2.0. See `LICENSE`.
+Apache-2.0. See [`LICENSE`](LICENSE).
+
+If you redistribute, modify, or build on this project, the Apache-2.0 terms apply: you
+must **retain the copyright notice, the `LICENSE` text, and the `NOTICE` file**, and
+**state any changes you made** (License §4). Attribution is required; the project is
+Copyright 2026 Dhevenddra (see [`NOTICE`](NOTICE)). The boilerplate header in the
+`LICENSE` appendix (`Copyright [yyyy] [name of copyright owner]`) is a *template* for
+applying the license to source files — it is not itself a requirement, and the `LICENSE`
+file is kept verbatim as the official Apache-2.0 text.
