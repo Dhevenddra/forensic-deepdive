@@ -5,8 +5,11 @@ an MCP server. The MCP-config-friendly form is **`uvx forensic-deepdive serve --
 <path>`** — `uvx` runs it CWD-independently and `--repo` makes the target repo
 explicit, so the working directory never matters.
 
-> Until the package is on PyPI (v0.8.0 release, DEC-092), use the from-source form:
-> `uv run --project /path/to/forensic-deepdive forensic serve --repo <path>`.
+> Published on PyPI as [`forensic-deepdive`](https://pypi.org/project/forensic-deepdive/)
+> (v0.8.0) and indexed in the official [MCP Registry](https://registry.modelcontextprotocol.io)
+> as `io.github.Dhevenddra/forensic-deepdive`. The from-source form
+> (`uv run --project /path/to/forensic-deepdive forensic serve --repo <path>`) still
+> works for development.
 
 ## CLI
 
@@ -50,9 +53,18 @@ approve it):
 }
 ```
 
-As a **plugin**: this repo ships `.claude-plugin/plugin.json` + `.mcp.json`, so
-`/plugin marketplace add dhevenddra/forensic-deepdive` then
-`/plugin install forensic-deepdive@<marketplace>` registers the server.
+As a **plugin**: this repo self-hosts a Claude Code marketplace
+(`.claude-plugin/marketplace.json`) alongside the `.claude-plugin/plugin.json` +
+`.mcp.json` manifest, so two commands register the MCP server (no clone, no PyPI
+step needed — Claude Code fetches the plugin from GitHub):
+
+```shell
+/plugin marketplace add Dhevenddra/forensic-deepdive
+/plugin install forensic-deepdive@dhevenddra
+```
+
+`@dhevenddra` is the marketplace name; `forensic-deepdive` is the plugin. Refresh
+later with `/plugin marketplace update dhevenddra`.
 
 ### Cursor
 

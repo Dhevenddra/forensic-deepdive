@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "dhevenddra",
+  "owner": {
+    "name": "Dhevenddra",
+    "email": "dhevg20020402@gmail.com"
+  },
+  "description": "Dhevenddra's Claude Code plugins. Hosts forensic-deepdive: a persistent code knowledge graph + 9 composite MCP tools for AI coding agents.",
+  "plugins": [
+    {
+      "name": "forensic-deepdive",
+      "source": "./",
+      "description": "Persistent code knowledge graph + 9 composite MCP tools (impact, context, archaeology, flow, query, record_insight, recall_insights, visualize, trace) for AI coding agents. Five durable markdown artifacts as the human-readable projection.",
+      "version": "0.8.0",
+      "author": {
+        "name": "Dhevenddra"
+      },
+      "homepage": "https://github.com/Dhevenddra/forensic-deepdive",
+      "repository": "https://github.com/Dhevenddra/forensic-deepdive",
+      "license": "Apache-2.0",
+      "keywords": ["mcp", "codebase-analysis", "knowledge-graph", "onboarding", "tree-sitter"],
+      "category": "developer-tools"
+    }
+  ]
+}
