@@ -23,9 +23,11 @@ Add **`--emit-vault`** to also write an [Obsidian](https://obsidian.md)-friendly
 
 ## Status
 
-**v0.8.0 "USABLE → USEFUL + public release"** — the first public PyPI release. Builds on the frozen five-protocol cross-boundary graph (HTTP/MCP/registry/gRPC/messaging on one `Endpoint` join node) with a precision pass (honest call-graph confidence, distinct-caller counts, low-history/solo-repo guards), a human-validation **`ARCHITECTURE.md`** diagram surface, distribution (PyPI + MCP Registry + a Claude Code plugin), and an opt-in **`--emit-vault`** Obsidian export. The 5-artifact + 9-MCP-tool contract is frozen.
+**v0.9.0 "The Interactive CLI"** — a completion release. Deepdive was already an agent-first tool you could invoke; v0.9 makes it one a human can sit inside. Four interactive surfaces ([`repl`](#quick-start), [`browse`](#quick-start), [`onboard`](#quick-start), and the [`deepdive`](#quick-start) session shell) sit on top of the frozen five-protocol cross-boundary graph (HTTP/MCP/registry/gRPC/messaging on one `Endpoint` join node). Also in 0.9: internal decision-ledger IDs no longer leak into emitted artifacts, examples-only repos stop under-reporting their size, and module-scope handlers display their dotted path instead of `<module>`.
 
-**What's proven, and what isn't (honest framing).** v0.8 is an **assisted-analysis** tool: a real fresh-agent onboarding test confirmed it's **usable** and that an agent **auto-discovers** `AGENT_BRIEF.md` and routes to the right skill unprompted, and a grounded [MCP tool review](docs/findings/v0.7/mcp-tool-review.md) found the git-archaeology + curated briefs are the high-trust core. The **autonomous end-to-end** question — does deepdive-seeding make an agent *resolve* real issues measurably faster — is **not yet proven**: a model-free localization **pilot** is recorded ([`experiments/fastcontext/RESULTS.md`](experiments/fastcontext/RESULTS.md) — the static seed is a *weak* prior), and the end-to-end measurement is **deferred to v0.9** (it needs a GPU + a frontier main-agent endpoint). No autonomous-execution claims are made. Accepted across real repos including Apache Superset, wagtail (Django), spring-petclinic, ripgrep, fastapi, and Iris-Nearby (Flutter/Dart) — see [`docs/findings/`](docs/findings/).
+The engine, the graph, the contract layer and the 5-artifact + 9-MCP-tool contract are all **unchanged** from 0.8. That claim is checked, not asserted: on Apache Superset, 0.9.0 still reports the same 62 cross-stack routes (54 `EXTRACTED`, 8 `INFERRED`, 0 `AMBIGUOUS`) and the same 3,276-file symbol graph as 0.8.0. See [`docs/findings/v0.9/`](docs/findings/v0.9/).
+
+**What's proven, and what isn't (honest framing).** Deepdive is an **assisted-analysis** tool. A real fresh-agent onboarding test confirmed it's **usable** and that an agent **auto-discovers** `AGENT_BRIEF.md` and routes to the right skill unprompted, and a grounded [MCP tool review](docs/findings/v0.7/mcp-tool-review.md) found the git-archaeology and curated briefs are the high-trust core. The **autonomous end-to-end** question, whether deepdive-seeding makes an agent *resolve* real issues measurably faster, is **still not proven**. A model-free localization **pilot** is recorded in [`experiments/fastcontext/RESULTS.md`](experiments/fastcontext/RESULTS.md), where the static seed turns out to be a *weak* prior, and the end-to-end measurement remains blocked on hardware (it needs a GPU plus a frontier main-agent endpoint). No autonomous-execution claims are made here. Accepted across real repos including Apache Superset, wagtail (Django), spring-petclinic, ripgrep, fastapi, and Iris-Nearby (Flutter/Dart). See [`docs/findings/`](docs/findings/).
 
 ## Quick start
 
@@ -92,6 +94,20 @@ Optional extras: `uv tool install "forensic-deepdive[semantic]"` (offline ONNX N
 query), `[interactive]` (the `forensic repl` query console, the `forensic browse`
 TUI graph browser, and the `deepdive` session shell), `[openapi]` (YAML spec
 parsing), `[graphiti]` (temporal insight backend).
+
+### Upgrading from 0.8
+
+Re-run `extract` with `--refresh-shims` once. The generated shims and skills under
+`.claude/`, `.cursor/` and `.continue/` are written only if absent, so a plain
+re-extract leaves your 0.8-era copies in place, and two of the skill files still cite
+internal decision IDs that 0.9 removed:
+
+```bash
+forensic extract /path/to/repo --force --refresh-shims
+```
+
+Only files Deepdive generated are rewritten. A shim you have hand-edited is never
+touched.
 `pip install forensic-deepdive` works too if you're not on `uv`.
 
 ## Use it as an MCP server
@@ -185,7 +201,7 @@ git clone https://github.com/Dhevenddra/forensic-deepdive
 cd forensic-deepdive
 uv sync --all-extras
 uv run forensic --version
-uv run pytest -x          # 830 tests at v0.8.0
+uv run pytest -x          # 913 tests at v0.9.0
 uv run ruff check src/ tests/
 uv run forensic extract tests/fixtures/tiny_fixture
 ```

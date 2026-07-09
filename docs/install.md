@@ -6,7 +6,7 @@ an MCP server. The MCP-config-friendly form is **`uvx forensic-deepdive serve --
 explicit, so the working directory never matters.
 
 > Published on PyPI as [`forensic-deepdive`](https://pypi.org/project/forensic-deepdive/)
-> (v0.8.0) and indexed in the official [MCP Registry](https://registry.modelcontextprotocol.io)
+> (v0.9.0) and indexed in the official [MCP Registry](https://registry.modelcontextprotocol.io)
 > as `io.github.Dhevenddra/forensic-deepdive`. The from-source form
 > (`uv run --project /path/to/forensic-deepdive forensic serve --repo <path>`) still
 > works for development.
