@@ -1,11 +1,11 @@
 # HOTPATHS — fastapi
 
 > The code most other code depends on, and the files that change most.
-> **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise (DEC-015).
+> **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise.
 
 ## Dependency hot spots
 
-Symbols ranked by **distinct callers** — the count of distinct symbols with a `CALLS` edge into them (structural in-degree; DEC-025 resolver). The load-bearing callees — signature changes touch every caller. The confidence mix is over the underlying call edges (a callee may have more edges than callers).
+Symbols ranked by **distinct callers** — the count of distinct symbols with a `CALLS` edge into them (structural in-degree; the call-graph resolver). The load-bearing callees — signature changes touch every caller. The confidence mix is over the underlying call edges (a callee may have more edges than callers).
 
 | Symbol | Defined in | Callers | Confidence mix |
 | --- | --- | --- | --- |
@@ -27,7 +27,7 @@ Symbols ranked by **distinct callers** — the count of distinct symbols with a 
 
 ## Cross-file dependencies
 
-File-to-file dependencies aggregated from symbol-level `CALLS` edges (DEC-025 resolver). Self-edges (intra-file calls) excluded.
+File-to-file dependencies aggregated from symbol-level `CALLS` edges (the call-graph resolver). Self-edges (intra-file calls) excluded.
 
 | From | To | Calls | Top callee |
 | --- | --- | --- | --- |
@@ -49,33 +49,33 @@ File-to-file dependencies aggregated from symbol-level `CALLS` edges (DEC-025 re
 
 ## Cross-stack routes
 
-_Confidence: `INFERRED` (DEC-015)._
+_Confidence: `INFERRED`._
 
-Frontend/client call sites joined to the backend handler they hit, via a normalized HTTP contract (DEC-043 `ROUTES_TO`). `EXTRACTED` = spec-backed or unique literal path+method; `INFERRED` = a templated/normalized match; `AMBIGUOUS` = several candidate handlers (all surfaced, never one picked).
+Frontend/client call sites joined to the backend handler they hit, via a normalized HTTP contract (`ROUTES_TO`). `EXTRACTED` = spec-backed or unique literal path+method; `INFERRED` = a templated/normalized match; `AMBIGUOUS` = several candidate handlers (all surfaced, never one picked).
 
 | Consumer | Handler | Endpoint | Confidence |
 | --- | --- | --- | --- |
 | `docs_src/events/tutorial003_py310.py::predict` | `docs_src/events/tutorial003_py310.py::fake_answer_to_everything_ml_model` | `registry::ml_models::answer_to_everything` | `INFERRED` |
-| `scripts/playwright/cookie_param_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
-| `scripts/playwright/cookie_param_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
-| `scripts/playwright/header_param_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
-| `scripts/playwright/header_param_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
-| `scripts/playwright/json_base64_bytes/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
-| `scripts/playwright/json_base64_bytes/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
-| `scripts/playwright/query_param_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
-| `scripts/playwright/query_param_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
-| `scripts/playwright/request_form_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
-| `scripts/playwright/request_form_models/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
-| `scripts/playwright/sql_databases/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
-| `scripts/playwright/sql_databases/image01.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
-| `scripts/playwright/sql_databases/image02.py::<module>` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
-| `scripts/playwright/sql_databases/image02.py::<module>` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.cookie_param_models.image01` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.cookie_param_models.image01` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.header_param_models.image01` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.header_param_models.image01` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.json_base64_bytes.image01` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.json_base64_bytes.image01` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.query_param_models.image01` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.query_param_models.image01` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.request_form_models.image01` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.request_form_models.image01` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.sql_databases.image01` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.sql_databases.image01` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.sql_databases.image02` | `docs_src/custom_docs_ui/tutorial001_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
+| `scripts.playwright.sql_databases.image02` | `docs_src/custom_docs_ui/tutorial002_py310.py::custom_swagger_ui_html` | `http::GET::/docs` | `AMBIGUOUS` |
 
 ## Co-change clusters
 
-_Confidence: `INFERRED` (DEC-015)._
+_Confidence: `INFERRED`._
 
-Files most frequently committed together (DEC-027). The shared-commit count is EXTRACTED from git; the implication 'these should change together' is the derivation.
+Files most frequently committed together. The shared-commit count is EXTRACTED from git; the implication 'these should change together' is the derivation.
 
 | File A | File B | Shared commits |
 | --- | --- | --- |
@@ -114,7 +114,7 @@ Files touched by the most commits (git churn).
 
 ## Churn × centrality
 
-_Confidence: `INFERRED` (DEC-015)._
+_Confidence: `INFERRED`._
 
 Files that are **both** highly depended-on and frequently changed — the riskiest edits in the repo. Commit counts are EXTRACTED; the centrality column and the risk framing are the derivation.
 
@@ -127,4 +127,4 @@ Files that are **both** highly depended-on and frequently changed — the riskie
 
 ---
 
-*Generated by forensic-deepdive 0.8.0 on 2026-06-22. Regenerate with `forensic update` — do not hand-edit.*
+*Generated by forensic-deepdive 0.9.0 on 2026-07-09. Regenerate with `forensic update` — do not hand-edit.*
