@@ -9,7 +9,7 @@
 Five artifacts: `MAP.md`, `HOTPATHS.md`, `ARCHAEOLOGY.md`, `MENTAL_MODEL.md`, `AGENT_BRIEF.md`. AGENT_BRIEF is headline — ≤5kb, assertive Never/Always rules.
 
 ## Stack
-- Python 3.11+ (uv-managed); `typer` CLI; `tree-sitter-language-pack`; `networkx`; `real-ladybug` (graph, DEC-013); `mcp`; `httpx`; `pydantic` v2.
+- Python 3.11+ (uv-managed); `typer` CLI; `rich` (styled CLI, DEC-077); `tree-sitter-language-pack`; `networkx`; `real-ladybug` (graph, DEC-013); `mcp`; `httpx`; `pydantic` v2.
 - Optional extras: `graphiti` (v0.2), `semantic` (ONNX, v0.3), `openapi` (v0.4), `dev` (ruff/pytest).
 - License: Apache-2.0.
 
@@ -68,7 +68,8 @@ uv run ruff format src/ tests/
 | New cross-boundary protocol (v0.5) | `src/forensic_deepdive/contracts/<proto>/` (normalize + provider/consumer extractors + idempotent `register_*`) + a `ProtocolEntry` in `contracts/registry.py` + the register-wire in `pipeline/phases.py::ContractPhase.run` + tests. **Keystone: reuse the `Endpoint` node — do NOT touch `trace`/emit/`serve`.** (DEC-055/057) |
 | New HTTP framework provider | `src/forensic_deepdive/contracts/http/providers/<fw>.py` + append to `providers/__init__.py::PROVIDER_EXTRACTORS` + test (DEC-045/062) |
 | New emitter section | `src/forensic_deepdive/emit/<artifact>_md.py` + golden-file fixture in `tests/fixtures/expected_emit/` |
-| New CLI subcommand | `src/forensic_deepdive/cli.py` + `tests/test_cli.py` |
+| New CLI subcommand | `src/forensic_deepdive/cli/app.py` + `tests/test_cli.py` (`cli.py` became the `cli/` package in DEC-078) |
+| Styled CLI output | `src/forensic_deepdive/cli/style/` + `tests/test_cli_style.py` — Console-only, ASCII-degrade on pipe (DEC-078/080) |
 | New skill | `.claude/skills/<name>/SKILL.md` + add to `docs/SKILLS.md` index |
 | New decision | `DECISIONS.md` (append-only, never edit historical) |
 | New real-repo findings | `docs/findings/v<X.Y>/<repo>-test.md` (one folder per release; see `docs/findings/README.md`) |
@@ -77,7 +78,7 @@ uv run ruff format src/ tests/
 ## Coupling rules ("if you touch X, also touch Y")
 - Change the artifact-name contract → update the SKILL.md files for all three skills.
 - Change `RepoMap` algorithm → update `DECISIONS.md` with rationale.
-- Add a new artifact → update `cli.py`, all three SKILL.md files, README, and `examples/omi/` outputs.
+- Add a new artifact → update `cli/app.py`, all three SKILL.md files, README, and `examples/omi/` outputs.
 
 ## Verification (never stop at "it compiles")
 1. `uv run pytest -x` passes.
