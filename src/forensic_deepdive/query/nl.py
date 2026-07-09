@@ -45,95 +45,109 @@ def hybrid_query(
 
     index_path = lexical_index_path_for_db(db_path)
     with LadybugStore(db_path) as store:
-        # Lexical (always on). Lazily (re)build the sidecar from the graph if
-        # it's missing — so a graph built before Item E still answers NL queries.
-        idx = LexicalIndex(index_path)
-        if not idx.exists():
-            build_lexical_index_from_store(store, index_path)
-        lex_hits = idx.search(query, limit=_POOL)
+        return hybrid_query_on_store(store, index_path, query, semantic=semantic, limit=limit)
 
-        meta: dict[str, dict[str, Any]] = {}
-        for h in lex_hits:
-            meta[h.qualified_name] = {
-                "file": h.file_path,
-                "line": h.line_start,
-                "kind": h.kind,
-                "role": _effective_role(h.role, h.file_path),
+
+def hybrid_query_on_store(
+    store: LadybugStore,
+    index_path: Path,
+    query: str,
+    *,
+    semantic: bool = False,
+    limit: int = 25,
+) -> dict[str, Any]:
+    """The :func:`hybrid_query` body over an already-open *store* (DEC-099: the
+    interactive REPL/shell hold one store open across a session — this is the
+    same retrieval, byte-for-byte, without the per-call open/close)."""
+    # Lexical (always on). Lazily (re)build the sidecar from the graph if
+    # it's missing — so a graph built before Item E still answers NL queries.
+    idx = LexicalIndex(index_path)
+    if not idx.exists():
+        build_lexical_index_from_store(store, index_path)
+    lex_hits = idx.search(query, limit=_POOL)
+
+    meta: dict[str, dict[str, Any]] = {}
+    for h in lex_hits:
+        meta[h.qualified_name] = {
+            "file": h.file_path,
+            "line": h.line_start,
+            "kind": h.kind,
+            "role": _effective_role(h.role, h.file_path),
+        }
+    lexical_ranked = [h.qualified_name for h in lex_hits]
+    exact_names = {h.qualified_name for h in lex_hits if h.exact}
+    # DEC-084: symbols whose NAME carries a query stem. These (and exact hits)
+    # get an additive ranking boost below so a literal name match outranks
+    # unrelated symbols that only co-occur structurally or via BM25 noise.
+    name_match_names = {h.qualified_name for h in lex_hits if h.name_match}
+
+    # Structural (always on). Anchors = exact lexical matches.
+    structural_ranked, struct_meta = _structural(store, list(exact_names))
+    for qn, m in struct_meta.items():
+        meta.setdefault(qn, m)
+
+    retriever_members: dict[str, set[str]] = {
+        "lexical": set(lexical_ranked),
+        "structural": set(structural_ranked),
+    }
+    ranked_lists: list[list[str]] = [lexical_ranked, structural_ranked]
+    retrievers_active = ["lexical", "structural"]
+
+    # Semantic (opt-in, offline). Off / unavailable ⇒ two-retriever, said-so.
+    if semantic:
+        semantic_ranked = _semantic(store, index_path, query, meta)
+        if semantic_ranked is not None:
+            retriever_members["semantic"] = set(semantic_ranked)
+            ranked_lists.append(semantic_ranked)
+            retrievers_active.append("semantic")
+
+    fused = reciprocal_rank_fusion(ranked_lists)
+
+    results: list[dict[str, Any]] = []
+    for qn, fscore in fused.items():
+        m = meta.get(qn)
+        if m is None:
+            continue
+        # DEC-084 name-match boost: float exact/name hits above unrelated
+        # symbols. The bonus is large relative to RRF scores (~0.01–0.03) so it
+        # survives the role/kind shaping multiply (0.4–1.05) — a name hit never
+        # sinks below a non-name hit on shaping alone, while exact > name_match
+        # and ordinary RRF still orders everything within each tier.
+        boost = 2.0 if qn in exact_names else (1.0 if qn in name_match_names else 0.0)
+        results.append(
+            {
+                "symbol": qn,
+                "qualified_name": qn,
+                "file": m["file"],
+                "line": m["line"],
+                "kind": m["kind"],
+                "role": m["role"],
+                "score": fscore + boost,
+                "retrievers": sorted(
+                    r for r, members in retriever_members.items() if qn in members
+                ),
+                "confidence": "EXTRACTED" if qn in exact_names else "INFERRED",
             }
-        lexical_ranked = [h.qualified_name for h in lex_hits]
-        exact_names = {h.qualified_name for h in lex_hits if h.exact}
-        # DEC-084: symbols whose NAME carries a query stem. These (and exact hits)
-        # get an additive ranking boost below so a literal name match outranks
-        # unrelated symbols that only co-occur structurally or via BM25 noise.
-        name_match_names = {h.qualified_name for h in lex_hits if h.name_match}
+        )
+    shaped = shape(results)[:limit]
 
-        # Structural (always on). Anchors = exact lexical matches.
-        structural_ranked, struct_meta = _structural(store, list(exact_names))
-        for qn, m in struct_meta.items():
-            meta.setdefault(qn, m)
-
-        retriever_members: dict[str, set[str]] = {
-            "lexical": set(lexical_ranked),
-            "structural": set(structural_ranked),
-        }
-        ranked_lists: list[list[str]] = [lexical_ranked, structural_ranked]
-        retrievers_active = ["lexical", "structural"]
-
-        # Semantic (opt-in, offline). Off / unavailable ⇒ two-retriever, said-so.
-        if semantic:
-            semantic_ranked = _semantic(store, index_path, query, meta)
-            if semantic_ranked is not None:
-                retriever_members["semantic"] = set(semantic_ranked)
-                ranked_lists.append(semantic_ranked)
-                retrievers_active.append("semantic")
-
-        fused = reciprocal_rank_fusion(ranked_lists)
-
-        results: list[dict[str, Any]] = []
-        for qn, fscore in fused.items():
-            m = meta.get(qn)
-            if m is None:
-                continue
-            # DEC-084 name-match boost: float exact/name hits above unrelated
-            # symbols. The bonus is large relative to RRF scores (~0.01–0.03) so it
-            # survives the role/kind shaping multiply (0.4–1.05) — a name hit never
-            # sinks below a non-name hit on shaping alone, while exact > name_match
-            # and ordinary RRF still orders everything within each tier.
-            boost = 2.0 if qn in exact_names else (1.0 if qn in name_match_names else 0.0)
-            results.append(
-                {
-                    "symbol": qn,
-                    "qualified_name": qn,
-                    "file": m["file"],
-                    "line": m["line"],
-                    "kind": m["kind"],
-                    "role": m["role"],
-                    "score": fscore + boost,
-                    "retrievers": sorted(
-                        r for r, members in retriever_members.items() if qn in members
-                    ),
-                    "confidence": "EXTRACTED" if qn in exact_names else "INFERRED",
-                }
-            )
-        shaped = shape(results)[:limit]
-
-        degraded = "semantic" not in retrievers_active
-        return {
-            "natural_language": query,
-            "retrievers_active": retrievers_active,
-            "degraded": degraded,
-            # DEC-084: state the degraded condition at the point of use, not just as
-            # a boolean flag, so a caller reading the results knows when to distrust
-            # a thin answer and how to upgrade it.
-            "note": (
-                "semantic tier not installed — results are lexical + structural only "
-                "(no concept-level matching). Install the [semantic] extra for "
-                "embedding search."
-                if degraded
-                else "all retrievers active (lexical + structural + semantic)."
-            ),
-            "results": shaped,
-        }
+    degraded = "semantic" not in retrievers_active
+    return {
+        "natural_language": query,
+        "retrievers_active": retrievers_active,
+        "degraded": degraded,
+        # DEC-084: state the degraded condition at the point of use, not just as
+        # a boolean flag, so a caller reading the results knows when to distrust
+        # a thin answer and how to upgrade it.
+        "note": (
+            "semantic tier not installed — results are lexical + structural only "
+            "(no concept-level matching). Install the [semantic] extra for "
+            "embedding search."
+            if degraded
+            else "all retrievers active (lexical + structural + semantic)."
+        ),
+        "results": shaped,
+    }
 
 
 # ---------------------------------------------------------------------------

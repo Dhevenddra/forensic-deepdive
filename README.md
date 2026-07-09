@@ -52,6 +52,10 @@ uv run forensic extract /path/to/repo
 # trace a cross-stack feature slice (frontend call -> endpoint -> handler -> tail)
 uv run forensic trace <symbol> --repo /path/to/repo
 
+# interactive query REPL over one held-open store (needs the [interactive] extra)
+# bare text = natural-language query (no LLM) · :cypher <q> = raw Cypher · :help · Ctrl-D exits
+uv run forensic repl --repo /path/to/repo
+
 # query the graph as an MCP server (point it at the analyzed repo)
 uv run forensic serve --repo /path/to/repo
 
@@ -73,7 +77,8 @@ uvx forensic-deepdive extract /path/to/repo
 ```
 
 Optional extras: `uv tool install "forensic-deepdive[semantic]"` (offline ONNX NL
-query), `[openapi]` (YAML spec parsing), `[graphiti]` (temporal insight backend).
+query), `[interactive]` (the `forensic repl` query console), `[openapi]` (YAML spec
+parsing), `[graphiti]` (temporal insight backend).
 `pip install forensic-deepdive` works too if you're not on `uv`.
 
 ## Use it as an MCP server

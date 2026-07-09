@@ -232,6 +232,54 @@ def query(
 
 
 @app.command()
+def repl(
+    repo: Annotated[
+        Path,
+        typer.Option("--repo", help="Repo with a built `.deepdive/graph.lbug` (default: cwd)."),
+    ] = Path("."),
+    graph: Annotated[
+        Path | None,
+        typer.Option(help="Explicit .lbug path (overrides <repo>/.deepdive/graph.lbug)."),
+    ] = None,
+    semantic: Annotated[
+        bool,
+        typer.Option(
+            "--semantic",
+            help="Also run the semantic retriever on NL queries (needs the [semantic] extra).",
+        ),
+    ] = False,
+) -> None:
+    """Interactive query REPL over one held-open graph store (DEC-099, v0.9).
+
+    Bare text is a natural-language query (lexical + structural retrieval, never an
+    LLM); ':cypher <q>' runs raw Cypher; ':help' lists commands; Ctrl-D exits.
+    Needs the [interactive] extra and a TTY. (Help text is ASCII-only on purpose;
+    the styled runtime output degrades per --plain / NO_COLOR.)"""
+    import sys
+
+    from forensic_deepdive.cli.interactive import INSTALL_HINT, interactive_available
+    from forensic_deepdive.cli.style import get_console
+
+    out = get_console()
+    db_path = graph or repo / ".deepdive" / "graph.lbug"
+    if not db_path.exists():
+        out.print(f"[err]No graph at {db_path}.[/err] Run `forensic extract` first to build it.")
+        raise typer.Exit(code=1)
+    if not interactive_available():
+        out.print(INSTALL_HINT, markup=False, highlight=False)
+        raise typer.Exit(code=1)
+    if not sys.stdin.isatty():
+        out.print(
+            "[err]forensic repl needs a TTY[/err] (stdin is piped/redirected). "
+            "For scripted queries use `forensic serve` (MCP query tool) instead."
+        )
+        raise typer.Exit(code=1)
+    from forensic_deepdive.cli.interactive.repl import run_repl
+
+    raise typer.Exit(code=run_repl(db_path, semantic=semantic))
+
+
+@app.command()
 def trace(
     symbol: Annotated[str, typer.Argument(help="Symbol to trace (qualified or bare name).")],
     repo: Annotated[
