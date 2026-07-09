@@ -64,6 +64,10 @@ uv run forensic repl --repo /path/to/repo
 # 1/2/3 = Symbols/Files/Endpoints · type to filter · c/e/l = confidence/edge/language · Enter = context · i/f = impact/flow
 uv run forensic browse --repo /path/to/repo
 
+# the session shell: all of the above over ONE held-open graph, with history
+# in-session: extract · query · trace · impact · flow · diagram · browse · onboard · serve
+uv run deepdive --repo /path/to/repo
+
 # query the graph as an MCP server (point it at the analyzed repo)
 uv run forensic serve --repo /path/to/repo
 
@@ -85,9 +89,9 @@ uvx forensic-deepdive extract /path/to/repo
 ```
 
 Optional extras: `uv tool install "forensic-deepdive[semantic]"` (offline ONNX NL
-query), `[interactive]` (the `forensic repl` query console + the `forensic browse`
-TUI graph browser), `[openapi]` (YAML spec parsing), `[graphiti]` (temporal insight
-backend).
+query), `[interactive]` (the `forensic repl` query console, the `forensic browse`
+TUI graph browser, and the `deepdive` session shell), `[openapi]` (YAML spec
+parsing), `[graphiti]` (temporal insight backend).
 `pip install forensic-deepdive` works too if you're not on `uv`.
 
 ## Use it as an MCP server

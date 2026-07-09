@@ -578,3 +578,331 @@ def test_cli_onboard_refuses_non_tty_without_yes(fresh_repo, monkeypatch):
     result = CliRunner().invoke(app, ["onboard", "--repo", str(fresh_repo)])
     assert result.exit_code == 1
     assert "TTY" in result.output and "--yes" in result.output
+
+
+# ---------------------------------------------------------------------------
+# DEC-102 — the `deepdive` session shell
+# ---------------------------------------------------------------------------
+
+
+def _run_shell(repo: Path, tmp_path: Path, script: str, **kwargs) -> tuple[int, str]:
+    """Drive run_shell with a scripted command sequence."""
+    pytest.importorskip("prompt_toolkit")
+    from prompt_toolkit.input.defaults import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from forensic_deepdive.cli.interactive.shell import run_shell
+
+    console, sio = _capture_console()
+    with create_pipe_input() as inp:
+        inp.send_text(script)
+        inp.close()
+        code = run_shell(
+            repo,
+            console=console,
+            history_file=tmp_path / "shell_history",
+            pt_input=inp,
+            pt_output=DummyOutput(),
+            **kwargs,
+        )
+    return code, sio.getvalue()
+
+
+def _shell_repo(graph_repo: Path) -> tuple[Path, Path]:
+    return graph_repo / "python_sample", graph_repo / "graph.lbug"
+
+
+def test_shell_module_imports_without_prompt_toolkit(monkeypatch):
+    monkeypatch.setitem(sys.modules, "prompt_toolkit", None)
+    import importlib
+
+    import forensic_deepdive.cli.interactive.shell as shell_mod
+
+    importlib.reload(shell_mod)
+    assert hasattr(shell_mod, "run_shell")
+
+
+def test_shell_missing_extra_prints_actionable_hint(monkeypatch, graph_repo, tmp_path):
+    monkeypatch.setitem(sys.modules, "prompt_toolkit", None)  # force ImportError
+    from forensic_deepdive.cli.interactive.shell import run_shell
+
+    repo, graph = _shell_repo(graph_repo)
+    console, sio = _capture_console()
+    code = run_shell(repo, graph=graph, console=console, history_file=tmp_path / "h")
+    assert code == 1
+    assert "forensic-deepdive[interactive]" in sio.getvalue()
+
+
+def test_store_session_release_frees_the_lock_and_reopens(graph_repo):
+    """The load-bearing invariant: LadybugDB takes an exclusive file lock, so a
+    second handle raises. `released()` hands the lock back; `.store` re-takes it."""
+    from forensic_deepdive.cli.interactive.shell import StoreSession
+
+    _, graph = _shell_repo(graph_repo)
+    session = StoreSession(graph)
+    assert session.store.query("MATCH (s:Symbol) RETURN count(s)")  # held open
+
+    with pytest.raises(RuntimeError, match="lock"):  # proves the lock is real
+        LadybugStore(graph).connect()
+
+    with session.released():
+        second = LadybugStore(graph)
+        second.connect()  # must not raise — the shell gave the lock back
+        second.close()
+
+    assert session.store.query("MATCH (s:Symbol) RETURN count(s)")  # lazily reopened
+    session.close()
+
+
+def test_shell_store_opened_once_across_queries(graph_repo, tmp_path, monkeypatch):
+    """The DEC-099 hot path survives: repeated questions share one open store."""
+    connects: list[int] = []
+    orig = LadybugStore.connect
+    monkeypatch.setattr(LadybugStore, "connect", lambda self: (connects.append(1), orig(self))[1])
+
+    repo, graph = _shell_repo(graph_repo)
+    code, _ = _run_shell(
+        repo,
+        tmp_path,
+        "greet\nformat message\n:cypher MATCH (s:Symbol) RETURN count(s)\n:quit\n",
+        graph=graph,
+    )
+    assert code == 0
+    assert len(connects) == 1
+
+
+def test_shell_trace_runs_between_queries_without_a_lock_error(graph_repo, tmp_path):
+    """The bug this design exists to prevent: `trace` opens its own handle, so a
+    naive held-open store would raise 'Could not set lock on file'. The query
+    before and after it must both still work."""
+    repo, graph = _shell_repo(graph_repo)
+    script = "greet\ntrace format_message\ngreet\n:quit\n"
+    code, out = _run_shell(repo, tmp_path, script, graph=graph)
+    assert code == 0
+    assert "lock" not in out.lower()
+    assert "format_message" in out
+    assert out.count("greeter.py") >= 2  # both NL queries ran
+
+
+def test_shell_impact_and_flow_render_json(graph_repo, tmp_path):
+    repo, graph = _shell_repo(graph_repo)
+    script = "impact format_message\nflow greet\n:quit\n"
+    code, out = _run_shell(repo, tmp_path, script, graph=graph)
+    assert code == 0
+    assert '"symbol"' in out or '"callers"' in out
+    assert "lock" not in out.lower()
+
+
+def test_shell_browse_is_dispatched_with_the_lock_released(graph_repo, tmp_path, monkeypatch):
+    """`browse` must be launched blocking (never nested in the prompt) AND with
+    no handle held — the Textual App loads its snapshot through its own store."""
+    calls: list[tuple[Path, int]] = []
+
+    def fake_run_browse(db_path, *, max_nodes=500):
+        probe = LadybugStore(db_path)
+        probe.connect()  # raises if the shell still holds the lock
+        probe.close()
+        calls.append((db_path, max_nodes))
+        return 0
+
+    monkeypatch.setattr(
+        "forensic_deepdive.cli.interactive.browser.run_browse", fake_run_browse, raising=True
+    )
+    repo, graph = _shell_repo(graph_repo)
+    script = "greet\nbrowse --max-nodes 7\ngreet\n:quit\n"
+    code, out = _run_shell(repo, tmp_path, script, graph=graph)
+    assert code == 0
+    assert calls == [(graph, 7)]
+    assert "lock" not in out.lower()
+
+
+def test_shell_serve_releases_the_lock_before_serving(graph_repo, tmp_path, monkeypatch):
+    served: list[Path] = []
+
+    async def fake_serve_stdio(db_path):
+        probe = LadybugStore(db_path)
+        probe.connect()  # raises if the shell still holds the lock
+        probe.close()
+        served.append(db_path)
+
+    monkeypatch.setattr("forensic_deepdive.mcp_server.serve_stdio", fake_serve_stdio, raising=True)
+    repo, graph = _shell_repo(graph_repo)
+    code, out = _run_shell(repo, tmp_path, "greet\nserve\n:quit\n", graph=graph)
+    assert code == 0
+    assert served == [graph]
+    assert "JSON-RPC" in out
+
+
+def test_shell_extract_invalidates_and_reopens_the_store(fresh_repo, tmp_path):
+    """An in-session extract rewrites the graph under us: the store is released
+    first, and the next query transparently opens the NEW graph."""
+    code, out = _run_shell(fresh_repo, tmp_path, "trace greet\nextract\ngreet\n:quit\n")
+    assert code == 0
+    assert "no graph yet" in out  # the pre-extract trace was refused, not crashed
+    assert (fresh_repo / ".deepdive" / "graph.lbug").exists()
+    assert "greeter.py" in out  # the post-extract NL query hit the fresh graph
+    assert "lock" not in out.lower()
+
+
+def test_shell_diagram_writes_architecture(graph_repo, tmp_path):
+    repo, graph = _shell_repo(graph_repo)
+    code, out = _run_shell(repo, tmp_path, "diagram\n:quit\n", graph=graph)
+    assert code == 0
+    assert (repo / "docs" / "codebase" / "ARCHITECTURE.md").exists()
+    assert "ARCHITECTURE.md" in out
+
+
+def test_shell_onboard_dispatches_the_wizard(graph_repo, tmp_path, monkeypatch):
+    seen: list[bool] = []
+
+    def fake_onboard(repo, **kwargs):
+        seen.append(kwargs.get("yes", False))
+        return 0
+
+    monkeypatch.setattr(
+        "forensic_deepdive.cli.interactive.onboard.run_onboard", fake_onboard, raising=True
+    )
+    repo, graph = _shell_repo(graph_repo)
+    code, _ = _run_shell(repo, tmp_path, "onboard --yes\n:quit\n", graph=graph)
+    assert code == 0
+    assert seen == [True]
+
+
+def test_shell_bare_text_is_nl_and_query_takes_the_rest(graph_repo, tmp_path):
+    repo, graph = _shell_repo(graph_repo)
+    _, bare = _run_shell(repo, tmp_path, "greet\n:quit\n", graph=graph)
+    _, explicit = _run_shell(repo, tmp_path, "query greet\n:quit\n", graph=graph)
+    assert "greeter.py" in bare and "greeter.py" in explicit
+
+
+def test_shell_commands_need_a_symbol(graph_repo, tmp_path):
+    repo, graph = _shell_repo(graph_repo)
+    code, out = _run_shell(repo, tmp_path, "trace\nimpact\n:quit\n", graph=graph)
+    assert code == 0
+    assert out.count("needs a symbol") == 2
+
+
+def test_shell_without_a_graph_guides_to_extract(fresh_repo, tmp_path):
+    code, out = _run_shell(fresh_repo, tmp_path, "greet\nbrowse\n:quit\n")
+    assert code == 0
+    assert out.count("no graph yet") >= 2
+
+
+def test_shell_help_and_unknown_meta_command(graph_repo, tmp_path):
+    repo, graph = _shell_repo(graph_repo)
+    code, out = _run_shell(repo, tmp_path, ":help\n:bogus\n:quit\n", graph=graph)
+    assert code == 0
+    assert "trace <symbol>" in out and ":cypher" in out
+    assert "unknown command" in out
+
+
+def test_shell_eof_exits_cleanly_and_closes_the_store(graph_repo, tmp_path, monkeypatch):
+    closes: list[int] = []
+    orig = LadybugStore.close
+    monkeypatch.setattr(LadybugStore, "close", lambda self: (closes.append(1), orig(self))[1])
+    repo, graph = _shell_repo(graph_repo)
+    code, _ = _run_shell(repo, tmp_path, "greet\n", graph=graph)  # EOF, no :quit
+    assert code == 0
+    assert len(closes) >= 1
+
+
+def test_shell_output_is_cp1252_safe(graph_repo, tmp_path):
+    repo, graph = _shell_repo(graph_repo)
+    _, out = _run_shell(repo, tmp_path, "greet\n:help\n:quit\n", graph=graph)
+    out.encode("cp1252")  # must not raise
+
+
+def test_deepdive_console_script_is_declared_and_importable():
+    """The `deepdive` [project.scripts] entry must resolve to a real callable."""
+    import tomllib
+
+    from forensic_deepdive.cli.interactive.shell import main
+
+    pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text("utf-8"))
+    target = pyproject["project"]["scripts"]["deepdive"]
+    assert target == "forensic_deepdive.cli.interactive.shell:main"
+    assert callable(main)
+
+
+def test_terminal_errors_include_the_windows_console_failure():
+    """MinTTY/Git Bash reports isatty()==True but has no Windows console screen
+    buffer, so prompt_toolkit raises on construction. The tuple must catch it."""
+    from forensic_deepdive.cli.interactive import terminal_errors
+
+    errors = terminal_errors()
+    assert io.UnsupportedOperation in errors
+    if sys.platform == "win32":
+        pytest.importorskip("prompt_toolkit")
+        from prompt_toolkit.output.win32 import NoConsoleScreenBufferError
+
+        assert NoConsoleScreenBufferError in errors
+
+
+@pytest.mark.parametrize("surface", ["shell", "repl"])
+def test_hostile_terminal_gets_a_hint_not_a_traceback(surface, graph_repo, tmp_path, monkeypatch):
+    """Found by running the real `deepdive` script under Git Bash: the TTY guard
+    passed, then prompt_toolkit died with a raw traceback."""
+    pytest.importorskip("prompt_toolkit")
+    import prompt_toolkit
+
+    def explode(*args, **kwargs):
+        raise io.UnsupportedOperation("no console screen buffer")
+
+    monkeypatch.setattr(prompt_toolkit, "PromptSession", explode)
+    console, sio = _capture_console()
+    repo, graph = _shell_repo(graph_repo)
+    if surface == "shell":
+        from forensic_deepdive.cli.interactive.shell import run_shell
+
+        code = run_shell(repo, graph=graph, console=console, history_file=tmp_path / "h")
+    else:
+        from forensic_deepdive.cli.interactive.repl import run_repl
+
+        code = run_repl(graph, console=console, history_file=tmp_path / "h")
+    assert code == 1
+    assert "winpty" in sio.getvalue()
+    assert "Traceback" not in sio.getvalue()
+
+
+def test_shell_resolve_repo_prefers_explicit_then_cwd(tmp_path, monkeypatch):
+    from forensic_deepdive.cli.interactive.shell import resolve_repo
+
+    console, _ = _capture_console()
+    assert resolve_repo(tmp_path, console) == tmp_path.resolve()
+
+    graphed = tmp_path / "withgraph"
+    (graphed / ".deepdive").mkdir(parents=True)
+    (graphed / ".deepdive" / "graph.lbug").write_text("x", encoding="utf-8")
+    monkeypatch.chdir(graphed)
+    assert resolve_repo(None, console) == graphed.resolve()
+
+
+def test_shell_resolve_repo_picks_from_the_registry(tmp_path, monkeypatch):
+    """No graph in cwd: offer the analyzed repos, and honour the pick."""
+    from forensic_deepdive.cli.interactive import shell as shell_mod
+
+    picked = tmp_path / "analyzed"
+    (picked / ".deepdive").mkdir(parents=True)
+    graph = picked / ".deepdive" / "graph.lbug"
+    graph.write_text("x", encoding="utf-8")
+
+    class _Entry:
+        name = "analyzed"
+        repo_path = str(picked)
+        graph_db_path = str(graph)
+
+    class _Reg:
+        repos = (_Entry(),)
+
+    monkeypatch.setattr("forensic_deepdive.registry.load", lambda: _Reg(), raising=True)
+    empty = tmp_path / "elsewhere"
+    empty.mkdir()
+    monkeypatch.chdir(empty)
+    console, sio = _capture_console()
+
+    assert shell_mod.resolve_repo(None, console, ask=lambda _p: "1") == picked.resolve()
+    assert "analyzed" in sio.getvalue()
+    # a blank answer stays put; a bad answer warns and stays put
+    assert shell_mod.resolve_repo(None, console, ask=lambda _p: "") == empty.resolve()
+    assert shell_mod.resolve_repo(None, console, ask=lambda _p: "9") == empty.resolve()
+    assert "no such choice" in sio.getvalue()

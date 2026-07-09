@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from forensic_deepdive.cli.interactive import INSTALL_HINT
+from forensic_deepdive.cli.interactive import INSTALL_HINT, TERMINAL_HINT, terminal_errors
 from forensic_deepdive.cli.style import get_console
 from forensic_deepdive.graph import LadybugStore
 from forensic_deepdive.static.resolver import module_display_name
@@ -211,5 +211,9 @@ def run_browse(db_path: Path, *, max_nodes: int = DEFAULT_NODE_CAP) -> int:
         snapshot = load_snapshot(db_path, max_nodes)
     from forensic_deepdive.cli.interactive.browser_app import GraphBrowser  # noqa: PLC0415
 
-    GraphBrowser(snapshot).run()  # blocking; reclaims the terminal on exit
+    try:
+        GraphBrowser(snapshot).run()  # blocking; reclaims the terminal on exit
+    except terminal_errors():
+        console.print(TERMINAL_HINT, markup=False, highlight=False)
+        return 1
     return 0

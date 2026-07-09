@@ -84,6 +84,10 @@ forensic = "forensic_deepdive.cli:app"
 # the primary/documented binary (DEC-010); this is the MCP-config ergonomic form
 # used uniformly across the registry server.json and every client install block.
 forensic-deepdive = "forensic_deepdive.cli:app"
+# DEC-102 (v0.9): the session shell gets its own verb — `deepdive` is the noun
+# users say, and the shell is a different mode from the `forensic` subcommands
+# (one held-open graph, in-session commands). Needs the [interactive] extra.
+deepdive = "forensic_deepdive.cli.interactive.shell:main"
 
 [project.urls]
 Homepage = "https://github.com/Dhevenddra/forensic-deepdive"

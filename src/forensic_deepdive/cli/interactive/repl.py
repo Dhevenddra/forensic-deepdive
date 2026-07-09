@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any
 
 from rich.text import Text
 
-from forensic_deepdive.cli.interactive import INSTALL_HINT
+from forensic_deepdive.cli.interactive import INSTALL_HINT, TERMINAL_HINT, terminal_errors
 from forensic_deepdive.cli.style import get_console
 from forensic_deepdive.cli.style.console import confidence_label
 from forensic_deepdive.cli.style.render import _glyphs_ok
@@ -87,12 +87,18 @@ def run_repl(
     store.connect()
     try:
         index_path = lexical_index_path_for_db(db_path)
-        session: PromptSession[str] = PromptSession(
-            history=FileHistory(str(hist_path)),
-            completer=WordCompleter([*_META_COMMANDS, *_completion_names(store)], ignore_case=True),
-            input=pt_input,
-            output=pt_output,
-        )
+        try:
+            session: PromptSession[str] = PromptSession(
+                history=FileHistory(str(hist_path)),
+                completer=WordCompleter(
+                    [*_META_COMMANDS, *completion_names(store)], ignore_case=True
+                ),
+                input=pt_input,
+                output=pt_output,
+            )
+        except terminal_errors():
+            out.print(TERMINAL_HINT, markup=False, highlight=False)
+            return 1
         out.print(
             Text("deepdive repl", style="brand").append(
                 f" — {db_path}  (:help for commands, Ctrl-D to exit)", style="muted"
@@ -113,23 +119,24 @@ def run_repl(
                 out.print(_HELP_TEXT, markup=False, highlight=False)
                 continue
             if line.startswith((":cypher ", ":c ")):
-                _run_cypher(out, store, line.split(" ", 1)[1].strip())
+                run_cypher(out, store, line.split(" ", 1)[1].strip())
                 continue
             if line.startswith(":"):
                 out.print(f"[warn]unknown command {line.split()[0]!r} — :help lists them.[/warn]")
                 continue
-            _run_nl(out, store, index_path, line, semantic=semantic)
+            run_nl(out, store, index_path, line, semantic=semantic)
     finally:
         store.close()
     return 0
 
 
 # ---------------------------------------------------------------------------
-# Dispatch targets
+# Dispatch targets — public: the session shell (DEC-102) reuses them verbatim
+# rather than re-implementing NL/Cypher rendering.
 # ---------------------------------------------------------------------------
 
 
-def _run_cypher(out: Console, store: LadybugStore, cypher: str) -> None:
+def run_cypher(out: Console, store: LadybugStore, cypher: str) -> None:
     """Raw Cypher over the open store; bounded, honest row rendering."""
     if not cypher:
         out.print("[warn]:cypher needs a query, e.g. :cypher MATCH (s:Symbol) RETURN s[/warn]")
@@ -146,7 +153,7 @@ def _run_cypher(out: Console, store: LadybugStore, cypher: str) -> None:
     out.print(Text(f"{tail} row(s)", style="muted"))
 
 
-def _run_nl(
+def run_nl(
     out: Console, store: LadybugStore, index_path: Path, query: str, *, semantic: bool
 ) -> None:
     """Hybrid NL query (DEC-084) over the open store; confidence-styled hits."""
@@ -171,7 +178,7 @@ def _run_nl(
 # ---------------------------------------------------------------------------
 
 
-def _completion_names(store: LadybugStore) -> list[str]:
+def completion_names(store: LadybugStore) -> list[str]:
     """A bounded, deterministic pool of symbol leaf names for tab-completion."""
     try:
         rows = store.query(

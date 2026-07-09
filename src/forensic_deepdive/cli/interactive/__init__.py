@@ -29,3 +29,32 @@ def interactive_available() -> bool:
     except ImportError:
         return False
     return True
+
+
+# A TTY check is not enough on Windows: MinTTY/Git Bash reports ``isatty() ==
+# True`` but hands prompt_toolkit an xterm-style terminal with no Windows
+# console screen buffer, so the full-screen surfaces raise on startup. Catch
+# that at the point of construction and say what to do about it, rather than
+# spilling a traceback (found by running the `deepdive` script under Git Bash).
+TERMINAL_HINT = (
+    "This terminal can't host an interactive session (it looks like MinTTY /\n"
+    "Git Bash, which reports a TTY but has no Windows console screen buffer).\n"
+    "Run it from PowerShell, Windows Terminal or cmd.exe - or prefix the\n"
+    "command with `winpty`."
+)
+
+
+def terminal_errors() -> tuple[type[BaseException], ...]:
+    """Exceptions raised when a terminal cannot host a full-screen surface."""
+    import io
+
+    errors: list[type[BaseException]] = [io.UnsupportedOperation]
+    try:
+        from prompt_toolkit.output.win32 import (  # noqa: PLC0415 — optional, Windows-only
+            NoConsoleScreenBufferError,
+        )
+    except Exception:  # pragma: no cover — not Windows, or the extra is absent
+        pass
+    else:
+        errors.append(NoConsoleScreenBufferError)
+    return tuple(errors)
