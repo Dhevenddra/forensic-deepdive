@@ -57,3 +57,10 @@ it wasn't tuned for.
   (flagship), **fastapi**, **grpc-examples**, **rabbitmq-tutorials**, **hermes-agent**,
   **spring_react_demo**, **spring-petclinic**, **ripgrep**, **omi** (9-language breadth).
   See [`v0.8/README.md`](v0.8/README.md).
+- [`v0.9/`](v0.9/) — v0.9 "The Interactive CLI". A completion release, so the run is built around
+  a **negative** claim (nothing moved: superset 62 routes 54/8/0, hermes 36 routes 0/1/35, both
+  identical to v0.8) plus one explicit check: **no internal `DEC-NNN` ledger ID in anything the
+  tool emits**. That check *failed on first run* — `--refresh-shims` could never refresh the five
+  emitted skills (**DEC-108**, fixed before the tag). Both v0.8 open findings closed. Repo set:
+  **superset** (flagship), **hermes-agent** (owner's repo, and an 0.8 → 0.9 upgrade).
+  See [`v0.9/README.md`](v0.9/README.md).
