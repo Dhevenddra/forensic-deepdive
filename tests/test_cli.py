@@ -56,6 +56,62 @@ def test_cli_mcp_config_client_variants(tmp_path: Path) -> None:
     assert 'command = "uvx"' in codex.stdout
 
 
+def test_cli_mcp_config_dev_emits_from_source_form(tmp_path: Path) -> None:
+    """DEC-105: `--dev` emits the launchable from-source `uv run --project` shape
+    (the default uvx form can't launch an unpublished checkout)."""
+    import json
+
+    result = runner.invoke(app, ["mcp-config", "--repo", str(tmp_path), "--dev"])
+    assert result.exit_code == 0, result.stdout
+    server = json.loads(result.stdout)["mcpServers"]["forensic-deepdive"]
+    assert server["command"] == "uv"
+    assert server["args"][:2] == ["run", "--project"]
+    assert server["args"][3:] == ["forensic", "serve", "--repo", str(tmp_path.resolve())]
+    # The emitted project dir must be a real checkout root, or the snippet is dead.
+    assert (Path(server["args"][2]) / "pyproject.toml").is_file()
+
+
+def test_cli_list_prune_drops_only_dead_entries(tmp_path: Path, monkeypatch) -> None:
+    """DEC-105: `--prune` removes entries whose graph.lbug is gone, keeps live
+    graphs AND graph-less entries, and reports what it pruned."""
+    from forensic_deepdive.registry import Registry, RegistryEntry, load, save
+
+    monkeypatch.setenv("FORENSIC_REGISTRY", str(tmp_path / "registry.json"))
+    live_graph = tmp_path / "live.lbug"
+    live_graph.write_text("x", encoding="utf-8")
+    save(
+        Registry(
+            version=1,
+            repos=(
+                RegistryEntry("live", "r1", str(live_graph), "t"),
+                RegistryEntry("dead", "r2", str(tmp_path / "gone.lbug"), "t"),
+                RegistryEntry("nograph", "r3", None, "t"),
+            ),
+        )
+    )
+    result = runner.invoke(app, ["list", "--prune"])
+    assert result.exit_code == 0, result.stdout
+    assert "pruned" in result.stdout and "dead" in result.stdout
+    assert {r.name for r in load().repos} == {"live", "nograph"}
+
+
+def test_cli_list_bare_never_mutates(tmp_path: Path, monkeypatch) -> None:
+    """DEC-105 guard: bare `list` is unchanged — read-only even with dead entries."""
+    from forensic_deepdive.registry import Registry, RegistryEntry, load, save
+
+    monkeypatch.setenv("FORENSIC_REGISTRY", str(tmp_path / "registry.json"))
+    save(
+        Registry(
+            version=1,
+            repos=(RegistryEntry("dead", "r2", str(tmp_path / "gone.lbug"), "t"),),
+        )
+    )
+    result = runner.invoke(app, ["list"])
+    assert result.exit_code == 0
+    assert "pruned" not in result.stdout
+    assert len(load().repos) == 1
+
+
 def test_cli_query_finds_match(tmp_path: Path) -> None:
     artifacts = tmp_path / "docs" / "codebase"
     artifacts.mkdir(parents=True)

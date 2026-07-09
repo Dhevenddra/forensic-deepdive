@@ -366,26 +366,46 @@ def mcp_config(
     client: Annotated[
         str, typer.Option(help="claude | cursor | vscode | codex (default: claude).")
     ] = "claude",
+    dev: Annotated[
+        bool,
+        typer.Option(
+            "--dev",
+            help="DEC-105: emit the from-source `uv run --project <dir> forensic serve` form "
+            "(the default uvx form needs the package published on PyPI).",
+        ),
+    ] = False,
 ) -> None:
     """Print the MCP client config snippet that wires this repo as a server (DEC-091).
 
     Plain stdout, so it pipes cleanly: `forensic mcp-config --repo . > .mcp.json`.
-    Uses `uvx forensic-deepdive serve --repo <path>` (CWD-independent). Help/output
-    are ASCII-only and markup-free for code-page + redirect safety."""
+    Default uses `uvx forensic-deepdive serve --repo <path>` (CWD-independent,
+    post-publish); `--dev` uses `uv run --project <source-dir> forensic serve ...`
+    (correct for a from-source checkout, DEC-105). Help/output are ASCII-only and
+    markup-free for code-page + redirect safety."""
     import json as _json
 
     repo_str = str(repo.resolve())
-    args = ["forensic-deepdive", "serve", "--repo", repo_str]
+    if dev:
+        # The from-source project dir: this file lives at
+        # <checkout>/src/forensic_deepdive/cli/app.py under the src layout.
+        import forensic_deepdive
+
+        project_dir = str(Path(forensic_deepdive.__file__).resolve().parents[2])
+        command = "uv"
+        args = ["run", "--project", project_dir, "forensic", "serve", "--repo", repo_str]
+    else:
+        command = "uvx"
+        args = ["forensic-deepdive", "serve", "--repo", repo_str]
     if client == "codex":
         lines = [
             "[mcp_servers.forensic-deepdive]",
-            'command = "uvx"',
+            f'command = "{command}"',
             f"args = {_json.dumps(args)}",
         ]
         print("\n".join(lines))
         return
     key = "servers" if client == "vscode" else "mcpServers"
-    snippet = {key: {"forensic-deepdive": {"command": "uvx", "args": args}}}
+    snippet = {key: {"forensic-deepdive": {"command": command, "args": args}}}
     print(_json.dumps(snippet, indent=2))
 
 
@@ -462,11 +482,32 @@ def graph(
 
 
 @app.command(name="list")
-def list_repos() -> None:
+def list_repos(
+    prune: Annotated[
+        bool,
+        typer.Option(
+            "--prune",
+            help="DEC-105: drop registry entries whose graph.lbug no longer exists "
+            "(stale temp/smoke paths). Opt-in; bare `list` never mutates.",
+        ),
+    ] = False,
+) -> None:
     """List repos in the multi-repo registry (DEC-018)."""
-    from forensic_deepdive.registry import load
+    from forensic_deepdive.registry import Registry, load, save
 
     registry = load()
+    if prune:
+        dead = tuple(
+            r for r in registry.repos if r.graph_db_path and not Path(r.graph_db_path).exists()
+        )
+        if dead:
+            kept = tuple(r for r in registry.repos if r not in dead)
+            save(Registry(version=registry.version, repos=kept))
+            registry = load()
+            for entry in sorted(dead, key=lambda r: r.name):
+                console.print(f"[yellow]pruned[/yellow] {entry.name} — {entry.graph_db_path}")
+        else:
+            console.print("[dim]nothing to prune — every registered graph still exists.[/dim]")
     if not registry.repos:
         console.print("[dim]No repos in registry. Run `forensic extract <repo>` to add one.[/dim]")
         return

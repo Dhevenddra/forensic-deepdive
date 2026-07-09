@@ -11,6 +11,14 @@ explicit, so the working directory never matters.
 > (`uv run --project /path/to/forensic-deepdive forensic serve --repo <path>`) still
 > works for development.
 
+Two config generators, one per install style (`forensic mcp-config` prints the
+snippet for `--client claude|cursor|vscode|codex`):
+
+- **Installed from PyPI** — `forensic mcp-config --repo <repo>` → the `uvx` form.
+- **From-source checkout** — `forensic mcp-config --repo <repo> --dev` → the
+  `uv run --project <checkout> forensic serve --repo <repo>` form (the `uvx`
+  form can't launch an unpublished working copy).
+
 ## CLI
 
 ```bash
