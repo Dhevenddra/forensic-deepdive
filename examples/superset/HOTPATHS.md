@@ -1,11 +1,11 @@
 # HOTPATHS — superset
 
 > The code most other code depends on, and the files that change most.
-> **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise (DEC-015).
+> **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise.
 
 ## Dependency hot spots
 
-Symbols ranked by **distinct callers** — the count of distinct symbols with a `CALLS` edge into them (structural in-degree; DEC-025 resolver). The load-bearing callees — signature changes touch every caller. The confidence mix is over the underlying call edges (a callee may have more edges than callers).
+Symbols ranked by **distinct callers** — the count of distinct symbols with a `CALLS` edge into them (structural in-degree; the call-graph resolver). The load-bearing callees — signature changes touch every caller. The confidence mix is over the underlying call edges (a callee may have more edges than callers).
 
 | Symbol | Defined in | Callers | Confidence mix |
 | --- | --- | --- | --- |
@@ -27,7 +27,7 @@ Symbols ranked by **distinct callers** — the count of distinct symbols with a 
 
 ## Cross-file dependencies
 
-File-to-file dependencies aggregated from symbol-level `CALLS` edges (DEC-025 resolver). Self-edges (intra-file calls) excluded.
+File-to-file dependencies aggregated from symbol-level `CALLS` edges (the call-graph resolver). Self-edges (intra-file calls) excluded.
 
 | From | To | Calls | Top callee |
 | --- | --- | --- | --- |
@@ -49,19 +49,19 @@ File-to-file dependencies aggregated from symbol-level `CALLS` edges (DEC-025 re
 
 ## Cross-stack routes
 
-_Confidence: `INFERRED` (DEC-015)._
+_Confidence: `INFERRED`._
 
-Frontend/client call sites joined to the backend handler they hit, via a normalized HTTP contract (DEC-043 `ROUTES_TO`). `EXTRACTED` = spec-backed or unique literal path+method; `INFERRED` = a templated/normalized match; `AMBIGUOUS` = several candidate handlers (all surfaced, never one picked).
+Frontend/client call sites joined to the backend handler they hit, via a normalized HTTP contract (`ROUTES_TO`). `EXTRACTED` = spec-backed or unique literal path+method; `INFERRED` = a templated/normalized match; `AMBIGUOUS` = several candidate handlers (all surfaced, never one picked).
 
 | Consumer | Handler | Endpoint | Confidence |
 | --- | --- | --- | --- |
-| `superset-frontend/cypress-base/cypress/support/e2e.ts::<module>` | `superset/charts/api.py::ChartRestApi.bulk_delete` | `http::DELETE::/api/v1/chart` | `EXTRACTED` |
+| `superset-frontend.cypress-base.cypress.support.e2e` | `superset/charts/api.py::ChartRestApi.bulk_delete` | `http::DELETE::/api/v1/chart` | `EXTRACTED` |
 | `superset-frontend/src/pages/ChartList/index.tsx::handleBulkChartDelete` | `superset/charts/api.py::ChartRestApi.bulk_delete` | `http::DELETE::/api/v1/chart` | `EXTRACTED` |
-| `superset-frontend/cypress-base/cypress/support/e2e.ts::<module>` | `superset/charts/api.py::ChartRestApi.delete` | `http::DELETE::/api/v1/chart/{param}` | `EXTRACTED` |
+| `superset-frontend.cypress-base.cypress.support.e2e` | `superset/charts/api.py::ChartRestApi.delete` | `http::DELETE::/api/v1/chart/{param}` | `EXTRACTED` |
 | `superset-frontend/src/views/CRUD/utils.tsx::handleChartDelete` | `superset/charts/api.py::ChartRestApi.delete` | `http::DELETE::/api/v1/chart/{param}` | `EXTRACTED` |
-| `superset-frontend/cypress-base/cypress/support/e2e.ts::<module>` | `superset/dashboards/api.py::DashboardRestApi.bulk_delete` | `http::DELETE::/api/v1/dashboard` | `EXTRACTED` |
+| `superset-frontend.cypress-base.cypress.support.e2e` | `superset/dashboards/api.py::DashboardRestApi.bulk_delete` | `http::DELETE::/api/v1/dashboard` | `EXTRACTED` |
 | `superset-frontend/src/pages/DashboardList/index.tsx::handleBulkDashboardDelete` | `superset/dashboards/api.py::DashboardRestApi.bulk_delete` | `http::DELETE::/api/v1/dashboard` | `EXTRACTED` |
-| `superset-frontend/cypress-base/cypress/support/e2e.ts::<module>` | `superset/dashboards/api.py::DashboardRestApi.delete` | `http::DELETE::/api/v1/dashboard/{param}` | `EXTRACTED` |
+| `superset-frontend.cypress-base.cypress.support.e2e` | `superset/dashboards/api.py::DashboardRestApi.delete` | `http::DELETE::/api/v1/dashboard/{param}` | `EXTRACTED` |
 | `superset-frontend/src/views/CRUD/utils.tsx::handleDashboardDelete` | `superset/dashboards/api.py::DashboardRestApi.delete` | `http::DELETE::/api/v1/dashboard/{param}` | `EXTRACTED` |
 | `superset-frontend/src/pages/DatabaseList/index.tsx::handleDatabaseDelete` | `superset/databases/api.py::DatabaseRestApi.delete` | `http::DELETE::/api/v1/database/{param}` | `EXTRACTED` |
 | `superset-frontend/src/pages/RowLevelSecurityList/index.tsx::handleBulkRulesDelete` | `superset/row_level_security/api.py::RLSRestApi.bulk_delete` | `http::DELETE::/api/v1/rowlevelsecurity` | `EXTRACTED` |
@@ -69,13 +69,13 @@ Frontend/client call sites joined to the backend handler they hit, via a normali
 | `superset-frontend/src/features/tags/tags.ts::deleteTaggedObjects` | `superset/tags/api.py::TagRestApi.delete_object` | `http::DELETE::/api/v1/tag/{param}/{param}/{param}` | `EXTRACTED` |
 | `superset-frontend/src/explore/actions/exploreActions.ts::fetchFaveStar` | `superset/charts/api.py::ChartRestApi.favorite_status` | `http::GET::/api/v1/chart/favorite_status` | `EXTRACTED` |
 | `superset-frontend/src/explore/components/PropertiesModal/index.tsx::PropertiesModal` | `superset/charts/api.py::ChartRestApi.get` | `http::GET::/api/v1/chart/{param}` | `EXTRACTED` |
-| `superset-frontend/src/explore/components/controls/AnnotationLayerControl/AnnotationLayer.tsx::<module>` | `superset/charts/api.py::ChartRestApi.get` | `http::GET::/api/v1/chart/{param}` | `EXTRACTED` |
+| `superset-frontend.src.explore.components.controls.AnnotationLayerControl.AnnotationLayer` | `superset/charts/api.py::ChartRestApi.get` | `http::GET::/api/v1/chart/{param}` | `EXTRACTED` |
 
 ## Co-change clusters
 
-_Confidence: `INFERRED` (DEC-015)._
+_Confidence: `INFERRED`._
 
-Files most frequently committed together (DEC-027). The shared-commit count is EXTRACTED from git; the implication 'these should change together' is the derivation.
+Files most frequently committed together. The shared-commit count is EXTRACTED from git; the implication 'these should change together' is the derivation.
 
 | File A | File B | Shared commits |
 | --- | --- | --- |
@@ -114,7 +114,7 @@ Files touched by the most commits (git churn).
 
 ## Churn × centrality
 
-_Confidence: `INFERRED` (DEC-015)._
+_Confidence: `INFERRED`._
 
 Files that are **both** highly depended-on and frequently changed — the riskiest edits in the repo. Commit counts are EXTRACTED; the centrality column and the risk framing are the derivation.
 
@@ -130,4 +130,4 @@ Files that are **both** highly depended-on and frequently changed — the riskie
 
 ---
 
-*Generated by forensic-deepdive 0.8.0 on 2026-06-22. Regenerate with `forensic update` — do not hand-edit.*
+*Generated by forensic-deepdive 0.9.0 on 2026-07-09. Regenerate with `forensic update` — do not hand-edit.*
