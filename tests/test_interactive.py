@@ -210,3 +210,171 @@ def test_cli_repl_refuses_non_tty(graph_repo, monkeypatch):
     result = CliRunner().invoke(app, ["repl", "--graph", str(graph_repo / "graph.lbug")])
     assert result.exit_code == 1
     assert "TTY" in result.output
+
+
+# ---------------------------------------------------------------------------
+# DEC-100 — the Textual TUI graph browser (`forensic browse`)
+# ---------------------------------------------------------------------------
+
+
+def test_browser_module_imports_without_textual(monkeypatch):
+    """browser.py (entry + snapshot loader) must import with the extra absent;
+    only browser_app.py needs textual."""
+    monkeypatch.setitem(sys.modules, "textual", None)
+    import importlib
+
+    import forensic_deepdive.cli.interactive.browser as browser_mod
+
+    importlib.reload(browser_mod)
+    assert hasattr(browser_mod, "run_browse")
+
+
+def test_run_browse_missing_extra_prints_actionable_hint(monkeypatch, graph_repo, capsys):
+    monkeypatch.setitem(sys.modules, "textual", None)  # force ImportError
+    from forensic_deepdive.cli.interactive.browser import run_browse
+
+    code = run_browse(graph_repo / "graph.lbug")
+    assert code == 1
+    assert "forensic-deepdive[interactive]" in capsys.readouterr().out
+
+
+def test_load_snapshot_bounds_with_visible_truncation(graph_repo):
+    """DEC-039 node-cap carried over: the snapshot is bounded, never
+    silent-dropped — totals keep the full graph count."""
+    from forensic_deepdive.cli.interactive.browser import load_snapshot
+
+    snap = load_snapshot(graph_repo / "graph.lbug", max_nodes=2)
+    assert len(snap.symbols) == 2
+    assert snap.totals["symbol"] > 2
+    assert snap.truncated("symbol")
+    assert "python" in snap.languages
+
+
+def test_load_snapshot_full_fixture_has_all_three_kinds(graph_repo):
+    from forensic_deepdive.cli.interactive.browser import load_snapshot
+
+    snap = load_snapshot(graph_repo / "graph.lbug")
+    assert snap.totals["symbol"] == len(snap.symbols) > 0
+    assert snap.totals["file"] == len(snap.files) > 0
+    assert not snap.truncated("symbol")
+    names = {node.name for node in snap.symbols}
+    assert "format_message" in names  # a real fixture symbol
+    # DEC-104 consistency: module-scope symbols display dotted, never <module>.
+    assert not any("<module>" in node.name for node in snap.symbols)
+
+
+def _browser_app(graph_repo, max_nodes: int = 500):
+    pytest.importorskip("textual")
+    from forensic_deepdive.cli.interactive.browser import load_snapshot
+    from forensic_deepdive.cli.interactive.browser_app import GraphBrowser
+
+    return GraphBrowser(load_snapshot(graph_repo / "graph.lbug", max_nodes=max_nodes))
+
+
+async def _settle(pilot, predicate, tries: int = 50) -> bool:
+    """Pause the Textual pilot until *predicate* holds. A single ``pause()``
+    is not guaranteed to flush a posted message round-trip (Input.Changed →
+    handler), so poll a bounded number of pauses — deterministic completion,
+    fails only when the behaviour is genuinely absent."""
+    for _ in range(tries):
+        if predicate():
+            return True
+        await pilot.pause()
+    return predicate()
+
+
+def test_browser_app_boots_and_lists_symbols(graph_repo):
+    import asyncio
+
+    async def scenario():
+        app = _browser_app(graph_repo)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            from textual.widgets import DataTable, Static
+
+            table = app.query_one(DataTable)
+            assert table.row_count == len(app.snapshot.symbols) > 0
+            status = str(app.query_one("#status", Static).content)
+            assert "Symbols: showing" in status
+
+    asyncio.run(scenario())
+
+
+def test_browser_filter_narrows_the_list(graph_repo):
+    import asyncio
+
+    async def scenario():
+        app = _browser_app(graph_repo)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            from textual.widgets import Input
+
+            before = len(app.visible_nodes)
+            app.query_one(Input).value = "format_message"
+            assert await _settle(pilot, lambda: len(app.visible_nodes) < before)
+            assert len(app.visible_nodes) > 0
+            assert all("format_message" in n.name for n in app.visible_nodes)
+
+    asyncio.run(scenario())
+
+
+def test_browser_selection_renders_context_detail(graph_repo):
+    import asyncio
+
+    async def scenario():
+        app = _browser_app(graph_repo)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("enter")  # select the focused first row
+            from textual.widgets import Static
+
+            def _has_context() -> bool:
+                return '"context"' in str(app.query_one("#detail", Static).content)
+
+            assert await _settle(pilot, _has_context)  # the MCP context payload landed
+
+    asyncio.run(scenario())
+
+
+def test_browser_truncation_note_on_oversized_graph(graph_repo):
+    import asyncio
+
+    async def scenario():
+        app = _browser_app(graph_repo, max_nodes=2)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            from textual.widgets import Static
+
+            status = str(app.query_one("#status", Static).content)
+            assert "showing 2 of" in status
+            assert "loaded top 2" in status  # never silent-drop
+
+    asyncio.run(scenario())
+
+
+def test_browser_confidence_chips_are_ascii(graph_repo):
+    """DEC-078/080 discipline inside the TUI: letter chips, no glyphs."""
+    from forensic_deepdive.cli.interactive.browser import load_snapshot
+
+    pytest.importorskip("textual")
+    from forensic_deepdive.cli.interactive.browser_app import _chips
+
+    snap = load_snapshot(graph_repo / "graph.lbug")
+    for node in snap.symbols:
+        chips = _chips(node.confidences)
+        chips.encode("ascii")  # must not raise
+        assert "●" not in chips and "◐" not in chips
+
+
+def test_cli_browse_registered_with_expected_options():
+    from typer.main import get_command
+
+    cmd = get_command(app)
+    params = {p.name for p in cmd.commands["browse"].params}
+    assert {"repo", "graph", "max_nodes"} <= params
+
+
+def test_cli_browse_refuses_missing_graph(tmp_path):
+    result = CliRunner().invoke(app, ["browse", "--repo", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "No graph" in result.output

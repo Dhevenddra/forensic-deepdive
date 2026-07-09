@@ -280,6 +280,48 @@ def repl(
 
 
 @app.command()
+def browse(
+    repo: Annotated[
+        Path,
+        typer.Option("--repo", help="Repo with a built `.deepdive/graph.lbug` (default: cwd)."),
+    ] = Path("."),
+    graph: Annotated[
+        Path | None,
+        typer.Option(help="Explicit .lbug path (overrides <repo>/.deepdive/graph.lbug)."),
+    ] = None,
+    max_nodes: Annotated[
+        int,
+        typer.Option(help="Node cap per kind (bounded load; the status line shows N of M)."),
+    ] = 500,
+) -> None:
+    """Full-screen terminal graph browser (DEC-100, v0.9) — the loopback-free
+    sibling of `serve --ui`.
+
+    Browse Symbol/File/Endpoint nodes; filter by name (type), confidence (c),
+    edge type (e), language (l); Enter shows a node's context; i/f jump to
+    impact/flow; q quits. Read-only. Needs the [interactive] extra and a TTY.
+    (Help text is ASCII-only on purpose.)"""
+    import sys
+
+    from forensic_deepdive.cli.style import get_console
+
+    out = get_console()
+    db_path = graph or repo / ".deepdive" / "graph.lbug"
+    if not db_path.exists():
+        out.print(f"[err]No graph at {db_path}.[/err] Run `forensic extract` first to build it.")
+        raise typer.Exit(code=1)
+    if not sys.stdin.isatty():
+        out.print(
+            "[err]forensic browse needs a TTY[/err] (stdin is piped/redirected). "
+            "For a shareable view use `forensic serve --ui` instead."
+        )
+        raise typer.Exit(code=1)
+    from forensic_deepdive.cli.interactive.browser import run_browse
+
+    raise typer.Exit(code=run_browse(db_path, max_nodes=max_nodes))
+
+
+@app.command()
 def trace(
     symbol: Annotated[str, typer.Argument(help="Symbol to trace (qualified or bare name).")],
     repo: Annotated[
