@@ -378,3 +378,203 @@ def test_cli_browse_refuses_missing_graph(tmp_path):
     result = CliRunner().invoke(app, ["browse", "--repo", str(tmp_path)])
     assert result.exit_code == 1
     assert "No graph" in result.output
+
+
+# ---------------------------------------------------------------------------
+# DEC-101 — the `forensic onboard` wizard
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fresh_repo(tmp_path: Path) -> Path:
+    """An unanalyzed copy of python_sample — onboard writes artifacts + shims
+    into it, so every test that runs the wizard needs its own."""
+    repo = tmp_path / "python_sample"
+    shutil.copytree(FIXTURES / "python_sample", repo)
+    return repo
+
+
+def _run_onboard(repo: Path, tmp_path: Path, script: str | None = None, **kwargs):
+    """Drive run_onboard; with *script* the prompts read from a pipe. Returns
+    (exit_code, output)."""
+    from forensic_deepdive.cli.interactive.onboard import run_onboard
+
+    console, sio = _capture_console()
+    if script is None:
+        code = run_onboard(repo, console=console, **kwargs)
+        return code, sio.getvalue()
+
+    pytest.importorskip("prompt_toolkit")
+    from prompt_toolkit.input.defaults import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    with create_pipe_input() as inp:
+        inp.send_text(script)
+        inp.close()
+        code = run_onboard(
+            repo,
+            console=console,
+            history_file=tmp_path / "onboard_history",
+            pt_input=inp,
+            pt_output=DummyOutput(),
+            **kwargs,
+        )
+    return code, sio.getvalue()
+
+
+def test_onboard_yes_runs_extract_and_reports_the_brief(fresh_repo, tmp_path):
+    """The scripted happy path: extract runs, AGENT_BRIEF is the headline, the
+    graph is reported, and the restart-and-approve step is stated."""
+    code, out = _run_onboard(fresh_repo, tmp_path, yes=True)
+    assert code == 0
+    assert (fresh_repo / "docs" / "codebase" / "AGENT_BRIEF.md").exists()
+    assert "read first:" in out and "AGENT_BRIEF.md" in out
+    assert "MENTAL_MODEL.md" in out  # the other four are listed too
+    assert "graph.lbug" in out
+    assert "Restart the client" in out and "approve" in out
+
+
+def test_onboard_prints_the_shared_mcp_config_snippet(fresh_repo, tmp_path):
+    """The wizard must print exactly what the one renderer produces — never a
+    second hardcoded snippet (the DEC-105 output is the source of truth)."""
+    from forensic_deepdive.cli.mcp_snippet import is_source_checkout, render_mcp_config
+
+    _, out = _run_onboard(fresh_repo, tmp_path, yes=True, client="claude")
+    expected = render_mcp_config(fresh_repo, client="claude", dev=is_source_checkout())
+    # Rich soft-wraps but doesn't reflow; compare the payload lines individually.
+    for line in expected.splitlines():
+        assert line.strip() in out
+
+
+def test_onboard_snippet_matches_the_mcp_config_command(fresh_repo, tmp_path):
+    """Same renderer, same bytes: `forensic mcp-config --dev` and the wizard."""
+    from forensic_deepdive.cli.mcp_snippet import render_mcp_config
+
+    result = CliRunner().invoke(app, ["mcp-config", "--repo", str(fresh_repo), "--dev"])
+    assert result.exit_code == 0
+    rendered = render_mcp_config(fresh_repo, client="claude", dev=True)
+    assert result.output.strip() == rendered.strip()
+
+
+def test_onboard_auto_picks_the_dev_form_from_a_source_checkout(fresh_repo, tmp_path):
+    """Running out of this checkout, the snippet must be launchable (uv run
+    --project), not the not-yet-published uvx form."""
+    from forensic_deepdive.cli.mcp_snippet import is_source_checkout
+
+    assert is_source_checkout()  # the test suite runs from the checkout
+    _, out = _run_onboard(fresh_repo, tmp_path, yes=True)
+    assert "source checkout" in out
+    assert "--project" in out
+
+
+def test_onboard_dev_flag_overrides_the_auto_pick(fresh_repo, tmp_path):
+    _, out = _run_onboard(fresh_repo, tmp_path, yes=True, dev=False)
+    assert "uvx" in out and "installed package" in out
+
+
+def test_onboard_is_idempotent_and_keeps_existing_artifacts(fresh_repo, tmp_path):
+    """Re-running is safe: with defaults taken, an already-analyzed repo is not
+    re-extracted, and the wizard still emits the wiring instructions."""
+    first, _ = _run_onboard(fresh_repo, tmp_path, yes=True)
+    assert first == 0
+    code, out = _run_onboard(fresh_repo, tmp_path, yes=True)
+    assert code == 0
+    assert "artifacts already exist" in out
+    assert "kept the existing artifacts" in out
+    assert "Restart the client" in out  # still finishes the wiring steps
+
+
+def test_onboard_declining_the_repo_never_runs_extract(fresh_repo, tmp_path, monkeypatch):
+    def _boom(*args, **kwargs):  # pragma: no cover — must never be called
+        raise AssertionError("extract ran after the user declined")
+
+    monkeypatch.setattr("forensic_deepdive.pipeline.run_extract", _boom)
+    code, out = _run_onboard(fresh_repo, tmp_path, script="n\n")
+    assert code == 0
+    assert "cancelled" in out
+    assert not (fresh_repo / "docs" / "codebase").exists()
+
+
+def test_onboard_prompts_for_the_client_and_renders_codex_toml(fresh_repo, tmp_path):
+    """Scripted prompts: confirm repo -> decline re-analysis -> pick codex."""
+    assert _run_onboard(fresh_repo, tmp_path, yes=True)[0] == 0  # pre-analyze
+    code, out = _run_onboard(fresh_repo, tmp_path, script="y\nn\ncodex\n")
+    assert code == 0
+    assert "[mcp_servers.forensic-deepdive]" in out
+
+
+def test_onboard_eof_at_a_prompt_cancels_cleanly(fresh_repo, tmp_path):
+    code, out = _run_onboard(fresh_repo, tmp_path, script="")  # immediate EOF (Ctrl-D)
+    assert code == 0
+    assert "cancelled" in out
+
+
+def test_onboard_missing_extra_hints_at_the_install_and_at_yes(monkeypatch, fresh_repo, tmp_path):
+    monkeypatch.setitem(sys.modules, "prompt_toolkit", None)  # force ImportError
+    code, out = _run_onboard(fresh_repo, tmp_path)
+    assert code == 1
+    assert "forensic-deepdive[interactive]" in out
+    assert "--yes" in out
+
+
+def test_onboard_yes_works_without_the_extra(monkeypatch, fresh_repo, tmp_path):
+    """The scripted mode asks nothing, so it must not need prompt_toolkit —
+    that keeps the agent-first lean install onboardable in CI."""
+    monkeypatch.setitem(sys.modules, "prompt_toolkit", None)
+    code, out = _run_onboard(fresh_repo, tmp_path, yes=True)
+    assert code == 0
+    assert "Restart the client" in out
+
+
+def test_onboard_rejects_a_non_directory(tmp_path):
+    from forensic_deepdive.cli.interactive.onboard import run_onboard
+
+    console, sio = _capture_console()
+    code = run_onboard(tmp_path / "nope", yes=True, console=console)
+    assert code == 1
+    assert "not a directory" in sio.getvalue()
+
+
+def test_onboard_output_is_cp1252_safe(fresh_repo, tmp_path):
+    _, out = _run_onboard(fresh_repo, tmp_path, yes=True)
+    out.encode("cp1252")  # must not raise
+
+
+def test_onboard_never_hard_wraps_a_path_or_command(fresh_repo, tmp_path):
+    """Found while driving the real CLI: Rich hard-wrapped the long temp-dir
+    path mid-segment, so the printed config path and `mcp-config` command could
+    not be copy-pasted. Every path/command line soft-wraps instead."""
+    from forensic_deepdive.cli.interactive.onboard import run_onboard
+
+    sio = io.StringIO()
+    narrow = Console(file=sio, force_terminal=False, no_color=True, width=40)
+    assert run_onboard(fresh_repo, yes=True, console=narrow) == 0
+    out = sio.getvalue()
+    repo_str = str(fresh_repo.resolve())
+    assert repo_str in out  # unbroken, despite a 40-column console
+    assert f"forensic mcp-config --repo {repo_str}" in out
+    for line in out.splitlines():  # nothing was chopped into a dangling fragment
+        assert not line.endswith("\\")
+
+
+def test_cli_onboard_registered_with_expected_options():
+    from typer.main import get_command
+
+    cmd = get_command(app)
+    params = {p.name for p in cmd.commands["onboard"].params}
+    assert {"repo", "yes", "force", "client", "dev"} <= params
+
+
+def test_cli_onboard_rejects_an_unknown_client(fresh_repo):
+    result = CliRunner().invoke(
+        app, ["onboard", "--repo", str(fresh_repo), "--yes", "--client", "emacs"]
+    )
+    assert result.exit_code == 1
+    assert "Unknown client" in result.output
+
+
+def test_cli_onboard_refuses_non_tty_without_yes(fresh_repo, monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))  # non-tty stand-in
+    result = CliRunner().invoke(app, ["onboard", "--repo", str(fresh_repo)])
+    assert result.exit_code == 1
+    assert "TTY" in result.output and "--yes" in result.output

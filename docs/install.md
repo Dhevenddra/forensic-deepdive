@@ -19,6 +19,11 @@ snippet for `--client claude|cursor|vscode|codex`):
   `uv run --project <checkout> forensic serve --repo <repo>` form (the `uvx`
   form can't launch an unpublished working copy).
 
+Or skip the choice entirely: **`forensic onboard --repo <repo>`** analyzes the repo,
+points you at `AGENT_BRIEF.md`, prints the same snippet with the right form picked
+automatically, and reminds you to restart the client and approve the server. It is
+safe to re-run, and `--yes` makes it non-interactive (no `[interactive]` extra needed).
+
 ## CLI
 
 ```bash

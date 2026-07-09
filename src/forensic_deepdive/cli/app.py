@@ -322,6 +322,66 @@ def browse(
 
 
 @app.command()
+def onboard(
+    repo: Annotated[
+        Path,
+        typer.Option("--repo", help="Repo to analyze and wire up (default: cwd)."),
+    ] = Path("."),
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Take every default; ask nothing. Scriptable, and the one mode that "
+            "runs without the [interactive] extra.",
+        ),
+    ] = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Re-run extract even if artifacts are current.")
+    ] = False,
+    client: Annotated[
+        str | None,
+        typer.Option(help="claude | cursor | vscode | codex (asked when omitted)."),
+    ] = None,
+    dev: Annotated[
+        bool | None,
+        typer.Option(
+            "--dev/--no-dev",
+            help="Force the from-source (`uv run --project`) or published (`uvx`) MCP "
+            "snippet. Default: auto-picked from how forensic-deepdive is installed.",
+        ),
+    ] = None,
+) -> None:
+    """Guided setup: analyze a repo, then wire it up as an MCP server (DEC-101, v0.9).
+
+    A linear wizard — confirm the repo, run extract, point at AGENT_BRIEF.md and
+    the other artifacts, print the correct client config (the same snippet
+    `forensic mcp-config` prints), and state the restart-and-approve step. Safe to
+    re-run: the extract cache makes a second pass a no-op.
+
+    Interactive runs need the [interactive] extra and a TTY; `--yes` needs neither.
+    (Help text is ASCII-only on purpose; runtime output degrades per --plain.)"""
+    import sys
+
+    from forensic_deepdive.cli.mcp_snippet import CLIENTS
+    from forensic_deepdive.cli.style import get_console
+
+    out = get_console()
+    if client is not None and client not in CLIENTS:
+        out.print(f"[err]Unknown client {client!r}.[/err] Pick one of: {', '.join(CLIENTS)}.")
+        raise typer.Exit(code=1)
+    if not yes and not sys.stdin.isatty():
+        out.print(
+            "[err]forensic onboard needs a TTY[/err] (stdin is piped/redirected). "
+            "For a scripted run use `forensic onboard --yes`."
+        )
+        raise typer.Exit(code=1)
+    from forensic_deepdive.cli.interactive.onboard import run_onboard
+
+    raise typer.Exit(code=run_onboard(repo, yes=yes, force=force, client=client, dev=dev))
+
+
+@app.command()
 def trace(
     symbol: Annotated[str, typer.Argument(help="Symbol to trace (qualified or bare name).")],
     repo: Annotated[
@@ -423,32 +483,13 @@ def mcp_config(
     Default uses `uvx forensic-deepdive serve --repo <path>` (CWD-independent,
     post-publish); `--dev` uses `uv run --project <source-dir> forensic serve ...`
     (correct for a from-source checkout, DEC-105). Help/output are ASCII-only and
-    markup-free for code-page + redirect safety."""
-    import json as _json
+    markup-free for code-page + redirect safety.
 
-    repo_str = str(repo.resolve())
-    if dev:
-        # The from-source project dir: this file lives at
-        # <checkout>/src/forensic_deepdive/cli/app.py under the src layout.
-        import forensic_deepdive
+    The rendering lives in `cli/mcp_snippet.py` — the single source of truth the
+    `onboard` wizard reuses (DEC-101), so a snippet is never hardcoded twice."""
+    from forensic_deepdive.cli.mcp_snippet import render_mcp_config
 
-        project_dir = str(Path(forensic_deepdive.__file__).resolve().parents[2])
-        command = "uv"
-        args = ["run", "--project", project_dir, "forensic", "serve", "--repo", repo_str]
-    else:
-        command = "uvx"
-        args = ["forensic-deepdive", "serve", "--repo", repo_str]
-    if client == "codex":
-        lines = [
-            "[mcp_servers.forensic-deepdive]",
-            f'command = "{command}"',
-            f"args = {_json.dumps(args)}",
-        ]
-        print("\n".join(lines))
-        return
-    key = "servers" if client == "vscode" else "mcpServers"
-    snippet = {key: {"forensic-deepdive": {"command": command, "args": args}}}
-    print(_json.dumps(snippet, indent=2))
+    print(render_mcp_config(repo, client=client, dev=dev))
 
 
 @app.command()

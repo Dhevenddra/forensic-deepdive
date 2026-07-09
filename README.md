@@ -42,6 +42,10 @@ uv sync --all-extras
 # what can it do? (banner + capability panel: artifacts, protocols, MCP tools, confidence legend)
 uv run forensic info
 
+# guided setup: analyze a repo, then wire it up as an MCP server
+# (--yes takes every default: scriptable, and the one mode that needs no extra)
+uv run forensic onboard --repo /path/to/repo
+
 # run on any repo
 uv run forensic extract /path/to/repo
 
