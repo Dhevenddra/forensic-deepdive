@@ -5,11 +5,13 @@ commands as in-session commands with shared state and one history — it
 **orchestrates** the REPL, the browser and the wizard, and re-implements none of
 them.
 
-The store lifecycle is the load-bearing design. LadybugDB takes an exclusive
-file lock, so a *second* handle on the same graph raises ``Could not set lock on
-file`` — yet ``trace``/``impact``/``flow``/``diagram``/``browse`` all open their
-own handle by design (the frozen tool contract passes a ``db_path``, never a
-store). :class:`StoreSession` therefore **borrows**:
+The store lifecycle is the load-bearing design. On Windows LadybugDB takes an
+exclusive file lock, so a *second* handle on the same graph raises ``Could not
+set lock on file`` (on Linux the same open happens to succeed — CI proved the
+difference, and depending on it would make the shell platform-dependent). Yet
+``trace``/``impact``/``flow``/``diagram``/``browse`` all open their own handle by
+design (the frozen tool contract passes a ``db_path``, never a store).
+:class:`StoreSession` therefore **borrows**:
 
 * the hot path (natural-language query, ``:cypher``) runs on ONE held-open store
   — the DEC-099 lifecycle, connect-once across many questions;
@@ -85,8 +87,10 @@ _NO_GRAPH = "no graph yet — run `extract` here, or `onboard` for the guided se
 class StoreSession:
     """Owns the single LadybugDB handle for a shell session.
 
-    Lazily connects, and hands the lock back around any tool that opens its own
-    handle. Re-entrant use is not supported (a shell is one loop, one thread).
+    Lazily connects, and hands the handle back around any tool that opens its
+    own (mandatory on Windows, where the DB lock is exclusive; correct
+    everywhere). Re-entrant use is not supported (a shell is one loop, one
+    thread).
     """
 
     def __init__(self, db_path: Path) -> None:

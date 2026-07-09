@@ -634,24 +634,42 @@ def test_shell_missing_extra_prints_actionable_hint(monkeypatch, graph_repo, tmp
 
 
 def test_store_session_release_frees_the_lock_and_reopens(graph_repo):
-    """The load-bearing invariant: LadybugDB takes an exclusive file lock, so a
-    second handle raises. `released()` hands the lock back; `.store` re-takes it."""
+    """The load-bearing invariant, and it holds on every platform: with no handle
+    held, a `db_path`-taking tool can always take one; afterwards `.store`
+    lazily re-opens. (Whether a *concurrent* second handle would have raised is
+    platform-dependent — see the test below.)"""
     from forensic_deepdive.cli.interactive.shell import StoreSession
 
     _, graph = _shell_repo(graph_repo)
     session = StoreSession(graph)
     assert session.store.query("MATCH (s:Symbol) RETURN count(s)")  # held open
 
-    with pytest.raises(RuntimeError, match="lock"):  # proves the lock is real
-        LadybugStore(graph).connect()
-
     with session.released():
         second = LadybugStore(graph)
-        second.connect()  # must not raise — the shell gave the lock back
+        second.connect()  # must not raise — the shell gave the handle back
         second.close()
 
     assert session.store.query("MATCH (s:Symbol) RETURN count(s)")  # lazily reopened
     session.close()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the exclusive lock is Windows behaviour")
+def test_second_concurrent_handle_is_rejected_on_windows(graph_repo):
+    """Why `released()` exists at all. On Windows LadybugDB takes an exclusive
+    file lock, so calling any db_path-taking tool while the shell holds a store
+    raises `Could not set lock on file`. On Linux the same open currently
+    succeeds — which is exactly why the shell must not depend on it (CI caught
+    this: the assertion below passes on Windows and fails on ubuntu)."""
+    from forensic_deepdive.cli.interactive.shell import StoreSession
+
+    _, graph = _shell_repo(graph_repo)
+    session = StoreSession(graph)
+    assert session.store.query("MATCH (s:Symbol) RETURN count(s)")
+    try:
+        with pytest.raises(RuntimeError, match="lock"):
+            LadybugStore(graph).connect()
+    finally:
+        session.close()
 
 
 def test_shell_store_opened_once_across_queries(graph_repo, tmp_path, monkeypatch):
