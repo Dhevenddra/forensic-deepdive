@@ -418,6 +418,42 @@ class ShimResult:
 _SHIM_FINGERPRINT = "forensic-deepdive"
 
 
+def _is_emitted_skill(path: Path, existing: str) -> bool:
+    """DEC-108: ownership test for the five emitted skills, which carry no
+    :data:`_SHIM_FINGERPRINT` in their bodies and so could never satisfy the
+    DEC-091 gate — leaving them permanently unrefreshable.
+
+    A skill is ours when its *location* and its *declared name* both fall in the
+    ``codebase-*`` namespace we own (DEC-031): the file sits at
+    ``.claude/skills/<name>/SKILL.md`` for one of :data:`_EMITTED_SKILL_NAMES`,
+    and its YAML frontmatter declares that same ``name:``. Both must agree, so a
+    user's own skill dropped into our directory (or one of our directories
+    repurposed for a different skill) is left alone.
+
+    Deliberately content-independent beyond the frontmatter: files written by
+    <=0.9.0 have no fingerprint to find, and those are exactly the stale ones
+    that still cite internal ledger IDs.
+    """
+    if path.name != "SKILL.md":
+        return False
+    name = path.parent.name
+    if name not in _EMITTED_SKILL_NAMES:
+        return False
+    if path.parent.parent.name != "skills" or path.parent.parent.parent.name != ".claude":
+        return False
+    return f"\nname: {name}\n" in existing
+
+
+def _is_deepdive_owned(path: Path, existing: str) -> bool:
+    """Whether ``--refresh-shims`` may rewrite *path*, whose content is *existing*.
+
+    The editor shims and ``plugin.json`` announce themselves with the
+    fingerprint; the five skills are claimed by namespace instead (DEC-108).
+    Anything else — a hand-edited or foreign file — is never touched.
+    """
+    return _SHIM_FINGERPRINT in existing or _is_emitted_skill(path, existing)
+
+
 def _artifacts_dir_from_brief(brief_rel: str) -> str:
     """The artifacts dir is the parent of AGENT_BRIEF.md, posix-style.
 
@@ -437,11 +473,12 @@ def write_shims(repo_path: Path, brief_rel_path: str, *, refresh: bool = False) 
 
     Default: write-if-absent — an existing file is skipped, never overwritten
     (a hand-edited shim is sacred). DEC-091: with ``refresh=True`` a *stale*
-    target is rewritten **iff** its current content still differs from what we'd
-    write AND carries the Deepdive fingerprint (so we refresh our own stale
-    output — e.g. an old "five tools" CLAUDE.md — but never a hand-edited or
-    foreign file). The 4 editor shims preserve the v0.1 contract; the 5 skills +
-    plugin.json are the DEC-031 additions.
+    target is rewritten **iff** its current content differs from what we'd write
+    AND the file is Deepdive-owned per :func:`_is_deepdive_owned` — the
+    fingerprint for the editor shims and plugin.json, the ``codebase-*``
+    namespace for the five skills (DEC-108). A hand-edited or foreign file is
+    never clobbered. The 4 editor shims preserve the v0.1 contract; the 5 skills
+    + plugin.json are the DEC-031 additions.
     """
     repo_path = Path(repo_path)
     artifacts_dir = _artifacts_dir_from_brief(brief_rel_path)
@@ -466,7 +503,7 @@ def write_shims(repo_path: Path, brief_rel_path: str, *, refresh: bool = False) 
             existing = path.read_text(encoding="utf-8", errors="ignore")
             if existing == content:
                 result.skipped.append(path)  # already current — nothing to do
-            elif refresh and _SHIM_FINGERPRINT in existing:
+            elif refresh and _is_deepdive_owned(path, existing):
                 path.write_text(content, encoding="utf-8")  # stale Deepdive shim → refresh
                 result.refreshed.append(path)
             else:

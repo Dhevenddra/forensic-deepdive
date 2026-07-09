@@ -138,6 +138,90 @@ def test_refresh_is_noop_when_shim_already_current(tmp_path: Path) -> None:
     assert (tmp_path / "CLAUDE.md") in r.skipped
 
 
+# ---------------------------------------------------------------------------
+# DEC-108: the five emitted skills carry no fingerprint, so DEC-091's gate could
+# never refresh them. Found on a real 0.8 -> 0.9 upgrade (hermes-agent), where two
+# stale skill bodies kept citing internal DEC ledger IDs that DEC-107 removed.
+# ---------------------------------------------------------------------------
+
+_SKILL_REL = Path(".claude") / "skills" / "codebase-impact-analysis" / "SKILL.md"
+
+_STALE_SKILL = (
+    "---\n"
+    "name: codebase-impact-analysis\n"
+    "description: Old one-line description from a previous release.\n"
+    "---\n\n"
+    "# Codebase impact analysis\n\n"
+    "The graph tags every edge `EXTRACTED` / `INFERRED` / `AMBIGUOUS` (DEC-015).\n"
+)
+
+
+def test_refresh_rewrites_stale_emitted_skill_without_fingerprint(tmp_path: Path) -> None:
+    """DEC-108: a skill written by <=0.9.0 has no `forensic-deepdive` fingerprint
+    anywhere in its body, yet is ours by namespace and MUST refresh.
+
+    This is the exact regression: before the fix `--refresh-shims` left the stale
+    body in place, so an upgraded repo kept a dangling `DEC-015` reference.
+    """
+    brief = "docs/codebase/AGENT_BRIEF.md"
+    skill = tmp_path / _SKILL_REL
+    skill.parent.mkdir(parents=True)
+    skill.write_text(_STALE_SKILL, encoding="utf-8")
+    assert "forensic-deepdive" not in _STALE_SKILL  # the DEC-091 gate cannot see it
+
+    r1 = write_shims(tmp_path, brief)  # write-if-absent leaves it
+    assert skill in r1.skipped
+    assert "DEC-015" in skill.read_text(encoding="utf-8")
+
+    r2 = write_shims(tmp_path, brief, refresh=True)
+    assert skill in r2.refreshed
+    assert "DEC-015" not in skill.read_text(encoding="utf-8")
+
+
+def test_refresh_never_touches_a_foreign_skill_in_our_directory(tmp_path: Path) -> None:
+    """DEC-108: namespace ownership needs BOTH the path and the declared name.
+    A user's own skill parked in one of our directories is left alone."""
+    brief = "docs/codebase/AGENT_BRIEF.md"
+    skill = tmp_path / _SKILL_REL
+    skill.parent.mkdir(parents=True)
+    foreign = "---\nname: my-own-skill\ndescription: Mine.\n---\n\n# Mine\n"
+    skill.write_text(foreign, encoding="utf-8")
+
+    r = write_shims(tmp_path, brief, refresh=True)
+    assert skill in r.skipped
+    assert skill.read_text(encoding="utf-8") == foreign
+
+
+def test_refresh_never_touches_a_skill_outside_our_namespace(tmp_path: Path) -> None:
+    """DEC-108: a `codebase-*`-shaped frontmatter outside `.claude/skills/` is
+    not ours — the location has to agree too."""
+    brief = "docs/codebase/AGENT_BRIEF.md"
+    stray = tmp_path / "skills" / "codebase-impact-analysis" / "SKILL.md"
+    stray.parent.mkdir(parents=True)
+    stray.write_text(_STALE_SKILL, encoding="utf-8")
+
+    write_shims(tmp_path, brief, refresh=True)
+    assert stray.read_text(encoding="utf-8") == _STALE_SKILL
+
+
+def test_no_internal_dec_ids_in_any_emitted_shim_or_skill(tmp_path: Path) -> None:
+    """DEC-107/108: the artifact sweep in test_emit.py covered only the five
+    markdown artifacts. Every file `write_shims` drops into a target repo is a
+    consumer-facing surface too, and DECISIONS.md never ships — so none of the
+    10 may cite an internal ledger ID either."""
+    import re
+
+    write_shims(tmp_path, "docs/codebase/AGENT_BRIEF.md")
+    leaks: dict[str, list[str]] = {}
+    for path in sorted(tmp_path.rglob("*")):
+        if not path.is_file():
+            continue
+        found = re.findall(r"DEC-\d+", path.read_text(encoding="utf-8", errors="ignore"))
+        if found:
+            leaks[str(path.relative_to(tmp_path))] = sorted(set(found))
+    assert not leaks, f"emitted shims leak internal ledger IDs: {leaks}"
+
+
 def test_cursor_shim_has_frontmatter(tmp_path: Path) -> None:
     write_shims(tmp_path, "x/AGENT_BRIEF.md")
     content = (tmp_path / ".cursor" / "rules" / "codebase.mdc").read_text(encoding="utf-8")

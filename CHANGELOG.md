@@ -59,6 +59,14 @@ follow [SemVer](https://semver.org/).
   is now self-contained English ("per the call-graph resolver"), and a regex sweep test
   over all five rendered artifacts keeps it that way. DEC references remain in code
   comments, which are maintainer-facing.
+- **`--refresh-shims` can now refresh the five emitted skills.** It gated on an ownership
+  fingerprint that the `.claude/skills/codebase-*/SKILL.md` bodies have never contained,
+  so half of its ten targets were structurally unrefreshable. On a repo first extracted
+  with 0.8, two skill files kept citing internal ledger IDs and no documented command
+  could clear them. The five skills are now claimed by **namespace** — our path *and* the
+  frontmatter `name:` must agree — so a hand-edited or foreign skill is still never
+  clobbered. Found by running the release's own findings step against a real 0.8 → 0.9
+  upgrade. Emitted content is unchanged; only which stale files get rewritten.
 - **Examples-only repos no longer under-report their size.** Where files are demoted as
   `examples/`, the headline now reads `N (+M in graph, demoted as examples/)` in both
   `MAP.md` and the styled `extract` summary. The classification is unchanged — only the
