@@ -70,6 +70,27 @@ MODULE_SCOPE = "<module>"
 file so module-level refs have a valid caller endpoint."""
 
 
+def module_display_name(qualified_name: str) -> str | None:
+    """DEC-104: readable display name for a module-scope symbol, else ``None``.
+
+    ``<file>::<module>`` is the correct graph *identity* (DEC-025) but a
+    degraded *display* name ("`_send_whatsapp` calls backend `<module>`").
+    Resolve it to the module dotted-path derived from the file path
+    (``backend/routers/whatsapp.py`` → ``backend.routers.whatsapp``; a package
+    ``__init__`` collapses to the package). Pure and deterministic — display
+    only, never a join key. Ordinary symbols return ``None`` so callers keep
+    their existing rendering.
+    """
+    file_path, sep, local = qualified_name.partition("::")
+    if not sep or local != MODULE_SCOPE or not file_path:
+        return None
+    pure = PurePosixPath(file_path)
+    parts = [*pure.parts[:-1], pure.stem]
+    if parts[-1] == "__init__" and len(parts) > 1:
+        parts.pop()
+    return ".".join(parts)
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedCall:
     """One CallsEdge produced by the resolver, ready for the LadybugStore."""

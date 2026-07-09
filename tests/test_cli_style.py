@@ -153,6 +153,60 @@ def test_trace_unresolved_is_a_friendly_message():
     assert "no symbol matched" in sio.getvalue()
 
 
+def test_trace_tree_resolves_module_scope_display_names():
+    """DEC-104: a module-scope handler/consumer renders as the module dotted-path,
+    never the literal ``<module>`` (the JSON payload keeps the raw qn untouched)."""
+    payload = {
+        "matches": [{"qualified_name": "a.ts::f"}],
+        "direction": "downstream",
+        "chains": [
+            {
+                "consumer": "a.ts::f",
+                "endpoint": "http::POST::/send",
+                "method": "POST",
+                "normalized_path": "/send",
+                "call_confidence": "EXTRACTED",
+                "handler": "backend/routers/whatsapp.py::<module>",
+                "handles_confidence": "INFERRED",
+                "downstream": [],
+            }
+        ],
+        "symbol": "f",
+    }
+    c, sio = _console(terminal=True, color=True)
+    render_trace(c, payload, plain=False)
+    out = sio.getvalue()
+    assert "backend.routers.whatsapp" in out
+    assert "<module>" not in out
+    # Machine mode is untouched: the raw qualified name survives in JSON.
+    c2, sio2 = _console(terminal=True, color=True)
+    render_trace(c2, payload, plain=True)
+    assert "backend/routers/whatsapp.py::<module>" in sio2.getvalue()
+
+
+def test_trace_tree_resolves_module_scope_upstream_consumers():
+    """DEC-104, upstream direction: module-scope callers display dotted too."""
+    payload = {
+        "matches": [{"qualified_name": "backend/app.py::send"}],
+        "direction": "upstream",
+        "chains": [
+            {
+                "handler": "backend/app.py::send",
+                "endpoint": "http::POST::/send",
+                "method": "POST",
+                "handles_confidence": "EXTRACTED",
+                "callers": [{"consumer": "client/boot.py::<module>", "confidence": "EXTRACTED"}],
+            }
+        ],
+        "symbol": "send",
+    }
+    c, sio = _console(terminal=True, color=True)
+    render_trace(c, payload, plain=False)
+    out = sio.getvalue()
+    assert "client.boot" in out
+    assert "<module>" not in out
+
+
 def test_confidence_split_text_ascii():
     t = _confidence_split_text({"EXTRACTED": 3, "INFERRED": 1, "AMBIGUOUS": 0}, glyphs=False)
     assert "4 cross-stack route" in t.plain

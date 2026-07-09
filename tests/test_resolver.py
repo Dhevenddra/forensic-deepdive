@@ -518,3 +518,38 @@ def test_no_refs_means_no_calls(lang: str, src: bytes) -> None:
     rel = f"a.{lang}" if lang != "java" else "C.java"
     resolved = _resolve({rel: (lang, src)})
     assert resolved == []
+
+
+# ---------------------------------------------------------------------------
+# DEC-104 — module-scope display-name resolution
+# ---------------------------------------------------------------------------
+
+
+def test_module_display_name_resolves_dotted_path() -> None:
+    """DEC-104: ``<file>::<module>`` displays as the module dotted-path."""
+    from forensic_deepdive.static.resolver import module_display_name
+
+    assert (
+        module_display_name("backend/routers/whatsapp.py::<module>") == "backend.routers.whatsapp"
+    )
+    assert module_display_name("api.ts::<module>") == "api"
+
+
+def test_module_display_name_collapses_package_init() -> None:
+    """A package ``__init__`` displays as the package itself."""
+    from forensic_deepdive.static.resolver import module_display_name
+
+    assert module_display_name("pkg/sub/__init__.py::<module>") == "pkg.sub"
+    # A root-level __init__.py has no package to collapse into — keep the stem.
+    assert module_display_name("__init__.py::<module>") == "__init__"
+
+
+def test_module_display_name_none_for_ordinary_symbols() -> None:
+    """Ordinary symbols (and non-qn strings) are untouched — callers keep
+    their existing rendering."""
+    from forensic_deepdive.static.resolver import module_display_name
+
+    assert module_display_name("backend/app.py::send") is None
+    assert module_display_name("H.java::C.m") is None
+    assert module_display_name("<module>") is None  # no file part — not a qn
+    assert module_display_name("") is None

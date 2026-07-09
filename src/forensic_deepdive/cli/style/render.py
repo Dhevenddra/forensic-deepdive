@@ -16,6 +16,7 @@ from rich.text import Text
 from rich.tree import Tree
 
 from forensic_deepdive.cli.style.console import confidence_label
+from forensic_deepdive.static.resolver import module_display_name
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -192,9 +193,12 @@ def render_trace(console: Console, payload: dict[str, Any], *, plain: bool) -> N
             if chain.get("unlocated"):
                 node.add(Text("⚠ endpoint we can't locate (no handler)", style="warn"))
                 continue
+            # DEC-104: module-scope handlers display as the module dotted-path,
+            # never the literal ``<module>`` (payload/JSON keeps the raw qn).
+            handler_qn = chain.get("handler", "")
             handler = node.add(
                 Text("→ ", style="muted")
-                .append(chain.get("handler", ""), style="value")
+                .append(module_display_name(handler_qn) or handler_qn, style="value")
                 .append("  ")
                 .append_text(confidence_label(chain.get("handles_confidence", ""), glyphs=glyphs))
             )
@@ -203,9 +207,10 @@ def render_trace(console: Console, payload: dict[str, Any], *, plain: bool) -> N
         else:  # upstream
             node = root.add(_endpoint_label(chain, "handles_confidence", glyphs=glyphs))
             for caller in chain.get("callers", []):
+                consumer_qn = caller.get("consumer", "")
                 node.add(
                     Text("← ", style="muted")
-                    .append(caller.get("consumer", ""), style="value")
+                    .append(module_display_name(consumer_qn) or consumer_qn, style="value")
                     .append("  ")
                     .append_text(confidence_label(caller.get("confidence", ""), glyphs=glyphs))
                 )

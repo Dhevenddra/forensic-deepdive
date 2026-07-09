@@ -274,11 +274,20 @@ def _cross_stack_routes(facts: RepoFacts, limit: int = 15) -> list[str]:
         return []
     if not rows:
         return []
+    from forensic_deepdive.static.resolver import module_display_name
+
     # Confidence-rank ordering (EXTRACTED first), then a stable key — never a
     # raw string sort (which would put AMBIGUOUS before EXTRACTED).
     rows.sort(key=lambda r: (-_ROUTES_CONF_RANK.get(r[3], 0), r[2], r[0], r[1]))
+    # DEC-104: module-scope symbols display as the module dotted-path (the same
+    # name AGENT_BRIEF and trace show), never the literal ``<module>``.
     body_rows = [
-        [f"`{consumer}`", f"`{handler}`", f"`{endpoint}`", f"`{conf}`"]
+        [
+            f"`{module_display_name(consumer) or consumer}`",
+            f"`{module_display_name(handler) or handler}`",
+            f"`{endpoint}`",
+            f"`{conf}`",
+        ]
         for consumer, handler, endpoint, conf in rows[:limit]
     ]
     return [

@@ -107,6 +107,48 @@ def test_hotpaths_cross_stack_routes_section_in_graph_mode(tmp_path):
     assert "EXTRACTED" in hot
 
 
+def test_dec104_module_scope_display_name_across_surfaces(tmp_path):
+    """DEC-104: a module-scope consumer (`client/boot.py::<module>` — e.g. a
+    module-level ``requests.post``) displays as the module dotted-path
+    (``client.boot``) — the same name in HOTPATHS routes, the AGENT_BRIEF
+    cross-stack rule, and ARCHITECTURE.md — never the literal ``<module>``.
+    Deterministic across two runs (the goldens' promise)."""
+
+    def _make_repo(base: Path) -> Path:
+        repo = base / "modrepo"
+        (repo / "backend").mkdir(parents=True)
+        (repo / "client").mkdir()
+        (repo / "backend" / "app.py").write_text(
+            "from flask import Flask\n\napp = Flask(__name__)\n\n\n"
+            '@app.route("/send", methods=["POST"])\n'
+            'def send():\n    return "ok"\n'
+        )
+        (repo / "client" / "boot.py").write_text('import requests\n\nrequests.post("/send")\n')
+        return repo
+
+    outputs: list[tuple[str, str, str]] = []
+    for run in ("one", "two"):
+        artifacts = _run_with_graph(_make_repo(tmp_path / run), tmp_path / run / "graph.lbug")
+        hot = artifacts["HOTPATHS.md"].read_text(encoding="utf-8")
+        brief = artifacts["AGENT_BRIEF.md"].read_text(encoding="utf-8")
+        arch = artifacts["ARCHITECTURE.md"].read_text(encoding="utf-8")
+        outputs.append((hot, brief, arch))
+
+    hot, brief, arch = outputs[0]
+    # HOTPATHS routes table: dotted display, no placeholder.
+    assert "## Cross-stack routes" in hot
+    assert "client.boot" in hot
+    assert "<module>" not in hot
+    # AGENT_BRIEF cross-stack rule: the same name.
+    rule_lines = [ln for ln in brief.splitlines() if "cross-stack" in ln]
+    assert rule_lines and "client.boot" in rule_lines[0]
+    assert "<module>" not in brief
+    # ARCHITECTURE.md diagram nodes: no placeholder label.
+    assert "<module>" not in arch
+    # Determinism: both runs emit identical route surfaces.
+    assert outputs[0] == outputs[1]
+
+
 def test_hotpaths_cross_stack_routes_absent_without_routes(tmp_path):
     """DEC-052 byte-identical guard: a repo with no ROUTES_TO edges (python_sample)
     renders no ``## Cross-stack routes`` section even in graph mode — the same

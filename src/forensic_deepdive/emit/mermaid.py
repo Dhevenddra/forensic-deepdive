@@ -192,8 +192,14 @@ def _bfs(
 
 
 def _label(qn: str) -> str:
-    """Short, Mermaid-safe node label: the leaf identifier."""
-    leaf = qn.split("::")[-1].split(".")[-1]
+    """Short, Mermaid-safe node label: the leaf identifier. DEC-104: a
+    module-scope symbol labels as its file stem (via the dotted-path display),
+    never the literal ``<module>`` (whose angle brackets also fight Mermaid's
+    HTML-ish label parsing)."""
+    from forensic_deepdive.static.resolver import module_display_name
+
+    display = module_display_name(qn) or qn
+    leaf = display.split("::")[-1].split(".")[-1]
     return leaf.replace('"', "'")
 
 

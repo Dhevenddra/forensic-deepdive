@@ -346,9 +346,13 @@ def _graph_route_rules(facts: RepoFacts) -> list[tuple[str, str]]:
         return []
     rank = {"EXTRACTED": 3, "INFERRED": 2, "AMBIGUOUS": 1}
     rows.sort(key=lambda r: (-rank.get(r[3], 0), r[2], r[0], r[1]))
+    from forensic_deepdive.static.resolver import module_display_name
+
     consumer, handler, endpoint, conf = rows[0]
-    cshort = consumer.rsplit("::", 1)[-1]
-    hshort = handler.rsplit("::", 1)[-1]
+    # DEC-104: a module-scope symbol displays as its module dotted-path, never
+    # the literal ``<module>`` placeholder.
+    cshort = module_display_name(consumer) or consumer.rsplit("::", 1)[-1]
+    hshort = module_display_name(handler) or handler.rsplit("::", 1)[-1]
     more = (
         f" (+{len(rows) - 1} more — see HOTPATHS `## Cross-stack routes`)" if len(rows) > 1 else ""
     )
