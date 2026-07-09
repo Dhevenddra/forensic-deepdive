@@ -117,6 +117,26 @@ def test_render_map_reports_test_surface() -> None:
     assert "4 fixture file(s)" in out
 
 
+def test_no_internal_dec_ids_in_any_emitted_artifact() -> None:
+    """DEC-107 (owner finding): DEC numbers are this tool's internal decision-
+    ledger IDs — DECISIONS.md isn't even in the wheel, so any 'DEC-NNN' token in
+    an emitted artifact is a dangling reference for every consumer. Sweep all
+    five artifacts + the graph-mode sections' shared strings."""
+    import re
+
+    facts = _build_facts(test_files=2, fixture_files=1, example_files=3)
+    surfaces = {
+        "MAP": render_map(facts),
+        "HOTPATHS": render_hotpaths(facts),
+        "ARCHAEOLOGY": render_archaeology(facts),
+        "MENTAL_MODEL": render_mental_model(facts),
+        "AGENT_BRIEF": render_agent_brief(facts)[0],
+    }
+    for name, text in surfaces.items():
+        leaked = re.findall(r"DEC-\d+", text)
+        assert not leaked, f"{name} leaks internal ledger IDs: {leaked}"
+
+
 def test_render_map_annotates_demoted_examples() -> None:
     """DEC-103: with ROLE_EXAMPLE demotions the headline shows the in-graph total, so an
     examples-only repo (grpc-examples: 3 source / 117 in graph) is un-misreadable."""
@@ -254,9 +274,9 @@ def test_confidence_banner_drops_v01_blanket_claim() -> None:
     out = render_map(_build_facts())
     # Old wording must be gone.
     assert "every fact below is `EXTRACTED`" not in out
-    # New wording present and references DEC-015.
+    # New wording present, self-contained (DEC-107: no internal ledger IDs).
     assert "unless a section / line says otherwise" in out
-    assert "DEC-015" in out
+    assert "DEC-015" not in out
 
 
 def test_map_pagerank_sections_carry_inferred_note() -> None:
@@ -354,9 +374,9 @@ def test_agent_brief_header_drops_uniform_extracted_claim() -> None:
     brief, _deep = render_agent_brief(_build_facts())
     # Old wording must be gone.
     assert "Every rule is `EXTRACTED`" not in brief
-    # New wording present.
+    # New wording present, self-contained (DEC-107: no internal ledger IDs).
     assert "Each rule carries a confidence tag" in brief
-    assert "DEC-015" in brief
+    assert "DEC-015" not in brief
 
 
 def test_agent_brief_load_bearing_rule_is_inferred() -> None:

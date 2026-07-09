@@ -74,7 +74,7 @@ def _header(facts: RepoFacts) -> str:
             f"# AGENT_BRIEF — {facts.repo_name}",
             "",
             "> Forensic brief for AI coding agents. **Read this first.**",
-            "> Each rule carries a confidence tag (DEC-015): `[EXTRACTED]` "
+            "> Each rule carries a confidence tag: `[EXTRACTED]` "
             "from AST/git, `[INFERRED]` from a ranking or heuristic.",
             "> Full detail: `MAP.md`, `HOTPATHS.md`, `ARCHAEOLOGY.md`, `MENTAL_MODEL.md`.",
         ]
@@ -282,7 +282,7 @@ def _graph_call_rules(facts: RepoFacts) -> list[tuple[str, str]]:
         return [
             (
                 f"Treat `{short}` as the most-called symbol "
-                f"({int(callers)} distinct callers per the DEC-025 resolver) — "
+                f"({int(callers)} distinct callers per the call-graph resolver) — "
                 "signature changes touch every caller",
                 INFERRED,
             )
@@ -315,7 +315,7 @@ def _graph_co_change_rules(facts: RepoFacts) -> list[tuple[str, str]]:
     return [
         (
             f"When you touch `{a}`, also check `{b}` — they co-change in "
-            f"{int(freq)} shared commit(s) per the DEC-027 join",
+            f"{int(freq)} shared commit(s) per the commit co-change join",
             INFERRED,
         )
     ]

@@ -62,7 +62,7 @@ def _dependency_hotspots(facts: RepoFacts, limit: int = 15) -> list[str]:
             "",
             "Symbols ranked by **distinct callers** — the count of distinct "
             "symbols with a `CALLS` edge into them (structural in-degree; "
-            "DEC-025 resolver). The load-bearing callees — signature changes "
+            "the call-graph resolver). The load-bearing callees — signature changes "
             "touch every caller. The confidence mix is over the underlying "
             "call edges (a callee may have more edges than callers).",
             "",
@@ -169,7 +169,7 @@ def _cross_file_deps(facts: RepoFacts, limit: int = 15) -> list[str]:
             "## Cross-file dependencies",
             "",
             "File-to-file dependencies aggregated from symbol-level `CALLS` "
-            "edges (DEC-025 resolver). Self-edges (intra-file calls) excluded.",
+            "edges (the call-graph resolver). Self-edges (intra-file calls) excluded.",
             "",
             md_table(["From", "To", "Calls", "Top callee"], graph_rows),
             "",
@@ -296,7 +296,7 @@ def _cross_stack_routes(facts: RepoFacts, limit: int = 15) -> list[str]:
         confidence_note(INFERRED),
         "",
         "Frontend/client call sites joined to the backend handler they hit, via a "
-        "normalized HTTP contract (DEC-043 `ROUTES_TO`). `EXTRACTED` = spec-backed "
+        "normalized HTTP contract (`ROUTES_TO`). `EXTRACTED` = spec-backed "
         "or unique literal path+method; `INFERRED` = a templated/normalized match; "
         "`AMBIGUOUS` = several candidate handlers (all surfaced, never one picked).",
         "",
@@ -339,7 +339,7 @@ def _co_change_clusters(facts: RepoFacts, limit: int = 10) -> list[str]:
         "",
         confidence_note(INFERRED),
         "",
-        "Files most frequently committed together (DEC-027). The shared-"
+        "Files most frequently committed together. The shared-"
         "commit count is EXTRACTED from git; the implication 'these should "
         "change together' is the derivation.",
         "",

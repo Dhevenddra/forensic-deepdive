@@ -127,7 +127,7 @@ def _automation(facts: RepoFacts, limit: int = 10) -> list[str]:
         confidence_note(INFERRED),
         "",
         f"{humanize_int(len(bots))} bot account(s) — separated from human "
-        "attribution per DEC-022. Bot classification is a regex heuristic "
+        "attribution. Bot classification is a regex heuristic "
         "(`[bot]` suffix, `-bot` suffix, known infra emails); a human "
         "account that matches one of those patterns will appear here.",
         "",

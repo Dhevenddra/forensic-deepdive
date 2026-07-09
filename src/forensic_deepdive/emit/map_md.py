@@ -70,18 +70,18 @@ def _overview(facts: RepoFacts) -> list[str]:
         out.append(
             f"- **Test surface:** {humanize_int(facts.test_file_count)} test file(s), "
             f"{humanize_int(facts.fixture_file_count)} fixture file(s) "
-            "(inventoried, excluded from the dependency graph per DEC-012)"
+            "(inventoried, excluded from the dependency graph)"
         )
     if facts.vendored_file_count or facts.generated_file_count:
         out.append(
             f"- **Non-authored:** {humanize_int(facts.vendored_file_count)} vendored, "
             f"{humanize_int(facts.generated_file_count)} generated "
-            "(inventoried, excluded from the dependency graph per DEC-021)"
+            "(inventoried, excluded from the dependency graph)"
         )
     if facts.example_file_count:
         out.append(
             f"- **Example/tutorial:** {humanize_int(facts.example_file_count)} file(s) "
-            "(in the dependency graph but demoted in ranking + query per DEC-049)"
+            "(in the dependency graph but demoted in ranking + query)"
         )
     if facts.flatten is not None:
         flat = facts.flatten
@@ -136,7 +136,7 @@ def _key_definitions(facts: RepoFacts, limit: int = 20) -> list[str]:
             "",
             confidence_note(INFERRED),
             "",
-            "Symbols ranked by inbound `CALLS` count (DEC-025 resolver). "
+            "Symbols ranked by inbound `CALLS` count (the call-graph resolver). "
             "Definitions are EXTRACTED; the ranking is the derivation.",
             "",
             md_table(["Symbol", "Kind", "Defined in", "Callers"], graph_rows),

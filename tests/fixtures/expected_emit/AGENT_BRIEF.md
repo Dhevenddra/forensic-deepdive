@@ -1,7 +1,7 @@
 # AGENT_BRIEF — tiny_fixture
 
 > Forensic brief for AI coding agents. **Read this first.**
-> Each rule carries a confidence tag (DEC-015): `[EXTRACTED]` from AST/git, `[INFERRED]` from a ranking or heuristic.
+> Each rule carries a confidence tag: `[EXTRACTED]` from AST/git, `[INFERRED]` from a ranking or heuristic.
 > Full detail: `MAP.md`, `HOTPATHS.md`, `ARCHAEOLOGY.md`, `MENTAL_MODEL.md`.
 
 ## What this is

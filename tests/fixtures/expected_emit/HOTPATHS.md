@@ -1,11 +1,11 @@
 # HOTPATHS — tiny_fixture
 
 > The code most other code depends on, and the files that change most.
-> **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise (DEC-015).
+> **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise.
 
 ## Dependency hot spots
 
-_Confidence: `INFERRED` (DEC-015)._
+_Confidence: `INFERRED`._
 
 Definitions with the widest blast radius — the most depended-on symbols. Definitions are EXTRACTED; the PageRank ranking is the derivation.
 

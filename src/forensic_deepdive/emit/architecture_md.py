@@ -27,12 +27,12 @@ _HEAD_NOTE = (
     "> System-level **cross-boundary** view: client/handler routes, dependency "
     "injection, and data stores.\n"
     "> **Not one of the five contract artifacts** — a regenerated human-validation "
-    "surface (DEC-090), like `forensic visualize` / `serve --ui`. Use it to sanity-check "
+    "surface, like `forensic visualize` / `serve --ui`. Use it to sanity-check "
     "the graph: a wrong edge here is a wrong edge everywhere."
 )
 
 _LEGEND = (
-    "**Legend.** Edge style encodes confidence (DEC-015): solid = `EXTRACTED`, "
+    "**Legend.** Edge style encodes confidence: solid = `EXTRACTED`, "
     "dashed = `INFERRED`, dotted = `AMBIGUOUS`. `[(cylinder)]` nodes are database "
     "tables. Edge kinds: `ROUTES_TO` (labelled with the endpoint — a frontend/client "
     "call joined to its backend handler), `injects` (DI binding), `persists` (ORM "

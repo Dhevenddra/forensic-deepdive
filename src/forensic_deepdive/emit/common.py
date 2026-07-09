@@ -138,9 +138,11 @@ def confidence_banner() -> str:
     ARCHAEOLOGY's bot detection. The new banner declares EXTRACTED as the
     default and points readers at the per-section / per-rule overrides.
     """
+    # DEC-107: internal ledger IDs never appear in emitted artifacts — the
+    # sentence must be self-contained for a reader of the *analyzed* repo.
     return (
         "> **Confidence:** facts are `EXTRACTED` (deterministic from AST and "
-        "git) unless a section / line says otherwise (DEC-015)."
+        "git) unless a section / line says otherwise."
     )
 
 
@@ -152,7 +154,7 @@ def confidence_note(level: str) -> str:
     PageRank-derived rankings, heuristic classifications, or single-candidate
     resolver fallbacks. Sections that are pure EXTRACTED skip the note.
     """
-    return f"_Confidence: `{level}` (DEC-015)._"
+    return f"_Confidence: `{level}`._"
 
 
 def confidence_tag(level: str) -> str:

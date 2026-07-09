@@ -1,7 +1,7 @@
 # MENTAL_MODEL — tiny_fixture
 
 > How to think about this codebase. v0.1 emits a deterministic skeleton from structure and history; v0.2 will enrich it with LLM synthesis.
-> **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise (DEC-015).
+> **Confidence:** facts are `EXTRACTED` (deterministic from AST and git) unless a section / line says otherwise.
 
 ## At a glance
 
@@ -9,7 +9,7 @@
 
 ## Likely entry points
 
-_Confidence: `INFERRED` (DEC-015)._
+_Confidence: `INFERRED`._
 
 Files whose names conventionally mark an entry point (stem matches `main` / `app` / `cli` / `index` / `__main__` / `server` / `run` / `manage`):
 
@@ -18,7 +18,7 @@ Files whose names conventionally mark an entry point (stem matches `main` / `app
 
 ## Core modules
 
-_Confidence: `INFERRED` (DEC-015)._
+_Confidence: `INFERRED`._
 
 The load-bearing files — highest dependency centrality (PageRank over the symbol graph):
 

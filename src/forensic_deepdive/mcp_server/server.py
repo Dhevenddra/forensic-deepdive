@@ -746,9 +746,10 @@ def visualize(
 # ---------------------------------------------------------------------------
 
 
+# DEC-107: this string ships in every trace payload — no internal ledger IDs.
 _TRACE_BOUNDARY = (
     "trace resolves consumer→endpoint→handler→CALLS tail, then follows INJECTS "
-    "(DI) and PERSISTS_TO (ORM) into the service→repository→table tail (DEC-059)."
+    "(DI) and PERSISTS_TO (ORM) into the service→repository→table tail."
 )
 
 
