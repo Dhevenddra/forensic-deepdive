@@ -168,7 +168,7 @@ def test_extract_summary_cache_hit():
     assert "cache hit" in out and "\x1b[" not in out
 
 
-def _fake_extract_result(cache_hit: bool):
+def _fake_extract_result(cache_hit: bool, example_file_count: int = 0):
     """Minimal duck-typed ExtractResult for print_extract_summary (graph_db_path=None
     skips the live DB read)."""
     from types import SimpleNamespace
@@ -180,6 +180,7 @@ def _fake_extract_result(cache_hit: bool):
             graph=SimpleNamespace(number_of_nodes=lambda: 3, number_of_edges=lambda: 2)
         ),
         file_count=3,
+        example_file_count=example_file_count,
         graph_db_path=None,
     )
     return SimpleNamespace(
@@ -210,6 +211,23 @@ def test_extract_summary_shows_check_glyph_on_utf8_colour_tty():
     c, sio = _console(terminal=True, color=True)
     print_extract_summary(c, _fake_extract_result(cache_hit=False))
     assert "✓" in sio.getvalue()
+
+
+def test_extract_summary_annotates_demoted_examples():
+    """DEC-103: with ROLE_EXAMPLE demotions the Files line carries the in-graph total so an
+    examples-only repo doesn't read as a 3-file repo."""
+    c, sio = _console(terminal=False, color=False)
+    print_extract_summary(c, _fake_extract_result(cache_hit=False, example_file_count=114))
+    out = sio.getvalue()
+    assert "3 (+114 in graph, demoted as examples/)" in out
+    out.encode("cp1252")  # annotation must stay pipe-safe
+
+
+def test_extract_summary_no_demotions_line_unchanged():
+    """DEC-103: zero demotions → no annotation (most repos' output doesn't move)."""
+    c, sio = _console(terminal=False, color=False)
+    print_extract_summary(c, _fake_extract_result(cache_hit=False))
+    assert "in graph, demoted" not in sio.getvalue()
 
 
 # --- keystone guard: the style layer must never touch emit/ -----------------

@@ -49,10 +49,18 @@ def _overview(facts: RepoFacts) -> list[str]:
         )
         or "none detected"
     )
+    # DEC-103: on an examples-heavy repo the bare production count is misreadable
+    # ("3 source files" vs a 117-file graph) — annotate with the demoted-but-in-graph
+    # total. Zero demotions → the line is unchanged.
+    source_line = f"- **Source files:** {humanize_int(facts.file_count)}"
+    if facts.example_file_count:
+        source_line += (
+            f" (+{humanize_int(facts.example_file_count)} in graph, demoted as examples/)"
+        )
     out = [
         "## Overview",
         "",
-        f"- **Source files:** {humanize_int(facts.file_count)}",
+        source_line,
         f"- **Languages:** {langs}",
         f"- **Symbols:** {humanize_int(defs)} definitions, {humanize_int(refs)} references",
         f"- **Symbol graph:** {graph.number_of_nodes()} files, "

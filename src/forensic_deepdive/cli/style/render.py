@@ -100,8 +100,13 @@ def print_extract_summary(console: Console, result: ExtractResult) -> None:
         )
     )
     g = facts.symbol_graph.graph
+    # DEC-103: same annotation as MAP.md — on an examples-heavy repo the bare
+    # production count reads as an undercount next to the graph size.
+    files_count = str(facts.file_count)
+    if facts.example_file_count:
+        files_count += f" (+{facts.example_file_count} in graph, demoted as examples/)"
     rows = [
-        ("Files", f"{facts.file_count}  ({languages})"),
+        ("Files", f"{files_count}  ({languages})"),
         ("Graph", f"{g.number_of_nodes()} files · {g.number_of_edges()} edges"),
         ("Artifacts", f"{result.output_dir}"),
     ]

@@ -35,6 +35,7 @@ def _build_facts(
     github: GitHubStats | None = None,
     test_files: int = 0,
     fixture_files: int = 0,
+    example_files: int = 0,
     contributors: list[Contributor] | None = None,
     churn: list[FileChurn] | None = None,
     total_commits: int = 10,
@@ -93,6 +94,7 @@ def _build_facts(
         history=history,
         test_file_count=test_files,
         fixture_file_count=fixture_files,
+        example_file_count=example_files,
     )
 
 
@@ -113,6 +115,20 @@ def test_render_map_reports_test_surface() -> None:
     assert "Test surface" in out
     assert "9 test file(s)" in out
     assert "4 fixture file(s)" in out
+
+
+def test_render_map_annotates_demoted_examples() -> None:
+    """DEC-103: with ROLE_EXAMPLE demotions the headline shows the in-graph total, so an
+    examples-only repo (grpc-examples: 3 source / 117 in graph) is un-misreadable."""
+    out = render_map(_build_facts(example_files=114))
+    assert "- **Source files:** 2 (+114 in graph, demoted as examples/)" in out
+
+
+def test_render_map_no_demotions_headline_unchanged() -> None:
+    """DEC-103: zero demotions → the headline is byte-identical to the pre-fix form."""
+    out = render_map(_build_facts())
+    assert "- **Source files:** 2\n" in out
+    assert "in graph, demoted" not in out
 
 
 # --- HOTPATHS --------------------------------------------------------------
