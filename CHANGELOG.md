@@ -6,23 +6,89 @@ follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
-> Post-0.8.0 distribution + docs (no code/version change; 0.8.0 stays published as-is).
+## [0.9.0] — 2026-07-09
+
+> v0.9 **"The Interactive CLI"** — a completion release. Deepdive was already an
+> agent-first tool you could *invoke*; v0.9 makes it one a **human** can sit inside.
+> Four interactive surfaces (`repl`, `browse`, `onboard`, `deepdive`), a de-leak of
+> internal ledger IDs from everything the tool emits, and two Windows fixes that fell
+> out of actually driving the CLI rather than only testing it.
+>
+> Engine, graph, contract and the five-artifact contract are **unchanged**. Emitted
+> output changes only in wording (see *Fixed* → ledger IDs) and in two reporting
+> lines. The `[interactive]` extra is **opt-in** — `extract` and `serve` stay lean.
 
 ### Added
+- **`forensic repl`** — an interactive query REPL over **one held-open store**: connect
+  once, ask many questions. Natural-language questions by default, `:cypher` for raw
+  queries, `:help`/`:quit` meta-commands, history and completion via `prompt_toolkit`.
+- **`forensic browse`** — a read-only **Textual TUI graph browser**, loaded from a
+  snapshot so it never contends for the store. Launched blocking, never nested inside
+  another prompt loop.
+- **`forensic onboard`** — a guided wizard for a first-time repo: confirm → `extract` →
+  read `AGENT_BRIEF.md` first (then the other four + the graph) → pick your MCP client →
+  print the config → restart-and-approve → next steps. `--yes` runs it scripted, and
+  needs no extra. It renders its snippet through the **same** renderer as `mcp-config`
+  (`cli/mcp_snippet.py`), so a second hardcoded snippet is structurally impossible.
+- **`deepdive` — a session shell** (new `[project.scripts]` console script). One prompt
+  over one repo, dispatching `extract`/`query`/`trace`/`impact`/`flow`/`diagram`/
+  `browse`/`onboard`/`serve` as in-session commands. A known command word is a command;
+  anything else is a natural-language question.
+- **`forensic mcp-config --dev`** — emits the from-source form
+  (`uv run --project <checkout> forensic serve --repo <repo>`) for all four clients,
+  instead of only the post-publish `uvx` form.
+- **`forensic list --prune`** — drops registry entries whose recorded graph file no
+  longer exists, and prints what it removed. Live and graph-less entries are kept, and
+  bare `list` never mutates.
 - **Self-hosted Claude Code plugin marketplace** — `.claude-plugin/marketplace.json`
   (marketplace `dhevenddra`, plugin source `./`), so the plugin installs straight from
   GitHub with no clone and no PyPI step: `/plugin marketplace add
   Dhevenddra/forensic-deepdive` → `/plugin install forensic-deepdive@dhevenddra`.
 - **`CONTRIBUTING.md`** — dev setup, the four-step verification gate, the load-bearing
   architectural invariants, conventional commits, and inbound=outbound Apache-2.0.
+- **`[interactive]` extra** — `prompt-toolkit` + `textual` (both MIT). Required by the
+  four surfaces above; every other command works without it, and a missing extra prints
+  an actionable install hint rather than a traceback.
+
+### Fixed
+- **Internal `DEC-NNN` ledger IDs no longer appear in any emitted artifact or MCP
+  payload.** They leaked into all five artifacts' confidence banners, MAP/HOTPATHS/
+  ARCHAEOLOGY/AGENT_BRIEF provenance notes, `ARCHITECTURE.md`, two skill shims, and the
+  `trace` payload's `boundary` string. `DECISIONS.md` is local-only and never ships, so
+  each was a **dangling reference for every consumer** of an analyzed repo. Provenance
+  is now self-contained English ("per the call-graph resolver"), and a regex sweep test
+  over all five rendered artifacts keeps it that way. DEC references remain in code
+  comments, which are maintainer-facing.
+- **Examples-only repos no longer under-report their size.** Where files are demoted as
+  `examples/`, the headline now reads `N (+M in graph, demoted as examples/)` in both
+  `MAP.md` and the styled `extract` summary. The classification is unchanged — only the
+  line people quote. Repos with no demotions emit a byte-identical line.
+- **Module-scope handlers display their module dotted-path**, not the literal `<module>`
+  — `backend/routers/whatsapp.py::<module>` now renders as `backend.routers.whatsapp` in
+  HOTPATHS, `AGENT_BRIEF.md`, `ARCHITECTURE.md` and the styled `trace` tree. Display
+  only: the graph identity and the `trace` JSON payload keep the raw qualified name.
+- **Windows: interactive surfaces no longer crash under Git Bash / MinTTY.**
+  `sys.stdin.isatty()` returns **True** there while `prompt_toolkit` still has no Windows
+  console screen buffer, so a TTY guard alone is not enough. All three surfaces now catch
+  `NoConsoleScreenBufferError` and print an actionable hint (use PowerShell/cmd, or
+  prefix with `winpty`) instead of a traceback.
+- **Windows: the session shell borrows the store rather than holding it.** LadybugDB
+  takes an **exclusive file lock on Windows** (a second concurrent handle raises; the
+  same open succeeds on Linux). Since every path-taking tool opens its own handle, a
+  shell that held the store open would have crashed 6 of its 9 commands. `StoreSession`
+  releases around every such tool and lazily re-opens — correct on both platforms, and
+  it makes in-session `extract` invalidate-and-reopen for free. The tool contract (tools
+  take a path, never an open store) is unchanged.
 
 ### Changed
 - **README** — added "Install from PyPI" + "Use it as an MCP server" sections (plugin /
   MCP Registry / manual-config), a Contributing section, and an explicit Apache-2.0 §4
   attribution note (the LICENSE-appendix boilerplate is a template, not a requirement).
 - **`docs/install.md`** — 0.8.0 is live: dropped the pre-publish caveat (now links the
-  PyPI project + the MCP Registry entry `io.github.Dhevenddra/forensic-deepdive`) and
-  documented the two-command plugin install.
+  PyPI project + the MCP Registry entry `io.github.Dhevenddra/forensic-deepdive`),
+  documented the two-command plugin install, and both `mcp-config` forms.
+- **`examples/`** — all eleven repos regenerated at 0.9.0 (new footers, the two reporting
+  fixes, and zero ledger-ID references).
 
 ## [0.8.0] — 2026-06-21
 
