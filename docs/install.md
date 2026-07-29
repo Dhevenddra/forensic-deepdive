@@ -11,6 +11,16 @@ explicit, so the working directory never matters.
 > (`uv run --project /path/to/forensic-deepdive forensic serve --repo <path>`) still
 > works for development.
 
+> **Upgrading from 0.8.0 / 0.9.0:** if `forensic serve` fails with
+> `ModuleNotFoundError: No module named 'mcp.server.fastmcp'`, you have `mcp` 2.0.0 installed
+> against a release that predates the cap. 0.10.0 pins `mcp<2` and fixes it; `uv tool upgrade
+> forensic-deepdive` (or `uvx forensic-deepdive@latest`) is enough.
+>
+> Also on upgrade: generated shims and skills are **write-if-absent**, so files from an older
+> release are left as-is. 0.10.0 now *tells* you when they are stale — run
+> `forensic extract <repo> --force --refresh-shims` once to converge them. Your hand-edited files
+> are never touched.
+
 Two config generators, one per install style (`forensic mcp-config` prints the
 snippet for `--client claude|cursor|vscode|codex`):
 

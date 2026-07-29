@@ -31,6 +31,13 @@ It also contains a **cancelled feature**, which is the more useful story. The pl
 
 The engine, the graph, the contract layer and the 5-artifact + 9-MCP-tool contract are **unchanged** from 0.9, and emitted content is byte-identical but for the version footer.
 
+> **⚠ If you installed 0.8.0 or 0.9.0 and `forensic serve` stopped working — this is why.** Those
+> releases declare `mcp>=1.27.1` with no upper bound. `mcp` 2.0.0 removed `mcp.server.fastmcp`,
+> which the MCP server imports, so a **fresh install of 0.8.0 or 0.9.0 today** resolves to `mcp`
+> 2.0.0 and fails on import. Our development lockfile pinned 1.27.1, so every local check stayed
+> green and only the clean-environment wheel smoke in CI could see it. **Fix: upgrade to 0.10.0**
+> (which caps `mcp<2`), or pin `mcp<2` yourself. Nothing else about those releases is affected.
+
 **What's proven, and what isn't (honest framing).** Deepdive is an **assisted-analysis** tool. A real fresh-agent onboarding test confirmed it's **usable** and that an agent **auto-discovers** `AGENT_BRIEF.md` and routes to the right skill unprompted, and a grounded [MCP tool review](docs/findings/v0.7/mcp-tool-review.md) found the git-archaeology and curated briefs are the high-trust core. The **autonomous end-to-end** question, whether deepdive-seeding makes an agent *resolve* real issues measurably faster, is **still not proven**. A model-free localization **pilot** is recorded in [`experiments/fastcontext/RESULTS.md`](experiments/fastcontext/RESULTS.md), where the static seed turns out to be a *weak* prior, and the end-to-end measurement remains blocked on hardware (it needs a GPU plus a frontier main-agent endpoint). No autonomous-execution claims are made here. Accepted across real repos including Apache Superset, wagtail (Django), spring-petclinic, ripgrep, fastapi, and Iris-Nearby (Flutter/Dart). See [`docs/findings/`](docs/findings/).
 
 ## Quick start
