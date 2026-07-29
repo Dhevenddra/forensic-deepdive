@@ -1,0 +1,36 @@
+{
+  "name": "forensic-deepdive-codebase",
+  "version": "0.2.0",
+  "description": "Forensic codebase brief for surface_v0_8_0 \u2014 five markdown artifacts (MAP, HOTPATHS, ARCHAEOLOGY, MENTAL_MODEL, AGENT_BRIEF) plus five single-intent Claude skills covering exploring / debugging / impact-analysis / refactoring / onboarding workflows.",
+  "author": {
+    "name": "forensic-deepdive"
+  },
+  "keywords": [
+    "codebase",
+    "onboarding",
+    "knowledge-graph",
+    "code-review"
+  ],
+  "skills": [
+    {
+      "name": "codebase-exploring",
+      "path": ".claude/skills/codebase-exploring/SKILL.md"
+    },
+    {
+      "name": "codebase-debugging",
+      "path": ".claude/skills/codebase-debugging/SKILL.md"
+    },
+    {
+      "name": "codebase-impact-analysis",
+      "path": ".claude/skills/codebase-impact-analysis/SKILL.md"
+    },
+    {
+      "name": "codebase-refactoring",
+      "path": ".claude/skills/codebase-refactoring/SKILL.md"
+    },
+    {
+      "name": "codebase-onboarding",
+      "path": ".claude/skills/codebase-onboarding/SKILL.md"
+    }
+  ]
+}
