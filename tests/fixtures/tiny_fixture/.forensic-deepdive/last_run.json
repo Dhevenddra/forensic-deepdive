@@ -1,0 +1,13 @@
+{
+  "fingerprint": "c5e81e72b150e7a04f39c76b39aecfcd7c52f35db494743e704b9b5001e90d7a",
+  "generated_at": "2026-07-29T11:11:32.755283+00:00",
+  "tool_version": "0.9.0",
+  "artifacts": [
+    "AGENT_BRIEF.md",
+    "ARCHAEOLOGY.md",
+    "ARCHITECTURE.md",
+    "HOTPATHS.md",
+    "MAP.md",
+    "MENTAL_MODEL.md"
+  ]
+}

@@ -15,7 +15,11 @@ from forensic_deepdive.cli.style.console import (
     get_console,
     set_plain,
 )
-from forensic_deepdive.cli.style.render import print_extract_summary, render_trace
+from forensic_deepdive.cli.style.render import (
+    print_extract_summary,
+    print_timings,
+    render_trace,
+)
 
 __all__ = [
     "FORENSIC_THEME",
@@ -23,6 +27,7 @@ __all__ = [
     "confidence_label",
     "get_console",
     "print_extract_summary",
+    "print_timings",
     "render_banner",
     "render_info",
     "render_trace",

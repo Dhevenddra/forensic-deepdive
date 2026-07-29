@@ -125,6 +125,13 @@ def extract(
             "(needs the [semantic] extra + a local model).",
         ),
     ] = False,
+    timings: Annotated[
+        bool,
+        typer.Option(
+            "--timings",
+            help="DEC-113: print per-phase wall clock (with sub-steps) after the summary.",
+        ),
+    ] = False,
     local: Annotated[bool, typer.Option(help="Use Ollama/LM Studio (v0.2).")] = False,
     with_graphiti: Annotated[bool, typer.Option(help="Enable temporal KG (v0.2).")] = False,
     fast: Annotated[bool, typer.Option(help="Use yek instead of Repomix (v0.2).")] = False,
@@ -134,7 +141,7 @@ def extract(
     ] = None,
 ) -> None:
     """Run the full forensic deep-dive pipeline."""
-    from forensic_deepdive.cli.style import get_console, print_extract_summary
+    from forensic_deepdive.cli.style import get_console, print_extract_summary, print_timings
     from forensic_deepdive.pipeline import run_extract
 
     out = get_console()
@@ -161,6 +168,8 @@ def extract(
         out.print(f"[err]Error:[/err] {exc}")
         raise typer.Exit(code=1) from exc
     print_extract_summary(out, result)
+    if timings:
+        print_timings(out, result)
 
 
 @app.command()

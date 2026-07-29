@@ -8,8 +8,9 @@ concern, not a phase concern.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter
 
 from forensic_deepdive.cache import read_last_run, repo_fingerprint, write_last_run
 from forensic_deepdive.emit import RepoFacts
@@ -19,7 +20,7 @@ from forensic_deepdive.pipeline.phases import (
     InventoryPhase,
     default_phases,
 )
-from forensic_deepdive.pipeline.runner import Context, ExtractConfig, PipelineRunner
+from forensic_deepdive.pipeline.runner import Context, ExtractConfig, PipelineRunner, Timings
 from forensic_deepdive.registry import register as register_repo
 
 _DEFAULT_OUTPUT_SUBDIR = ("docs", "codebase")
@@ -36,6 +37,9 @@ class ExtractResult:
     shims: ShimResult
     cache_hit: bool
     flatten_ok: bool
+    # DEC-113: per-phase + per-sub-step wall clock. Empty on a cache hit (no
+    # phase ran). Surfaced by `forensic extract --timings`.
+    timings: Timings = field(default_factory=Timings)
 
 
 def run_extract(
@@ -101,7 +105,9 @@ def run_extract(
     # On a hit, every downstream phase is skipped — matches v0.1's
     # 2.2 s cached-Omi run.
     inv_phase = InventoryPhase()
+    _inv_started = perf_counter()
     inv_output = inv_phase.run(Context(config=config))
+    _inv_elapsed = perf_counter() - _inv_started
     fingerprint = repo_fingerprint(
         [(item.rel_path, item.path) for item in inv_output.inventory.files]
     )
@@ -123,6 +129,10 @@ def run_extract(
 
     # Cache miss — run the DAG, seeding the already-computed inventory.
     ctx = runner.run(config, seed_outputs={inv_phase.name: inv_output})
+    # DEC-113: inventory runs here rather than inside the runner (its output
+    # seeds the DAG for the cache check), so the runner never sees it. Without
+    # this line every reported total silently omits a real phase.
+    ctx.timings.phases[inv_phase.name] = _inv_elapsed
     emit_out = ctx.get(EmitPhase)
 
     write_last_run(
@@ -148,4 +158,5 @@ def run_extract(
         shims=emit_out.shims,
         cache_hit=False,
         flatten_ok=emit_out.facts.flatten is not None,
+        timings=ctx.timings,
     )

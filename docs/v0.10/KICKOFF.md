@@ -2,7 +2,8 @@
 
 > Seeded by `docs/findings/v0.9/DEFERRED.md`. **Read `CLAUDE.md` → `DECISIONS.md` → `PROGRESS.md`
 > per the session-start protocol** before any code.
-> v0.10 DEC range: **DEC-109 … DEC-116** (+ the standing reserved slot for GATE A Arm B).
+> v0.10 DEC range: **DEC-109 … DEC-117** (+ the standing reserved slot for GATE A Arm B).
+> **DEC-114 was cancelled by DEC-113's measurement; DEC-117 replaces it — see the §4 correction.**
 
 ---
 
@@ -38,6 +39,10 @@ graph → PageRank → insert tail, where omi burns ~374 s of CPU at ~1.15 GB RS
 already-parallel parse. **Inserts are already batched** (DEC-032 — verified, see §4), so the real
 targets are PageRank and, if it earns its DEC, incremental extract. No new artifact, no tenth MCP
 tool, no new protocol, no LLM in `src/`.
+
+> **⚠ Superseded mid-cycle:** the profile ran (DEC-113). `store_write` is 79–87 % of a large
+> extract and PageRank is 0.04 %. The last sentence of the paragraph above names the wrong target;
+> Track B is retargeted by DEC-117. Everything about Track A stands. See the §4 correction.
 
 ---
 
@@ -94,6 +99,22 @@ not I/O. Do not re-litigate insert batching. Measure before optimizing the rest 
 attribution of the ~374 s was never profiled per-phase, only observed in aggregate, and the first
 deliverable of Track B is therefore a **profile**, not a patch.
 
+> ### ⚠ CORRECTION — the profile ran, and this section was wrong (DEC-113/117)
+>
+> Kept above verbatim, because how the reasoning failed matters more than the conclusion.
+>
+> `store_write` is **79 %** of superset's 415 s run and **87 %** of omi's 591 s. PageRank is
+> **0.16 s / 0.28 s — 0.04 %**. The sentence "the serial tail is graph construction + PageRank, not
+> I/O" is the exact inverse of the truth.
+>
+> The error was subtle and worth naming: confirming inserts are *batched* was treated as confirming
+> they are *fast*. DEFERRED §5(c) asked whether a known technique had been applied; it had, so the
+> seed was struck — and nobody measured the result. "Already optimized" is not "not the problem."
+>
+> **Track B is retargeted (DEC-117):** DEC-114 (PageRank) is **cancelled, not deferred**; break
+> `store_write` down per `add_many_*` call first; DEC-115 (incremental extract) is promoted.
+> Numbers and the full write-up: `docs/findings/v0.10/PROFILE.md`.
+
 ---
 
 ## §5 — The tracks
@@ -101,13 +122,14 @@ deliverable of Track B is therefore a **profile**, not a patch.
 | Track | Name | Delivers | DECs |
 |---|---|---|---|
 | **A** | **Upgrade integrity** (headline) | prior-release fixture + convergence; stale-shim advisory; release-hygiene coupling tests; in-repo regen script | DEC-109–112 |
-| **B** | **The serial tail** | per-phase profile → PageRank optimization → (gated) incremental extract | DEC-113–115 |
+| **B** | **The serial tail** | per-phase profile → ~~PageRank~~ **`store_write`** breakdown → (gated) incremental extract | DEC-113, 117, 115 |
 | **C** | **Instrument the instrument** | refresh-summary disambiguation; MANUAL_TEST stable-core split | DEC-116 |
 | **D** | **Carryover (gated)** | GATE A Arm B (hardware); protocol carryover (demand); `serve --ui` labels (finding-gated) | (reserved) |
 
 Priority: **A > B > C**. Track A is small, high-certainty, and fixes a known-real defect class.
 Track B is the larger engineering arc and is **measurement-gated** — if the profile says PageRank is
 30 % of the tail rather than 80 %, the plan changes and that is a success, not a setback.
+*(It said 0.04 %. The plan changed. DEC-117.)*
 
 ---
 
@@ -133,13 +155,15 @@ DEC-112  Release-hygiene tests — examples/*/AGENT_BRIEF.md footer version MUST
 DEC-113  Per-phase profile of the post-parse tail on a large repo. Deliverable is NUMBERS
          (graph construction vs PageRank vs insert, wall + RSS), committed as a findings
          doc. No optimization lands before this.                          [DEFERRED §2.5]
-DEC-114  PageRank optimization, scoped by DEC-113. Pure-Python power iteration today
-         (DEC-011 chose that deliberately to avoid SciPy/NumPy). Options: tighter inner
-         loop / adjacency prebuild / sparse matvec behind an optional extra. A new runtime
-         dep REOPENS DEC-011 and needs a superseding entry.  MUST be output-identical.
-DEC-115  Incremental extract — GATED on DEC-113 saying the tail is worth it AND on a
-         credible invalidation story. Biggest win, hardest correctness. Persist the graph,
-         apply a diff. Do NOT start this before 113/114 land.            [DEFERRED §2.5a]
+DEC-114  [CANCELLED by DEC-113's measurement — PageRank is 0.04% of a large extract.
+         Was: sparse-matrix power iteration. Would have saved 0.16s on a 415s run and
+         cost a runtime dep DEC-011 rejected on purpose. Disproven, not deferred.]
+DEC-117  Retarget Track B at store_write (79-87% of a large extract). Step 1 is ANOTHER
+         measurement: break store_write down per add_many_* call, same instrument one
+         level deeper. Step 2 optimizes what that names. No step 2 before step 1 reports.
+DEC-115  Incremental extract — PROMOTED to the strongest remaining idea by DEC-113:
+         concentrated write cost is exactly what skipping unchanged work avoids. Still
+         gated on invalidation correctness, and on DEC-117 step 1.        [DEFERRED §2.5a]
          ──────────────────────────────────────────────── Track C: instrument the instrument
 DEC-116  Refresh-summary disambiguation ("SKILL.md, SKILL.md" → skill names), and the
          MANUAL_TEST split: a stable 5-question scored core (comparable across releases)
@@ -201,9 +225,10 @@ assertion count.
    construction.
 4. **Does the advisory count hand-edited files?** No — they are not stale, they are *theirs*. But
    consider whether staying silent about a diverged shim is itself a surprise.
-5. **PageRank optimization boundary (DEC-114).** If sparse matvec wins decisively, is it worth an
-   optional extra (`[fast]`) with the pure-Python path as the always-available default? That keeps
-   DEC-011's lean-install intent while taking the win where it's installed.
+5. ~~**PageRank optimization boundary (DEC-114).**~~ **Answered by measurement: there is no win to
+   take.** PageRank is 0.16 s of a 415 s run. DEC-011's pure-Python power iteration stands, now on
+   evidence rather than assumption. The live question moved to: what *inside* `store_write` costs
+   328 s when the inserts are already batched?
 6. **Incremental invalidation (DEC-115).** What actually invalidates a persisted graph — file hash
    is necessary but not sufficient (a deleted file changes others' edges; a renamed symbol changes
    resolution repo-wide). Scope this honestly before committing to it.
@@ -218,9 +243,10 @@ assertion count.
 | 110 | prior-release fixture + upgrade convergence assertion | A | |
 | 111 | stale-shim advisory on `extract` (read-only) | A | |
 | 112 | release-hygiene coupling tests (`examples/` ↔ `pyproject.toml`) | A | |
-| 113 | per-phase profile of the serial tail | B | **gates 114/115** |
-| 114 | PageRank optimization (output-identical) | B | 113 |
-| 115 | incremental extract (gated, may not land) | B | 113 + 114 |
+| 113 | per-phase profile of the serial tail — **ran; cancelled 114** | B | **gated 114/115** |
+| ~~114~~ | ~~PageRank optimization~~ — **CANCELLED, disproven by 113** | B | — |
+| 117 | retarget at `store_write`; per-`add_many_*` breakdown first | B | 113 |
+| 115 | incremental extract (promoted; may still not land) | B | 113 + 117 |
 | 116 | refresh-summary disambiguation + MANUAL_TEST stable core | C | |
 | (resv.) | GATE A Arm B (hardware) · protocol carryover (demand) · `serve --ui` labels (finding) | D | |
 

@@ -86,6 +86,55 @@ def _shim_labels(paths: list[Path]) -> str:
     return ", ".join(f"{p.parent.name}/{p.name}" if p.name == "SKILL.md" else p.name for p in paths)
 
 
+def print_timings(console: Console, result: ExtractResult) -> None:
+    """Per-phase wall clock, slowest first, with sub-steps indented (DEC-113).
+
+    Printed only under ``--timings``. Phases are shown with their share of the
+    total so the serial tail is legible at a glance; a phase whose sub-steps do
+    not account for all of it gets an ``other`` row rather than silently losing
+    the remainder — an unexplained 40 % is the interesting number, not a rounding
+    error to hide.
+    """
+    timings = result.timings
+    if not timings.phases:
+        return  # cache hit — nothing ran
+    total = timings.total
+    console.print()
+    console.print(Text("  Timings", style="label").append(f"  {total:.1f}s total", style="value"))
+    for name, secs in sorted(timings.phases.items(), key=lambda kv: -kv[1]):
+        share = (secs / total * 100) if total else 0.0
+        console.print(
+            Text(f"  {name:>14}  ", style="label")
+            .append(f"{secs:7.2f}s", style="value")
+            .append(f"  {share:5.1f}%", style="muted")
+        )
+        substeps = timings.substeps_for(name)
+        if not substeps:
+            continue
+        for step, step_secs in sorted(substeps.items(), key=lambda kv: -kv[1]):
+            console.print(
+                Text(f"  {'':>14}  ", style="muted")
+                .append(f"{step_secs:7.2f}s", style="muted")
+                .append(f"  {step}", style="muted")
+            )
+        remainder = secs - sum(substeps.values())
+        if remainder > 0.005:
+            console.print(
+                Text(f"  {'':>14}  ", style="muted")
+                .append(f"{remainder:7.2f}s", style="muted")
+                .append("  other", style="muted")
+            )
+        elif remainder < -0.005:
+            # Sub-steps summing past their phase means they overlap — almost
+            # always one nested inside another. Say so rather than dropping a
+            # negative remainder on the floor and reporting a plausible lie.
+            console.print(
+                Text(f"  {'':>14}  ", style="muted")
+                .append(f"{-remainder:7.2f}s", style="warn")
+                .append("  OVERLAP (nested sub-steps — double-counted)", style="warn")
+            )
+
+
 def print_extract_summary(console: Console, result: ExtractResult) -> None:
     """The styled post-``extract`` summary (replaces the plain print). Console-only; the
     artifacts on disk are unchanged plain markdown."""

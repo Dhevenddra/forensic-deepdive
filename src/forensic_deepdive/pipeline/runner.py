@@ -23,9 +23,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter
 from typing import Any, ClassVar
 
 # ---------------------------------------------------------------------------
@@ -144,6 +146,35 @@ class Phase(ABC):
 
 
 @dataclass
+class Timings:
+    """Wall-clock seconds per phase, and per named sub-step within a phase (DEC-113).
+
+    Always collected — two :func:`time.perf_counter` calls per phase is free
+    next to a Tree-sitter parse, and the alternative (a profiling script kept
+    outside the pipeline) is how the ``regen_examples.py`` situation happened:
+    measurement apparatus that rots on one machine while releases depend on it.
+
+    The v0.9 DEFERRED ledger attributed ~374 s on omi to "graph construction,
+    PageRank, and the LadybugDB inserts" as one lump, observed in aggregate and
+    never split. This is the instrument that splits it.
+    """
+
+    phases: dict[str, float] = field(default_factory=dict)
+    #: ``"<phase>.<step>"`` -> seconds. Sub-steps are opt-in per phase and need
+    #: not partition their phase's total; the uncovered remainder is real work
+    #: too (see the ``other`` row in ``forensic extract --timings``).
+    substeps: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def total(self) -> float:
+        return sum(self.phases.values())
+
+    def substeps_for(self, phase: str) -> dict[str, float]:
+        prefix = f"{phase}."
+        return {k[len(prefix) :]: v for k, v in self.substeps.items() if k.startswith(prefix)}
+
+
+@dataclass
 class Context:
     """Carries config + accumulated phase outputs through one run.
 
@@ -154,6 +185,26 @@ class Context:
 
     config: ExtractConfig
     outputs: dict[str, Any] = field(default_factory=dict)
+    timings: Timings = field(default_factory=Timings)
+    #: Set by the runner around each ``phase.run`` so :meth:`substep` can key
+    #: sub-steps without every phase repeating its own name.
+    _current_phase: str = ""
+
+    @contextmanager
+    def substep(self, name: str) -> Iterator[None]:
+        """Time a named region inside the running phase.
+
+        ``with ctx.substep("pagerank"): ...`` records ``static.pagerank``.
+        Re-entering the same name accumulates, so a step inside a loop totals.
+        """
+        start = perf_counter()
+        try:
+            yield
+        finally:
+            key = f"{self._current_phase}.{name}"
+            self.timings.substeps[key] = self.timings.substeps.get(key, 0.0) + (
+                perf_counter() - start
+            )
 
     def get(self, phase_class: type[Phase]) -> Any:
         """Return the output of *phase_class*. Raises :class:`KeyError` if the
@@ -238,7 +289,16 @@ class PipelineRunner:
         for phase in self._order:
             if phase.name in ctx.outputs:
                 continue
-            output = phase.run(ctx)
+            # DEC-113: seeded/skipped phases are deliberately absent from
+            # `timings.phases` rather than recorded as 0.0 — "did not run" and
+            # "ran instantly" are different facts on a cache hit.
+            ctx._current_phase = phase.name
+            started = perf_counter()
+            try:
+                output = phase.run(ctx)
+            finally:
+                ctx.timings.phases[phase.name] = perf_counter() - started
+                ctx._current_phase = ""
             if not isinstance(output, phase.output_type):
                 raise PhaseOutputTypeError(
                     f"{type(phase).__name__}.run returned "

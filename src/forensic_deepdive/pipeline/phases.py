@@ -355,7 +355,10 @@ class StaticPhase(Phase):
     def run(self, ctx: Context) -> StaticOutput:
         inv = ctx.get(InventoryPhase).inventory
         parsed = ctx.get(ParsePhase)
-        symbol_graph = build_symbol_graph(parsed.tags)
+        # DEC-113: the two halves of this phase are the first two suspects in the
+        # serial post-parse tail, and the v0.9 ledger never separated them.
+        with ctx.substep("build_symbol_graph"):
+            symbol_graph = build_symbol_graph(parsed.tags)
         # DEC-049: bias PageRank away from example/tutorial files. The teleport
         # vector is built ONLY when example files exist; otherwise None keeps the
         # exact uniform-teleport path (byte-identical on no-example repos).
@@ -366,7 +369,8 @@ class StaticPhase(Phase):
                 node: (_EXAMPLE_PR_WEIGHT if node in example_paths else 1.0)
                 for node in symbol_graph.graph.nodes
             }
-        ranked = rank_files(symbol_graph, personalization)
+        with ctx.substep("pagerank"):
+            ranked = rank_files(symbol_graph, personalization)
         return StaticOutput(
             tags=parsed.tags,
             symbol_graph=symbol_graph,
@@ -698,10 +702,11 @@ class BuildGraphPhase(Phase):
         # DEC-025 bare-name calls + DEC-037 receiver-type method calls. Both
         # produce ResolvedCall records; the method-call edges carry via != bare
         # and are INFERRED/AMBIGUOUS (the receiver type is inferred).
-        resolved_calls = resolve_calls(static.tags, static.imports, source_files_by_path)
-        resolved_calls += resolve_method_calls(
-            static.method_calls, static.tags, static.imports, source_files_by_path
-        )
+        with ctx.substep("resolve_calls"):  # DEC-113
+            resolved_calls = resolve_calls(static.tags, static.imports, source_files_by_path)
+            resolved_calls += resolve_method_calls(
+                static.method_calls, static.tags, static.imports, source_files_by_path
+            )
 
         # DEC-026: history data into the graph. Authors aggregated from
         # commit records (mailmap-canonical post-DEC-022), commits keyed
@@ -1119,33 +1124,43 @@ class BuildGraphPhase(Phase):
             key=lambda e: (e.consumer, e.provider, e.endpoint),
         )
 
+        # DEC-113: everything above this line is in-memory assembly + call
+        # resolution; everything below is the store. The v0.9 ledger lumped them
+        # together as "the LadybugDB inserts", so the split has never been
+        # measured. `store_write` covers the batched UNWIND inserts;
+        # `lexical_index` the FTS5 sidecar, which is store work but not inserts.
         with LadybugStore(db_path) as store:
-            # Order matters: nodes before edges; for edges, both endpoints
-            # must already exist.
-            store.add_many_files(files_to_write)
-            store.add_many_modules(modules_to_write)
-            store.add_many_symbols(symbols_to_write)
-            store.add_many_endpoints(endpoints_to_write)
-            store.add_many_tables(tables_to_write)  # DEC-059
-            store.add_many_authors(authors_to_write)
-            store.add_many_commits(commit_records_to_write)
-            store.add_many_defines(edges_defines)
-            store.add_many_member_of(edges_member_of)
-            store.add_many_imports(edges_imports)
-            store.add_many_calls(edges_calls)
-            store.add_many_extends(edges_extends_to_write)
-            store.add_many_implements(edges_implements_to_write)
-            store.add_many_authored_by(edges_authored_by)
-            store.add_many_touched_by_commit(edges_touched_by_commit)
-            store.add_many_co_changes_with(edges_co_changes)
-            # DEC-043: cross-boundary edges — Endpoint nodes exist now, so the
-            # Symbol↔Endpoint and Symbol→Symbol edges can attach.
-            store.add_many_handles(edges_handles)
-            store.add_many_calls_endpoint(edges_calls_endpoint)
-            store.add_many_routes_to(edges_routes_to)
-            # DEC-059: DI/ORM tail — Table nodes exist now, so PERSISTS_TO attaches.
-            store.add_many_injects(edges_injects_to_write)
-            store.add_many_persists_to(edges_persists_to_write)
+            # DEC-113: `store_write` covers the batched UNWIND inserts ONLY, so it
+            # stays disjoint from `lexical_index` below. Nesting them (one substep
+            # wrapping the whole `with`) double-counts and drives the reported
+            # remainder negative — the numbers have to add up or they teach nothing.
+            with ctx.substep("store_write"):
+                # Order matters: nodes before edges; for edges, both endpoints
+                # must already exist.
+                store.add_many_files(files_to_write)
+                store.add_many_modules(modules_to_write)
+                store.add_many_symbols(symbols_to_write)
+                store.add_many_endpoints(endpoints_to_write)
+                store.add_many_tables(tables_to_write)  # DEC-059
+                store.add_many_authors(authors_to_write)
+                store.add_many_commits(commit_records_to_write)
+                store.add_many_defines(edges_defines)
+                store.add_many_member_of(edges_member_of)
+                store.add_many_imports(edges_imports)
+                store.add_many_calls(edges_calls)
+                store.add_many_extends(edges_extends_to_write)
+                store.add_many_implements(edges_implements_to_write)
+                store.add_many_authored_by(edges_authored_by)
+                store.add_many_touched_by_commit(edges_touched_by_commit)
+                store.add_many_co_changes_with(edges_co_changes)
+                # DEC-043: cross-boundary edges — Endpoint nodes exist now, so the
+                # Symbol↔Endpoint and Symbol→Symbol edges can attach.
+                store.add_many_handles(edges_handles)
+                store.add_many_calls_endpoint(edges_calls_endpoint)
+                store.add_many_routes_to(edges_routes_to)
+                # DEC-059: DI/ORM tail — Table nodes exist now, so PERSISTS_TO attaches.
+                store.add_many_injects(edges_injects_to_write)
+                store.add_many_persists_to(edges_persists_to_write)
 
             # DEC-038 (Item E): build the sidecar lexical FTS5 index from the
             # graph so the hybrid NL query has its always-on floor ready. The
@@ -1153,9 +1168,11 @@ class BuildGraphPhase(Phase):
             # when the [semantic] extra + a local model are present (DEC-042);
             # absent ⇒ silently skipped (the NL query degrades and says so).
             index_path = lexical_index_path_for_db(db_path)
-            build_lexical_index_from_store(store, index_path)
+            with ctx.substep("lexical_index"):
+                build_lexical_index_from_store(store, index_path)
             if cfg.semantic:
-                _build_semantic_index(store, index_path)
+                with ctx.substep("semantic_index"):
+                    _build_semantic_index(store, index_path)
 
         file_count = len(files_to_write)
         module_count = len(modules_to_write)
