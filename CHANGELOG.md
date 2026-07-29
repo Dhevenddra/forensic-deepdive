@@ -6,6 +6,23 @@ follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-07-29
+
+> **Patch release. One-line fix, backported from 0.10.0.** If `forensic serve` on 0.9.0
+> stopped working with `ModuleNotFoundError: No module named 'mcp.server.fastmcp'`,
+> this is the fix.
+
+### Fixed
+- **Cap `mcp < 2`.** `mcp` 2.0.0 removed `mcp.server.fastmcp`, which the MCP server imports.
+  0.9.0 declared `mcp>=1.27.1` with no upper bound, so a **fresh install of 0.9.0 after
+  `mcp` 2.0.0 was published** resolved to 2.0.0 and failed on import. The development
+  lockfile pinned 1.27.1, which is why the full test suite stayed green while the published
+  wheel was broken — only a clean-environment install could see it.
+
+Nothing else changed: no feature, no behaviour, no emitted content. If you can move to
+**0.10.0**, prefer it — this exists so anyone pinned to the 0.9 line is not stuck on a
+broken install.
+
 ## [0.9.0] — 2026-07-09
 
 > v0.9 **"The Interactive CLI"** — a completion release. Deepdive was already an
