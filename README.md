@@ -23,9 +23,13 @@ Add **`--emit-vault`** to also write an [Obsidian](https://obsidian.md)-friendly
 
 ## Status
 
-**v0.9.0 "The Interactive CLI"** — a completion release. Deepdive was already an agent-first tool you could invoke; v0.9 makes it one a human can sit inside. Four interactive surfaces ([`repl`](#quick-start), [`browse`](#quick-start), [`onboard`](#quick-start), and the [`deepdive`](#quick-start) session shell) sit on top of the frozen five-protocol cross-boundary graph (HTTP/MCP/registry/gRPC/messaging on one `Endpoint` join node). Also in 0.9: internal decision-ledger IDs no longer leak into emitted artifacts, examples-only repos stop under-reporting their size, and module-scope handlers display their dotted path instead of `<module>`.
+**v0.10.0 "The Upgrade Path"** — an integrity release. v0.9 shipped correct, and then its findings run caught `--refresh-shims` being structurally unable to refresh half its targets, with 909 tests green over it. The cause wasn't the fix — it was that **every test in the suite wrote into an empty directory, so only the *first* run had ever been tested.** Everyone who isn't a new user lives on the untested path.
 
-The engine, the graph, the contract layer and the 5-artifact + 9-MCP-tool contract are all **unchanged** from 0.8. That claim is checked, not asserted: on Apache Superset, 0.9.0 still reports the same 62 cross-stack routes (54 `EXTRACTED`, 8 `INFERRED`, 0 `AMBIGUOUS`) and the same 3,276-file symbol graph as 0.8.0. See [`docs/findings/v0.9/`](docs/findings/v0.9/).
+So 0.10 adds almost no surface. It makes the guarantees already made real: running Deepdive over a repo that already carries a previous release's output now provably **converges** (and provably leaves your hand-edited files alone), `extract` **tells you** when generated shims are stale instead of waiting for you to know the flag exists, and a stale `examples/` fails CI rather than being caught by eye mid-release. New: [`forensic extract --timings`](#quick-start), per-phase wall clock.
+
+It also contains a **cancelled feature**, which is the more useful story. The planned performance work targeted PageRank. The profile required before touching it measured PageRank at **0.04 %** of a large extract, and the *already-batched* store writes at **79–87 %**. The optimization was disproven before it was written — see [`docs/findings/v0.10/PROFILE.md`](docs/findings/v0.10/PROFILE.md). Confirming a known technique had been applied had been mistaken for confirming it was fast.
+
+The engine, the graph, the contract layer and the 5-artifact + 9-MCP-tool contract are **unchanged** from 0.9, and emitted content is byte-identical but for the version footer.
 
 **What's proven, and what isn't (honest framing).** Deepdive is an **assisted-analysis** tool. A real fresh-agent onboarding test confirmed it's **usable** and that an agent **auto-discovers** `AGENT_BRIEF.md` and routes to the right skill unprompted, and a grounded [MCP tool review](docs/findings/v0.7/mcp-tool-review.md) found the git-archaeology and curated briefs are the high-trust core. The **autonomous end-to-end** question, whether deepdive-seeding makes an agent *resolve* real issues measurably faster, is **still not proven**. A model-free localization **pilot** is recorded in [`experiments/fastcontext/RESULTS.md`](experiments/fastcontext/RESULTS.md), where the static seed turns out to be a *weak* prior, and the end-to-end measurement remains blocked on hardware (it needs a GPU plus a frontier main-agent endpoint). No autonomous-execution claims are made here. Accepted across real repos including Apache Superset, wagtail (Django), spring-petclinic, ripgrep, fastapi, and Iris-Nearby (Flutter/Dart). See [`docs/findings/`](docs/findings/).
 
@@ -201,7 +205,7 @@ git clone https://github.com/Dhevenddra/forensic-deepdive
 cd forensic-deepdive
 uv sync --all-extras
 uv run forensic --version
-uv run pytest -x          # 913 tests at v0.9.0
+uv run pytest -x          # 1000+ tests at v0.10.0
 uv run ruff check src/ tests/
 uv run forensic extract tests/fixtures/tiny_fixture
 ```
