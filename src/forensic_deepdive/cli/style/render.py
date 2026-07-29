@@ -72,6 +72,20 @@ def _confidence_split_text(split: dict[str, int], *, glyphs: bool) -> Text:
     return body
 
 
+def _shim_labels(paths: list[Path]) -> str:
+    """Comma-joined shim names, disambiguated (DEC-116).
+
+    The five emitted skills are all called ``SKILL.md``, so a bare basename join
+    rendered two refreshed skills as ``SKILL.md, SKILL.md`` and a fresh run as
+    five identical entries. Qualify those by their parent directory — the skill
+    name — and leave every other target as its basename.
+
+    Keyed on path *shape* only: the style layer stays decoupled from ``emit/``
+    (DEC-078), so it never imports the skill-name list.
+    """
+    return ", ".join(f"{p.parent.name}/{p.name}" if p.name == "SKILL.md" else p.name for p in paths)
+
+
 def print_extract_summary(console: Console, result: ExtractResult) -> None:
     """The styled post-``extract`` summary (replaces the plain print). Console-only; the
     artifacts on disk are unchanged plain markdown."""
@@ -136,13 +150,13 @@ def print_extract_summary(console: Console, result: ExtractResult) -> None:
     if result.shims.written:
         console.print(
             Text("  Shims", style="label").append(
-                f"  {', '.join(p.name for p in result.shims.written)}", style="muted"
+                f"  {_shim_labels(result.shims.written)}", style="muted"
             )
         )
     if result.shims.refreshed:  # DEC-091: stale Deepdive shims rewritten on --refresh-shims
         console.print(
             Text("Refreshed", style="label").append(
-                f"  {', '.join(p.name for p in result.shims.refreshed)}", style="muted"
+                f"  {_shim_labels(result.shims.refreshed)}", style="muted"
             )
         )
     if result.shims.stale:  # DEC-111: ours, out of date, and we were not asked to touch them

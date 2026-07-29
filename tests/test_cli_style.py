@@ -222,7 +222,13 @@ def test_extract_summary_cache_hit():
     assert "cache hit" in out and "\x1b[" not in out
 
 
-def _fake_extract_result(cache_hit: bool, example_file_count: int = 0, stale: int = 0):
+def _fake_extract_result(
+    cache_hit: bool,
+    example_file_count: int = 0,
+    stale: int = 0,
+    written: list[str] | None = None,
+    refreshed: list[str] | None = None,
+):
     """Minimal duck-typed ExtractResult for print_extract_summary (graph_db_path=None
     skips the live DB read)."""
     from pathlib import Path
@@ -244,8 +250,8 @@ def _fake_extract_result(cache_hit: bool, example_file_count: int = 0, stale: in
         output_dir="docs/codebase",
         artifacts=["MAP.md", "AGENT_BRIEF.md"],
         shims=SimpleNamespace(
-            written=[],
-            refreshed=[],
+            written=[Path(p) for p in (written or [])],
+            refreshed=[Path(p) for p in (refreshed or [])],
             stale=[Path(f"CLAUDE{i}.md") for i in range(stale)],
         ),
     )
@@ -270,6 +276,36 @@ def test_extract_summary_shows_check_glyph_on_utf8_colour_tty():
     c, sio = _console(terminal=True, color=True)
     print_extract_summary(c, _fake_extract_result(cache_hit=False))
     assert "✓" in sio.getvalue()
+
+
+_TWO_SKILLS = [
+    ".claude/skills/codebase-impact-analysis/SKILL.md",
+    ".claude/skills/codebase-refactoring/SKILL.md",
+]
+
+
+def test_refreshed_skills_are_named_not_repeated_as_skill_md():
+    """DEC-116: all five emitted skills are called SKILL.md, so a basename join
+    rendered two refreshed skills as the useless 'SKILL.md, SKILL.md'."""
+    c, sio = _console(terminal=False, color=False)
+    print_extract_summary(c, _fake_extract_result(cache_hit=False, refreshed=_TWO_SKILLS))
+    out = sio.getvalue()
+    assert "codebase-impact-analysis/SKILL.md" in out
+    assert "codebase-refactoring/SKILL.md" in out
+    assert "SKILL.md, SKILL.md" not in out
+
+
+def test_written_shims_are_disambiguated_too():
+    """The written row had the same defect, worse: a fresh run lists five skills,
+    so it printed SKILL.md five times."""
+    c, sio = _console(terminal=False, color=False)
+    print_extract_summary(
+        c, _fake_extract_result(cache_hit=False, written=["CLAUDE.md", *_TWO_SKILLS])
+    )
+    out = sio.getvalue()
+    assert "CLAUDE.md" in out  # non-skill targets keep their bare basename
+    assert "codebase-refactoring/SKILL.md" in out
+    assert "SKILL.md, SKILL.md" not in out
 
 
 def test_extract_summary_advises_when_shims_are_stale():
