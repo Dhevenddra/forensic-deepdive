@@ -145,6 +145,14 @@ def print_extract_summary(console: Console, result: ExtractResult) -> None:
                 f"  {', '.join(p.name for p in result.shims.refreshed)}", style="muted"
             )
         )
+    if result.shims.stale:  # DEC-111: ours, out of date, and we were not asked to touch them
+        n = len(result.shims.stale)
+        console.print(
+            Text("    Stale", style="label")
+            .append(f"  {n} generated shim{'s' if n > 1 else ''} ", style="muted")
+            .append("out of date — re-run with ", style="muted")
+            .append("--refresh-shims", style="value")
+        )
 
 
 # --- trace -------------------------------------------------------------------

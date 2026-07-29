@@ -409,6 +409,13 @@ class ShimResult:
     written: list[Path] = field(default_factory=list)
     skipped: list[Path] = field(default_factory=list)
     refreshed: list[Path] = field(default_factory=list)  # DEC-091: stale Deepdive shims rewritten
+    # DEC-111: Deepdive-owned targets that differ from what we'd write and were
+    # left in place because ``refresh`` was off. Purely advisory — the caller
+    # prints these so an upgrading user learns ``--refresh-shims`` exists at the
+    # moment it matters. Always empty when ``refresh=True`` (they were rewritten)
+    # and on a first run (nothing exists yet). Never includes a hand-edited or
+    # foreign file: those aren't stale, they're theirs.
+    stale: list[Path] = field(default_factory=list)
 
 
 # DEC-091: the ownership fingerprint every Deepdive-generated editor/plugin shim
@@ -479,6 +486,11 @@ def write_shims(repo_path: Path, brief_rel_path: str, *, refresh: bool = False) 
     namespace for the five skills (DEC-108). A hand-edited or foreign file is
     never clobbered. The 4 editor shims preserve the v0.1 contract; the 5 skills
     + plugin.json are the DEC-031 additions.
+
+    DEC-111: without ``refresh``, any Deepdive-owned target that *would* have been
+    rewritten is recorded in :attr:`ShimResult.stale` instead. Detection only —
+    nothing on disk changes — so the caller can tell an upgrading user that
+    ``--refresh-shims`` has work to do.
     """
     repo_path = Path(repo_path)
     artifacts_dir = _artifacts_dir_from_brief(brief_rel_path)
@@ -508,6 +520,11 @@ def write_shims(repo_path: Path, brief_rel_path: str, *, refresh: bool = False) 
                 result.refreshed.append(path)
             else:
                 result.skipped.append(path)  # hand-edited / foreign, or refresh off → leave it
+                if _is_deepdive_owned(path, existing):
+                    # DEC-111: ours, out of date, and we were not asked to touch it.
+                    # Report it; changing it without the flag is the clobber that
+                    # write-if-absent exists to prevent.
+                    result.stale.append(path)
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")

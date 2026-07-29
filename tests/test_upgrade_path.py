@@ -165,6 +165,63 @@ def test_upgrade_without_refresh_writes_nothing(prior: str, tmp_path: Path) -> N
 
 
 @pytest.mark.parametrize("prior", PRIOR_RELEASES)
+def test_upgrade_without_refresh_reports_what_is_stale(prior: str, tmp_path: Path) -> None:
+    """DEC-111: detection without mutation. The default run leaves everything alone
+    but names the targets that ``--refresh-shims`` would rewrite — the only way an
+    upgrading user finds out the flag has work to do."""
+    repo = _stage(prior, tmp_path)
+    clean = _clean_run(tmp_path)
+    before = _files(repo)
+    expected = {rel for rel, body in before.items() if body != clean[rel]}
+
+    result = write_shims(repo, _BRIEF)
+
+    reported = {p.relative_to(repo).as_posix() for p in result.stale}
+    assert reported == expected
+    assert _files(repo) == before, "the advisory must not touch the disk"
+    # Skills are reportable at all only because of DEC-108's namespace ownership.
+    # Exactly two changed between 0.8.0 and now — the pair DEC-107 stripped ledger
+    # IDs from; the other three bodies are byte-identical across the releases.
+    assert {rel for rel in reported if rel.endswith("SKILL.md")} == {
+        ".claude/skills/codebase-impact-analysis/SKILL.md",
+        ".claude/skills/codebase-refactoring/SKILL.md",
+    }
+
+
+@pytest.mark.parametrize("prior", PRIOR_RELEASES)
+def test_stale_is_empty_once_refreshed(prior: str, tmp_path: Path) -> None:
+    """Nothing is both refreshed and still advised about, and a converged repo
+    reports nothing on the next run."""
+    repo = _stage(prior, tmp_path)
+    assert not write_shims(repo, _BRIEF, refresh=True).stale
+    assert not write_shims(repo, _BRIEF).stale
+
+
+@pytest.mark.parametrize("prior", PRIOR_RELEASES)
+def test_stale_never_names_a_users_own_file(prior: str, tmp_path: Path) -> None:
+    """A hand-edited shim is not stale — it is theirs. Advising on it would invite
+    the user to overwrite their own work with our template."""
+    repo = _stage(prior, tmp_path)
+    hand_edited = repo / "CLAUDE.md"
+    hand_edited.write_text("MY OWN INSTRUCTIONS — no fingerprint\n", encoding="utf-8")
+
+    result = write_shims(repo, _BRIEF)
+
+    assert hand_edited not in result.stale
+    assert hand_edited in result.skipped
+
+
+def test_first_run_reports_nothing_stale(tmp_path: Path) -> None:
+    """On a clean tree every target is written, so the advisory is silent by
+    construction — it fires only on the upgrade path it was built for."""
+    repo = tmp_path / "fresh"
+    repo.mkdir()
+    result = write_shims(repo, _BRIEF)
+    assert len(result.written) == 10
+    assert not result.stale
+
+
+@pytest.mark.parametrize("prior", PRIOR_RELEASES)
 def test_upgrade_refresh_reports_every_stale_target(prior: str, tmp_path: Path) -> None:
     """Whatever refresh rewrites, it reports — the summary is how a user learns
     their files changed."""

@@ -222,9 +222,10 @@ def test_extract_summary_cache_hit():
     assert "cache hit" in out and "\x1b[" not in out
 
 
-def _fake_extract_result(cache_hit: bool, example_file_count: int = 0):
+def _fake_extract_result(cache_hit: bool, example_file_count: int = 0, stale: int = 0):
     """Minimal duck-typed ExtractResult for print_extract_summary (graph_db_path=None
     skips the live DB read)."""
+    from pathlib import Path
     from types import SimpleNamespace
 
     facts = SimpleNamespace(
@@ -242,7 +243,11 @@ def _fake_extract_result(cache_hit: bool, example_file_count: int = 0):
         facts=None if cache_hit else facts,
         output_dir="docs/codebase",
         artifacts=["MAP.md", "AGENT_BRIEF.md"],
-        shims=SimpleNamespace(written=[], refreshed=[]),
+        shims=SimpleNamespace(
+            written=[],
+            refreshed=[],
+            stale=[Path(f"CLAUDE{i}.md") for i in range(stale)],
+        ),
     )
 
 
@@ -265,6 +270,31 @@ def test_extract_summary_shows_check_glyph_on_utf8_colour_tty():
     c, sio = _console(terminal=True, color=True)
     print_extract_summary(c, _fake_extract_result(cache_hit=False))
     assert "✓" in sio.getvalue()
+
+
+def test_extract_summary_advises_when_shims_are_stale():
+    """DEC-111: an upgrading user is told the flag exists at the moment it has work
+    to do. Nothing else tells them their shims are out of date."""
+    c, sio = _console(terminal=False, color=False)
+    print_extract_summary(c, _fake_extract_result(cache_hit=False, stale=3))
+    out = sio.getvalue()
+    assert "Stale" in out and "3 generated shims" in out
+    assert "--refresh-shims" in out
+    out.encode("cp1252")  # the advisory must stay pipe-safe like every other row
+
+
+def test_extract_summary_stale_advisory_is_singular_for_one():
+    c, sio = _console(terminal=False, color=False)
+    print_extract_summary(c, _fake_extract_result(cache_hit=False, stale=1))
+    assert "1 generated shim out of date" in sio.getvalue()
+
+
+def test_extract_summary_silent_when_nothing_stale():
+    """A first run has nothing stale by construction — the advisory must not become
+    a line every user sees and learns to ignore."""
+    c, sio = _console(terminal=False, color=False)
+    print_extract_summary(c, _fake_extract_result(cache_hit=False))
+    assert "Stale" not in sio.getvalue()
 
 
 def test_extract_summary_annotates_demoted_examples():
