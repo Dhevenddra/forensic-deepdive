@@ -263,6 +263,11 @@ assertion count.
   proven otherwise — there is no planned re-baseline this cycle. (v0.9 spent two authorized
   re-baselines; v0.10 should spend zero.)
 - **`wc -c AGENT_BRIEF.md` ≤ 5120** on every example. Unchanged.
+- **BEFORE TAGGING (DEC-118, learned the hard way):** `build.yml` must be **green on the exact
+  commit being tagged**. The clean-env wheel smoke is the *only* check that can see a dependency
+  resolution break — `uv.lock` pins the dev environment, so the full local suite is green by
+  construction while the published wheel is broken. v0.10.0 was tagged over a red build and caught
+  only because the release run was watched; `mcp` 2.0.0 had removed a module we import.
 - **Pre-release (v0.10.0):** version bump in all five places (`pyproject.toml`, `__init__.py`
   fallback, `server.json` ×2, `plugin.json`, `marketplace.json`); CHANGELOG; golden footers;
   `examples/` regen via the now-in-repo script; **findings run against a repo carrying the PREVIOUS

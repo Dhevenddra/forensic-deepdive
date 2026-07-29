@@ -49,7 +49,13 @@ follow [SemVer](https://semver.org/).
   identified `contracts` (10.4 % on Superset) as a previously unremarked second cost.
 
 ### Fixed
-- Nothing user-visible. The upgrade-path defect this release is built around
+- **`mcp` is now capped below 2.0** — and this one matters if you installed from PyPI.
+  `mcp` 2.0.0 removed `mcp.server.fastmcp`, which the MCP server imports. Because the constraint
+  was unbounded (`mcp>=1.27.1`), **a clean install of 0.8.0 or 0.9.0 today resolves to `mcp` 2.0.0
+  and `forensic serve` fails on import.** The development lockfile pins 1.27.1, so every local
+  check stayed green; only the clean-env wheel smoke in CI could see it. If you are on 0.8.0 or
+  0.9.0 and `forensic serve` broke, upgrade to 0.10.0 or pin `mcp<2` yourself.
+- Otherwise nothing user-visible. The upgrade-path defect this release is built around
   (`--refresh-shims`) was fixed in 0.9.0; v0.10 adds the tests that would have caught it,
   and the advisory that tells an upgrading user to run it.
 

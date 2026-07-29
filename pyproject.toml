@@ -44,12 +44,16 @@ dependencies = [
     "pydantic>=2.7",
     "jinja2>=3.1",
     "real-ladybug>=0.15.3",
-    "mcp>=1.27.1",
+    # Upper bound is load-bearing (DEC-118): mcp 2.0.0 removed `mcp.server.fastmcp`,
+    # which `mcp_server/server.py` imports. Unbounded, a clean `pip install` resolved
+    # to 2.0.0 and every wheel install broke on import while uv.lock kept the dev
+    # environment green. Raise the ceiling only with a tested port to the 2.x API.
+    "mcp>=1.27.1,<2",
 ]
 
 [project.optional-dependencies]
 graphiti = ["graphiti-core>=0.28"]
-mcp = ["mcp>=1.0"]
+mcp = ["mcp>=1.0,<2"]
 # DEC-042 (v0.3 Item E): opt-in offline ONNX semantic retriever for hybrid NL
 # query. The only numpy in the tree (core stays numpy/scipy-free, DEC-011). The
 # embedding model is NOT bundled or auto-downloaded — point FORENSIC_SEMANTIC_MODEL
