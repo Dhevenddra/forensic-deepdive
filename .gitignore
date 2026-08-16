@@ -50,3 +50,7 @@ PROGRESS.md
 
 # v0.8 MANUAL_TEST is a local-only working instrument (run solo; not shipped)
 docs/v0.8/MANUAL_TEST.md
+
+# docs/assets/demo.gif IS committed (DEC-122) — regenerate deliberately with
+# `make demo-gif` (scripts/render_demo_gif.py) when the CLI output it shows changes
+# meaningfully, not on every unrelated edit; review the diff before committing a refresh.

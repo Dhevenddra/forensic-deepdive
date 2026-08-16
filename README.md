@@ -2,7 +2,44 @@
 
 <!-- mcp-name: io.github.Dhevenddra/forensic-deepdive -->
 
-> A persistent code knowledge graph + MCP server for AI coding agents. Five durable markdown artifacts as the human-readable projection. Apache-2.0.
+**`forensic-deepdive` gives an AI coding agent forensic understanding of an unfamiliar codebase** — a persistent knowledge graph, an MCP server, and five durable markdown artifacts, so your agent stops re-discovering the same architecture from scratch every session.
+
+```bash
+uv tool install forensic-deepdive && forensic extract /path/to/repo
+```
+
+![forensic-deepdive: forensic extract, then forensic graph, rendering a confidence-styled Mermaid diagram in the terminal](docs/assets/demo.gif)
+<!-- regenerate with `make demo-gif` (scripts/render_demo_gif.py — pure Python + Pillow, no vhs/ttyd, DEC-122) -->
+
+**Why this is different:** every edge and every emitted claim carries a confidence tag —
+`EXTRACTED` (deterministic fact) / `INFERRED` (a heuristic resolved cleanly) / `AMBIGUOUS`
+(multiple candidates, shown, not guessed) — so your agent knows what to trust *before* it
+acts on it. Nothing else in this category tags confidence at all.
+
+## Why not GitNexus / CodeGraphContext / DeepWiki / Sourcegraph
+
+| | forensic-deepdive | GitNexus | CodeGraphContext | DeepWiki | Sourcegraph |
+|---|---|---|---|---|---|
+| License | **Apache-2.0** | PolyForm Noncommercial | MIT | proprietary (open variant: MIT) | partial |
+| Persistent code knowledge graph | ✅ LadybugDB | ✅ LadybugDB | partial | ❌ | partial |
+| MCP server | ✅ 9 composite tools | ✅ 16 tools | partial | ❌ | ❌ |
+| Per-edge confidence taxonomy | ✅ EXTRACTED / INFERRED / AMBIGUOUS | ❌ | ❌ | ❌ | ❌ |
+| Git archaeology as a first-class layer | ✅ | ❌ | ❌ | ❌ | partial |
+| Durable committed markdown artifacts | ✅ 5 files | partial | partial | ✅ (wiki) | ❌ |
+| Agent-insight layer (`record_insight` / `recall_insights`) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Multi-platform skill emission | ✅ 10 shims | partial | partial | ❌ | ❌ |
+| Local-only (no cloud required) | ✅ co-equal | ✅ | ✅ | ❌ | ❌ |
+
+**GitNexus is the runaway leader in this category — but its PolyForm Noncommercial
+license locks every commercial user out.** `forensic-deepdive` is the Apache-2.0
+alternative: same persistent-graph-plus-MCP shape, plus honest confidence tags, git
+archaeology, persistent agent memory, and the 5 markdown artifacts as a fallback for any
+agent that doesn't speak MCP — with a license your employer's legal team will actually
+sign off on.
+
+---
+
+## What it produces
 
 `forensic-deepdive` analyzes any codebase (9 languages, polyglot) and produces:
 
@@ -38,7 +75,11 @@ The engine, the graph, the contract layer and the 5-artifact + 9-MCP-tool contra
 > green and only the clean-environment wheel smoke in CI could see it. **Fix: upgrade to 0.10.0**
 > (which caps `mcp<2`), or pin `mcp<2` yourself. Nothing else about those releases is affected.
 
-**What's proven, and what isn't (honest framing).** Deepdive is an **assisted-analysis** tool. A real fresh-agent onboarding test confirmed it's **usable** and that an agent **auto-discovers** `AGENT_BRIEF.md` and routes to the right skill unprompted, and a grounded [MCP tool review](docs/findings/v0.7/mcp-tool-review.md) found the git-archaeology and curated briefs are the high-trust core. The **autonomous end-to-end** question, whether deepdive-seeding makes an agent *resolve* real issues measurably faster, is **still not proven**. A model-free localization **pilot** is recorded in [`experiments/fastcontext/RESULTS.md`](experiments/fastcontext/RESULTS.md), where the static seed turns out to be a *weak* prior, and the end-to-end measurement remains blocked on hardware (it needs a GPU plus a frontier main-agent endpoint). No autonomous-execution claims are made here. Accepted across real repos including Apache Superset, wagtail (Django), spring-petclinic, ripgrep, fastapi, and Iris-Nearby (Flutter/Dart). See [`docs/findings/`](docs/findings/).
+**What's proven, and what isn't** — the honest-framing section moved to
+[`docs/findings/HONEST.md`](docs/findings/HONEST.md) (unchanged content, DEC-119). Short
+version: proven **usable** with real agent auto-discovery; **not** proven to make
+autonomous issue resolution measurably faster end-to-end (hardware-gated). This is an
+assisted-analysis tool, and it is not overclaimed as more.
 
 ## Quick start
 
@@ -189,21 +230,8 @@ HOTPATHS shows a per-row confidence-mix column so at a glance you can tell `Logg
 
 `forensic extract` works end-to-end with **no `ANTHROPIC_API_KEY`, no `OPENAI_API_KEY`, no Ollama, no network**. Graphiti is opt-in via the `[graphiti]` PyPI extra plus a 2-of-5 repo-size threshold (≥50 k LOC, ≥25 contributors, ≥18 mo old, ≥200 PRs/12 mo, ≥100 issues with discussion). The `JsonlInsightStore` is the always-available floor.
 
-## Why this and not [GitNexus / CodeGraphContext / DeepWiki / Sourcegraph]
-
-| | forensic-deepdive | GitNexus | CodeGraphContext | DeepWiki | Sourcegraph |
-|---|---|---|---|---|---|
-| License | **Apache-2.0** | PolyForm Noncommercial | MIT | proprietary (open variant: MIT) | partial |
-| Persistent code knowledge graph | ✅ LadybugDB | ✅ LadybugDB | partial | ❌ | partial |
-| MCP server | ✅ 9 composite tools | ✅ 16 tools | partial | ❌ | ❌ |
-| Per-edge confidence taxonomy | ✅ EXTRACTED / INFERRED / AMBIGUOUS | ❌ | ❌ | ❌ | ❌ |
-| Git archaeology as a first-class layer | ✅ | ❌ | ❌ | ❌ | partial |
-| Durable committed markdown artifacts | ✅ 5 files | partial | partial | ✅ (wiki) | ❌ |
-| Agent-insight layer (`record_insight` / `recall_insights`) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Multi-platform skill emission | ✅ 10 shims | partial | partial | ❌ | ❌ |
-| Local-only (no cloud required) | ✅ co-equal | ✅ | ✅ | ❌ | ❌ |
-
-**GitNexus is the runaway leader — but the PolyForm Noncommercial license locks every commercial user out.** That's the wedge: Apache-2.0 + honest confidence + git archaeology + persistent agent memory + the 5 markdown artifacts as a fallback for any agent that doesn't speak MCP.
+(The GitNexus/CodeGraphContext/DeepWiki/Sourcegraph comparison table is up top — it's
+the headline, not a footnote.)
 
 ## Local development
 

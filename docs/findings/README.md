@@ -5,6 +5,10 @@ codebases. Internal regression and golden-file tests live under
 `tests/` — these documents capture what we learn when the tool meets code
 it wasn't tuned for.
 
+**Start with [`HONEST.md`](HONEST.md) if you're deciding whether to trust this
+tool's output** — what's proven (usable, agent auto-discovery) versus what isn't
+(autonomous end-to-end resolution), relocated here from the README lead (DEC-119).
+
 ## Convention (codified 2026-05-25)
 
 - **One folder per release version**: `docs/findings/v<X.Y>/`.
